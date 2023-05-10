@@ -3,14 +3,16 @@ use crate::{w, TableConstraint, TableIndex};
 
 use super::sql::Sql;
 
+#[derive(Debug)]
 pub enum ConstraintKind {
     PrimaryKey(Vec<ColumnIdent>),
     Unique { columns: Vec<ColumnIdent> },
     Check { sql: Sql },
 }
+#[derive(Debug)]
 pub struct Constraint {
-    kind: ConstraintKind,
-    name: Option<String>,
+    pub kind: ConstraintKind,
+    pub name: Option<String>,
 }
 impl TableConstraint<'_> {
     fn partial_name(&self) -> String {
@@ -64,9 +66,9 @@ impl TableConstraint<'_> {
 
 #[derive(Debug, Clone)]
 pub struct Index {
-    unique: bool,
-    fields: Vec<ColumnIdent>,
-    name: Option<String>,
+    pub unique: bool,
+    pub fields: Vec<ColumnIdent>,
+    pub name: Option<String>,
 }
 
 impl Index {

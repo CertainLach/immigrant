@@ -19,9 +19,9 @@ impl Item {
     }
 }
 #[derive(Debug, Default)]
-pub struct Schema(Vec<Item>);
+pub struct Schema(pub Vec<Item>);
 impl Schema {
-    fn process(&mut self) {
+    pub fn process(&mut self) {
         self.0.sort_by_key(|i| match i {
             Item::Table(_) => 1,
             Item::Enum(_) => 0,
@@ -60,6 +60,9 @@ impl Schema {
     }
     pub fn create(&self, out: &mut String) {
         self.diff(&Schema::default(), out)
+    }
+    pub fn drop(&self, out: &mut String) {
+        Schema::default().diff(self, out)
     }
 }
 impl SchemaDiff<'_> {

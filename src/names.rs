@@ -49,6 +49,14 @@ impl<K> DefName<K> {
         self.db.clone()
     }
 }
+impl<K: Kind> DefName<K> {
+    pub fn alloc((code, db): (&str, Option<&str>)) -> Self {
+        Self {
+            code: Ident::alloc(code),
+            db: DbIdent::new(db.unwrap_or(code)),
+        }
+    }
+}
 impl<K> Display for DefName<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.db)

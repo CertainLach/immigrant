@@ -1,5 +1,5 @@
-use crate::{TableColumn, w, ColumnDiff};
-use crate::names::{ColumnDefName, TypeIdent, DbType};
+use crate::names::{ColumnDefName, DbType, TypeIdent};
+use crate::{w, ColumnDiff, TableColumn};
 
 use super::index::{Constraint, Index};
 use super::sql::Sql;
@@ -7,8 +7,9 @@ use super::sql::Sql;
 #[derive(Debug)]
 pub struct Column {
     pub name: ColumnDefName,
-    nullable: bool,
-    ty: TypeIdent,
+    pub nullable: bool,
+    pub ty: TypeIdent,
+    pub annotations: Vec<FieldAnnotation>,
 }
 impl TableColumn<'_> {
     pub fn db_type(&self) -> DbType {
@@ -30,6 +31,7 @@ impl TableColumn<'_> {
         out.push(format!("ADD COLUMN {inl}"))
     }
 }
+#[derive(Debug)]
 pub enum FieldAnnotation {
     Constraint(Constraint),
     Index(Index),

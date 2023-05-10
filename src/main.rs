@@ -1,11 +1,8 @@
-use peg::parser;
 use std::fmt::Write;
 use std::ops::Deref;
 
-use self::ids::DbIdent;
-use self::names::{
-    ColumnDefName, ColumnIdent, DbColumn, DbProcedure, DbTable, DbType, TableDefName, TypeIdent,
-};
+use crate::parser::parse;
+
 use self::schema::column::Column;
 use self::schema::index::{Constraint, Index};
 use self::schema::scalar::Enum;
@@ -15,6 +12,7 @@ use schema::{root::Schema, table::Table};
 pub mod ids;
 pub mod names;
 pub mod schema;
+pub mod parser;
 
 #[macro_export]
 macro_rules! w {
@@ -107,151 +105,15 @@ impl Deref for SchemaTable<'_> {
     }
 }
 
-fn h<T>(v: T) -> Box<T> {
-    Box::new(v)
-}
-// parser! {
-// grammar schema_parser() for str {
-// pub(super) rule root() -> Schema = _ t:item()**_ _ {Schema(t)}
-//
-// rule item() -> Item
-// = t:table() {Item::Table(t)}
-// / t:enum() {Item::Enum(t)}
-// / t:scalar() {Item::Scalar(t)}
-//
-// rule table() -> Table = "table" _ name:table_ident() _ "{" _ indexes:index()**_ _ fields:table_field()++_ _ "}" {{
-//     let mut indexes = indexes;
-//     for (f, findexes) in fields.iter(){
-//         for mut findex in findexes.iter().cloned() {
-//             findex.prepend_column(f.name.schema_name.clone());
-//             indexes.push(findex);
-//         }
-//     }
-//     Table {
-//         indexes,
-//         name,
-//         fields: fields.into_iter().map(|f|f.0).collect(),
-//     }
-// }};
-// rule enum() -> Enum = "enum" _ name:table_ident() _ "{" _ items:enum_item()++_ _ "}" {
-//     Enum {
-//         name,
-//         items,
-//     }
-// };
-// rule scalar() -> Scalar = "scalar" _ name:code_ident() _ native:str() {
-//     Scalar {
-//         name,
-//         native: native.to_string()
-//     }
-// }
-// rule table_field() -> (Column, Vec<Index>) = name:field_ident() t:(_ ":" _ i:code_ident() {i})? n:(_ "?")? _ indexes:index()**_ ";" {
-//     (Column {
-//         nullable: n.is_some(),
-//         ty: t.unwrap_or_else(|| {
-//             name.schema_name.clone()
-//         }),
-//         name,
-//     }, indexes)
-// }
-// rule enum_item() -> Ident = c:code_ident() d:(_ d:str() {d})? ";" {
-//     if let Some(d) = d {
-//         Ident {
-//             schema_name: c.clone(),
-//             db: DbIdent(d.to_owned()),
-//         }
-//     } else {
-//        Ident {
-//             schema_name: c.clone(),
-//             db: DbIdent(c.0),
-//        }
-//     }
-// }
-// rule field_ident() -> Ident = c:code_ident() d:(_ d:db_ident() {d})? {
-//     if let Some(d) = d {
-//         Ident {
-//             schema_name: c.clone(),
-//             db: d,
-//         }
-//     } else {
-//         Ident {
-//             schema_name: c.clone(),
-//             db: DbIdent(c.0),
-//         }
-//     }
-// };
-// rule table_ident() -> Ident = c:code_ident() d:(_ d:db_ident() {d})? {
-//     if let Some(d) = d {
-//         Ident {
-//             schema_name: c.clone(),
-//             db: d,
-//         }
-//     } else {
-//         Ident {
-//             schema_name: c.clone(),
-//             db: DbIdent(c.0),
-//         }
-//     }
-// };
-// rule index() -> Index
-// = "@index" _ unq:("." _ "unique" _)? name:name()? _ f:(_ i:index_fields() {i})? {Index{name, unique:unq.is_some(), fields:f.unwrap_or_default()}}
-//
-// rule index_fields() -> Vec<Ident> = "(" _ i:code_ident()**_ _ ")" {i}
-//
-// rule code_ident() -> Ident = n: $(['a'..='z' | 'A'..='Z' | '_' | '0'..='9']+) {Ident(n.to_owned())};
-// rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
-// rule name() -> String = v:str() {v.to_owned()}
-//
-// rule sqlexpr() -> Sql = "(" s:sql() ")" {s};
-// rule sql() -> Sql
-// = precedence! {
-//     a:(@) _ "||" _ b:@ {Sql::BinOp(h(a), SqlOp::Or, h(b))}
-//     --
-//     a:(@) _ "&&" _ b:@ {Sql::BinOp(h(a), SqlOp::And, h(b))}
-//     --
-//     a:(@) _ "==" _ b:@ {Sql::BinOp(h(a), SqlOp::Eq, h(b))}
-//     a:(@) _ "!=" _ b:@ {Sql::BinOp(h(a), SqlOp::Ne, h(b))}
-//     --
-//     a:(@) _ "<" _ b:@ {Sql::BinOp(h(a), SqlOp::Lt, h(b))}
-//     a:(@) _ ">" _ b:@ {Sql::BinOp(h(a), SqlOp::Gt, h(b))}
-//     a:(@) _ "<=" _ b:@ {Sql::BinOp(h(a), SqlOp::Le, h(b))}
-//     a:(@) _ ">=" _ b:@ {Sql::BinOp(h(a), SqlOp::Ge, h(b))}
-//     --
-//     a:(@) _ "+" _ b:@ {Sql::BinOp(h(a), SqlOp::Plus, h(b))}
-//     a:(@) _ "-" _ b:@ {Sql::BinOp(h(a), SqlOp::Minus, h(b))}
-//     --
-//     a:(@) _ "*" _ b:@ {Sql::BinOp(h(a), SqlOp::Mul, h(b))}
-//     a:(@) _ "/" _ b:@ {Sql::BinOp(h(a), SqlOp::Div, h(b))}
-//     a:(@) _ "%" _ b:@ {Sql::BinOp(h(a), SqlOp::Mod, h(b))}
-//     --
-//     "-" _ b:@ {Sql::UnOp(SqlUnOp::Minus, h(b))}
-//     "+" _ b:@ {Sql::UnOp(SqlUnOp::Plus, h(b))}
-//     "!" _ b:@ {Sql::UnOp(SqlUnOp::Not, h(b))}
-//     --
-//     a:(@) _ "::" _ ty:code_ident() {Sql::Cast(h(a), ty)}
-//     --
-//     e:sql_basic() {e}
-//     "(" _ e:sql() _ ")" {Sql::Parened(h(e))}
-// }
-// rule sql_basic() -> Sql
-// = "TODO"{todo!()}
-//
-// rule _() = [' ' | '\t' | '\n']*;
-// }
-// }
-
-fn root(v: &str) -> Schema {
-    // let mut s = schema_parser::root(v).unwrap();
-    // s.process();
-    // s
-    todo!()
-}
-
 fn main() {
-    let v = root(include_str!("test.schema"));
+    let v = parse(include_str!("test.schema"));
     let mut out = String::new();
+    wl!(out, "// up");
     v.create(&mut out);
-    println!("{out}");
+    wl!(out, "// down");
+    v.drop(&mut out);
+
+    print!("{out}");
 }
 
 // fn diff(a: &Schema, b: &Schema) -> String {

@@ -4,7 +4,7 @@ use crate::w;
 #[derive(Debug)]
 pub struct Enum {
     pub name: TypeDefName,
-    items: Vec<EnumItemDefName>,
+    pub items: Vec<EnumItemDefName>,
 }
 impl Enum {
     fn create(&self, out: &mut String) {

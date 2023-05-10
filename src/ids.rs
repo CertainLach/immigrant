@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 
+#[derive(Default)]
 pub struct CodeIdentAllocator {
     ids: RefCell<HashMap<String, u16>>,
     max_id: Cell<u16>,
@@ -21,6 +22,15 @@ impl CodeIdentAllocator {
                 .expect("out of generations"),
         );
         self.max_kind.set(0);
+    }
+    fn name(&self, id: u16) -> String {
+        let ids = self.ids.borrow();
+        for (k, v) in ids.iter() {
+            if *v == id {
+                return k.to_owned();
+            }
+        }
+        unreachable!()
     }
     fn ident<K: Kind>(&self, name: &str) -> Ident<K> {
         let kind = K::id();
@@ -57,14 +67,36 @@ pub trait Kind {
     fn id() -> u8;
 }
 
+thread_local! {
+    static ALLOCATOR: (Cell<bool>, CodeIdentAllocator) = (Cell::new(false), CodeIdentAllocator::default());
+}
+pub fn in_allocator<T>(f: impl FnOnce() -> T) -> T {
+    ALLOCATOR.with(|a| {
+        assert!(!a.0.get(), "already in allocator");
+        a.0.set(true);
+        a.1.next_generation();
+    });
+    let v = f();
+    ALLOCATOR.with(|a| {
+        assert!(a.0.get(), "should be in allocator");
+        a.0.set(true);
+        a.1.next_generation();
+    });
+    v
+}
+
+
 pub struct Ident<K> {
     kind: u8,
     id: u16,
     _marker: PhantomData<fn() -> K>,
 }
 impl<K: Kind> Ident<K> {
-    pub fn alloc(a: &CodeIdentAllocator, name: &str) -> Self {
-        a.ident(name)
+    pub fn alloc(name: &str) -> Self {
+        ALLOCATOR.with(|a| {
+            assert!(a.0.get(), "should be in allocator");
+            a.1.ident(name)
+        })
     }
 }
 impl<K> Clone for Ident<K> {
@@ -89,7 +121,8 @@ impl<K> PartialEq for Ident<K> {
 impl<K> Eq for Ident<K> {}
 impl<K> Debug for Ident<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<IDENT>")
+        let n = ALLOCATOR.with(|a| a.1.name(self.id));
+        write!(f, "{n}")
     }
 }
 
