@@ -25,7 +25,7 @@
           })
           .default
           .override {
-            extensions = ["rust-analyzer" "rust-src", "clippy"];
+            extensions = ["rust-analyzer" "rust-src" "clippy"];
           };
       in rec {
         devShell = pkgs.mkShell {
