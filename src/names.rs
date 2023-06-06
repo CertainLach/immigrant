@@ -2,80 +2,70 @@ use std::fmt::{self, Debug, Display};
 
 use crate::ids::{DbIdent, Ident, Kind};
 
-pub enum TableKind {}
-impl Kind for TableKind {
-    fn id() -> u8 {
-        0
-    }
+macro_rules! def_kind {
+    ($($name:ident($v:expr)),+ $(,)?) => {
+        $(
+            pub enum $name {}
+            impl Kind for $name {
+                fn id() -> u8 {
+                    $v
+                }
+            }
+        )+
+    };
 }
-pub enum TypeKind {}
-impl Kind for TypeKind {
-    fn id() -> u8 {
-        1
-    }
-}
-pub enum ColumnKind {}
-impl Kind for ColumnKind {
-    fn id() -> u8 {
-        2
-    }
-}
-pub enum ProcedureKind {}
-impl Kind for ProcedureKind {
-    fn id() -> u8 {
-        3
-    }
-}
-pub enum EnumItemKind {}
-impl Kind for EnumItemKind {
-    fn id() -> u8 {
-        4
-    }
-}
-pub enum IndexKind {}
-impl Kind for IndexKind {
-    fn id() -> u8 {
-        5
-    }
-}
+
+def_kind!(
+	TableKind(0),
+	TypeKind(1),
+	ColumnKind(2),
+	ProcedureKind(3),
+	EnumItemKind(4),
+	IndexKind(5),
+	ConstraintKind(6),
+	ForeignKeyKind(7),
+);
 
 #[derive(Clone)]
 pub struct DefName<K> {
-    code: Ident<K>,
-    db: DbIdent<K>,
+	code: Ident<K>,
+	db: DbIdent<K>,
 }
 impl<K> DefName<K> {
-    pub fn db(&self) -> DbIdent<K> {
-        self.db.clone()
-    }
+	pub fn id(&self) -> Ident<K> {
+		self.code
+	}
+	pub fn db(&self) -> DbIdent<K> {
+		self.db.clone()
+	}
 }
 impl<K: Kind> DefName<K> {
-    pub fn alloc((code, db): (&str, Option<&str>)) -> Self {
-        Self {
-            code: Ident::alloc(code),
-            db: DbIdent::new(db.unwrap_or(code)),
-        }
-    }
+	pub fn alloc((code, db): (&str, Option<&str>)) -> Self {
+		Self {
+			code: Ident::alloc(code),
+			db: DbIdent::new(db.unwrap_or(code)),
+		}
+	}
 }
 impl<K> Display for DefName<K> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.db)
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", self.db)
+	}
 }
 impl<K> Debug for DefName<K> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\"{}\"", self.db)
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "\"{}\"", self.db)
+	}
 }
 impl<K> PartialEq<Ident<K>> for DefName<K> {
-    fn eq(&self, other: &Ident<K>) -> bool {
-        &self.code == other
-    }
+	fn eq(&self, other: &Ident<K>) -> bool {
+		&self.code == other
+	}
 }
 impl<K: Kind> PartialEq<DbIdent<K>> for DefName<K> {
-    fn eq(&self, other: &DbIdent<K>) -> bool {
-        &self.db == other
-    }
+	fn eq(&self, other: &DbIdent<K>) -> bool {
+		&self.db == other
+	}
 }
 
 pub type TableDefName = DefName<TableKind>;
@@ -92,3 +82,6 @@ pub type DbColumn = DbIdent<ColumnKind>;
 pub type DbType = DbIdent<TypeKind>;
 pub type DbProcedure = DbIdent<ProcedureKind>;
 pub type DbIndex = DbIdent<IndexKind>;
+pub type DbConstraint = DbIdent<ConstraintKind>;
+pub type DbForeignKey = DbIdent<ForeignKeyKind>;
+pub type DbEnumItem = DbIdent<EnumItemKind>;
