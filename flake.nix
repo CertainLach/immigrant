@@ -34,6 +34,10 @@
             cargo-edit
             cargo-expand
             cargo-watch
+
+            nodePackages_latest.yarn
+            nodejs_latest
+            tree-sitter
           ];
         };
       }
