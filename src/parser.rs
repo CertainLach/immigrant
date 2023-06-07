@@ -34,7 +34,7 @@ rule table() -> Table =
 		fields:(f:table_field() _ ";" {f})++_ _
 		annotations:(a:table_annotation() _ ";" {a})**_ _
 		foreign_keys:(f:foreign_key() _ ";" {f})**_ _
-	"}" {{
+	"}" _ ";" {{
 	Table {
 		name: TableDefName::alloc(name),
 		columns: fields,
