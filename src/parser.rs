@@ -165,7 +165,7 @@ rule sql_basic() -> Sql
 
 rule trailing_comma() = _ ","? _;
 rule comma() = _ "," _;
-rule _() = [' ' | '\t' | '\n']*;
+rule _() = ([' ' | '\t' | '\n'] / ("///" (!['\n'] [_])+ ['\n']))*;
 }
 }
 
