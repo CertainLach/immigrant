@@ -1,6 +1,5 @@
 use crate::names::{
-	ColumnIdent, DbColumn, DbForeignKey, DbType, TableDefName, TableIdent,
-	TypeIdent,
+	ColumnIdent, DbColumn, DbForeignKey, DbType, TableDefName, TableIdent, TypeIdent,
 };
 use crate::{
 	w, wl, ColumnDiff, Index, SchemaTable, TableColumn, TableConstraint, TableDiff,
@@ -92,6 +91,9 @@ impl Table {
 		}
 		unreachable!("unknown field: {column:?}");
 	}
+	pub fn db_names(&self, columns: impl IntoIterator<Item = ColumnIdent>) -> Vec<DbColumn> {
+		columns.into_iter().map(|c| self.db_name(&c)).collect()
+	}
 	pub fn format_index_name(&self, columns: impl Iterator<Item = ColumnIdent>) -> String {
 		let mut out = String::new();
 		for (i, column) in columns.enumerate() {
@@ -134,6 +136,9 @@ impl SchemaTable<'_> {
 	}
 	fn foreign_key_isomophic_to(&self, other: TableForeignKey<'_>) -> Option<TableForeignKey<'_>> {
 		self.foreign_keys().find(|i| i.isomorphic_to(&other))
+	}
+	fn constraint_isomorphic_to(&self, other: TableConstraint<'_>) -> Option<TableConstraint<'_>> {
+		self.constraints().find(|i| i.isomorphic_to(&other))
 	}
 	fn indexes(&self) -> impl Iterator<Item = TableIndex<'_>> {
 		self.annotations
@@ -293,7 +298,9 @@ impl TableForeignKey<'_> {
 	pub fn db_name(&self) -> DbForeignKey {
 		let partial_name = self.partial_name();
 		let table_name = &self.table.name;
-		DbForeignKey::new(&format!("{table_name}_{partial_name}"))
+		// TODO: if constraints are not table-scoped
+		//DbForeignKey::new(&format!("{table_name}_{partial_name}"))
+		DbForeignKey::new(&format!("{partial_name}"))
 	}
 	pub fn create_alter(&self) -> String {
 		let mut out = String::new();
@@ -360,6 +367,13 @@ impl TableDiff<'_> {
 			}
 		}
 		let mut alternations = Vec::new();
+		for old_constraint in self.old.constraints() {
+			if let Some(new_constraint) = self.new.constraint_isomorphic_to(old_constraint) {
+				old_constraint.rename_alter(new_constraint.db_name(), &mut alternations);
+			} else {
+				old_constraint.drop_alter(&mut alternations);
+			}
+		}
 		for old_column in self.old.columns() {
 			if let Some(new_column) = self.new.column(&old_column.name.db()) {
 				ColumnDiff {
@@ -374,6 +388,11 @@ impl TableDiff<'_> {
 		for new_column in self.new.columns() {
 			if self.old.column(&new_column.name.db()).is_none() {
 				new_column.create_alter(&mut alternations)
+			}
+		}
+		for new_constraint in self.new.constraints() {
+			if self.old.constraint_isomorphic_to(new_constraint).is_none() {
+				new_constraint.create_alter(&mut alternations);
 			}
 		}
 		self.new.print_alternations(&alternations, out);

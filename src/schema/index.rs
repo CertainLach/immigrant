@@ -25,6 +25,20 @@ impl Constraint {
 }
 
 impl TableConstraint<'_> {
+	pub fn isomorphic_to(&self, other: &Self) -> bool {
+		match (&self.kind, &other.kind) {
+			(ConstraintTy::PrimaryKey(a), ConstraintTy::PrimaryKey(b)) => {
+				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
+			}
+			(ConstraintTy::Unique { columns: a }, ConstraintTy::Unique { columns: b }) => {
+				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
+			}
+			(ConstraintTy::Check { sql: a }, ConstraintTy::Check { sql: b }) => {
+				self.table.format_sql(a) == other.table.format_sql(b)
+			}
+			_ => false,
+		}
+	}
 	fn partial_name(&self) -> String {
 		use ConstraintTy::*;
 		if let Some(name) = &self.name {
@@ -61,14 +75,12 @@ impl TableConstraint<'_> {
 		match &self.kind {
 			PrimaryKey(columns) => {
 				w!(out, "PRIMARY KEY(");
-				self.table
-					.print_column_list(out, columns.iter().copied());
+				self.table.print_column_list(out, columns.iter().copied());
 				w!(out, ")");
 			}
 			Unique { columns } => {
 				w!(out, "UNIQUE(");
-				self.table
-					.print_column_list(out, columns.iter().copied());
+				self.table.print_column_list(out, columns.iter().copied());
 				w!(out, ")");
 			}
 			Check { sql } => {
@@ -78,9 +90,22 @@ impl TableConstraint<'_> {
 			}
 		}
 	}
-	pub fn create_alter(&self, out: &mut String) {
-		w!(out, "ADD ");
-		self.create_inline(out);
+	pub fn create_alter(&self, out: &mut Vec<String>) {
+		let mut s = String::new();
+		w!(s, "ADD ");
+		self.create_inline(&mut s);
+		out.push(s);
+	}
+	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
+		let name = self.db_name();
+		if name == new_name {
+			return;
+		}
+		out.push(format!("RENAME CONSTRAINT {name} TO {new_name}"))
+	}
+	pub fn drop_alter(&self, out: &mut Vec<String>) {
+		let name = self.db_name();
+		out.push(format!("DROP CONSTRAINT {name}"))
 	}
 }
 
