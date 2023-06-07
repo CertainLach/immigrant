@@ -198,7 +198,7 @@ fn list_ids(path: &Path) -> anyhow::Result<Vec<MigrationId>> {
 			.to_str()
 			.ok_or_else(|| anyhow!("file name is not utf-8"))?;
 
-		let mut split = dirname.splitn(2, '-');
+		let mut split = dirname.splitn(2, '_');
 		let Some(id) = split.next() else {
             bail!("invalid migration dir: {dirname} doesn't start with NUM-name");
         };
@@ -231,8 +231,8 @@ fn list_ids(path: &Path) -> anyhow::Result<Vec<MigrationId>> {
 	// Disallow holes
 	{
 		for (i, id) in ids.iter().enumerate() {
-			if id.id as usize != i + 1 {
-				bail!("id hole: {}", i + 1);
+			if id.id as usize != i {
+				bail!("id hole: {}", i);
 			}
 		}
 	}
@@ -275,9 +275,11 @@ fn find_root(from: &Path) -> anyhow::Result<PathBuf> {
 struct Migration {
 	id: MigrationId,
 	name: String,
-	schema_diff: OwnedPatch,
-	before_sql: String,
-	after_sql: String,
+	schema_diff: Option<OwnedPatch>,
+	before_up_sql: String,
+	after_up_sql: String,
+	before_down_sql: String,
+	after_down_sql: String,
 }
 
 fn skip_empty(l: &mut Peekable<Lines>) {
@@ -339,12 +341,22 @@ fn parse_migration(id: MigrationId, migration: &str) -> anyhow::Result<Migration
 
 	let schema_diff = until_next_header(&mut lines);
 
-	let before_sql = if lines.next_if(|v| v == &"## Before").is_some() {
+	let before_up_sql = if lines.next_if(|v| v == &"## Before").is_some() {
 		until_next_header(&mut lines)
 	} else {
 		"".to_owned()
 	};
-	let after_sql = if lines.next_if(|v| v == &"## After").is_some() {
+	let after_up_sql = if lines.next_if(|v| v == &"## After").is_some() {
+		until_next_header(&mut lines)
+	} else {
+		"".to_owned()
+	};
+	let before_down_sql = if lines.next_if(|v| v == &"## Before (down)").is_some() {
+		until_next_header(&mut lines)
+	} else {
+		"".to_owned()
+	};
+	let after_down_sql = if lines.next_if(|v| v == &"## After (down)").is_some() {
 		until_next_header(&mut lines)
 	} else {
 		"".to_owned()
@@ -353,14 +365,20 @@ fn parse_migration(id: MigrationId, migration: &str) -> anyhow::Result<Migration
 		bail!("unexpected header: {line}");
 	}
 
-	let schema_diff = OwnedPatch::parse(schema_diff).context("patch parse")?;
+	let schema_diff = if !schema_diff.trim().is_empty() {
+		Some(OwnedPatch::parse(schema_diff).context("patch parse")?)
+	} else {
+		None
+	};
 
 	Ok(Migration {
 		id,
 		name: name.to_owned(),
 		schema_diff,
-		before_sql,
-		after_sql,
+		before_up_sql,
+		after_up_sql,
+		before_down_sql,
+		after_down_sql,
 	})
 }
 
@@ -417,10 +435,11 @@ fn apply_patch(diff: &Patch, old: &str) -> anyhow::Result<String> {
 fn stored_schema(list: &[Migration]) -> anyhow::Result<(String, Schema)> {
 	let mut schema_str = String::new();
 	for migration in list {
-		schema_str = migration
-			.schema_diff
-			.with_patch(|patch| apply_patch(patch, &schema_str))
-			.with_context(|| format!("bad schema diff: {}", migration.id.slug))?;
+		if let Some(schema_diff) = &migration.schema_diff {
+			schema_str = schema_diff
+				.with_patch(|patch| apply_patch(patch, &schema_str))
+				.with_context(|| format!("bad schema diff: {}", migration.id.slug))?;
+		}
 	}
 	let schema = parser::parse(&schema_str);
 	Ok((schema_str, schema))
@@ -446,7 +465,7 @@ fn main() -> anyhow::Result<()> {
 		} => {
 			let root = find_root(&current_dir()?)?;
 			let list = list(&root)?;
-			let id = list.last().map(|m| m.id.id).unwrap_or_default() + 1;
+			let id = list.last().map(|m| m.id.id + 1).unwrap_or_default();
 
 			let (original_str, original) =
 				stored_schema(&list).context("failed to load past migrations")?;
@@ -476,7 +495,7 @@ fn main() -> anyhow::Result<()> {
 
 			let mut dir = root;
 			let slug = slug::slugify(&message);
-			dir.push(format!("{id}-{slug}"));
+			dir.push(format!("{id:0>14}_{slug}"));
 
 			fs::create_dir(&dir).context("creating migration directory")?;
 
@@ -697,6 +716,30 @@ mod tests {
             enum added_enum{hello; world};
             enum altered_enum{b; c};
         "#,
+		);
+		showdiff(&from, &to);
+	}
+
+	#[test]
+	fn added_constraint() {
+		let from = root(
+			r#"
+			scalar int "INTEGER";
+			table A {
+				a: int @primary_key;
+				b: int;
+			};
+		"#,
+		);
+		showdiff(&root(""), &from);
+		let to = root(
+			r#"
+			scalar int "INTEGER";
+			table A {
+				a: int;
+				b: int @primary_key;
+			};
+		"#,
 		);
 		showdiff(&from, &to);
 	}
