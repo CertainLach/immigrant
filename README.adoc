@@ -1,0 +1,56 @@
+= immigrant
+
+An database schema definition language.
+
+== Goals
+
+Be an extensible database schema modelling language:: Immigrant is designed to be highly extensible. It allows external
+tools to provide their own functionality and create code generators based on the immigrant database schema language.
+This extensibility makes it a versatile tool that can be adapted to meet a variety of needs.
+Provide support for modern, and well-established database features:: Immigrant aims to provide robust support for a wide
+range of database features. Every type, function, and database extension should be possible to use within the immigrant
+schema. Discouraged and deprecated database features should not be supported.
+[[readable-goal]]Generated migrations should be readable and easy to understand:: One of the guiding principles of
+immigrant is that the migrations it generates should be easily readable and understandable. There should be no arcane
+magic here; the logic behind migration decisions should be obvious to anyone reviewing the code.
+[[types-goal]]Provide more complete support for custom types, and make it easier to implement more validity checks::
+Most of the databases enforce users to perform checks on the application side, by i.e implementing only support for
+signed integers. Immigrant has support for user-defined scalars, allowing to reuse logic more easily, encouraging users
+to have more checks on the database level, and allowing codegenerators to provide better support for newtype wrapping of
+database primitives.
+[[autonomous-goal]]Be autonomous, work only on the defined schema, do not require the database connection:: Database
+connection requirements complicates local development and the CI a lot, immigrant should operate strictly on what user
+has defined in their schema definitions.
+
+== Non-goals
+Abstract SQL away:: While immigrant makes it easier to manage database schemas, it is not designed to completely
+abstract away SQL. Users should still be able to understand and write the generated migrations themselves. However,
+they can also take advantage of the tool to automate some of this work.
+Be an ORM (Object-Relational Mapping):: While users of immigrant may implement their own code generators based on the
+schema, immigrant itself does not provide any tools to implement ORM functionality. It is a tool specifically designed
+for managing database schemas, not for acting as a bridge between databases and objects in code.
+Version control system integrations:: The default immigrant Command-Line Interface (CLI) implements an opinionated
+file-based schema change management system. This should be sufficient for most users, but those who wish to integrate
+immigrant with a version control system will need to implement their own solutions.
+[[generic-nongoal]]Provide the support for most SQL databases/generic database driver:: This non-goal conflicts with
+<<readable-goal,readability goal>>, as some things are implemented very differently in some databases. In sqlite, you
+can only add/alter constraints using dropping and re-creating the table, and this will be messy to integrate into other
+database migration codegenerators. Mixed driver codebases will only be implemented for databases that promise some level
+of compatibility, like PostgreSQL and CockroachDB, which should support the majority of common functionality.
+Introspection-based schema generation:: This type of operation may be supported in initial database import, however it
+may not work correctly, as some of the immigrant features may not be directly convertible from SQL.
+
+== Inspiration
+
+https://prisma.io[Prisma]:: I have learned about prisma after I have started implementing immigrant, however, my
+design decisions may be affected by Prisma. The things I dislike about prisma, is the implementation of
+<<generic-nongoal,generic database migration generator>>. While this feature may sound like a good idea, in fact this
+thing complicates the implementation a lot, preventing them from implementing some of the good features (such as views)
+in a timely manner. In case of sqlite migration layer, this thing skips most of the sql code generation due to complex
+conditions, and sqlite implementation only performs the basic operations. In immigrant, this should be the short sqlite
+driver, which doesn't implement logic only required for more complete database solutions.
+https://github.com/zombodb/pg-schema-diff[pg-schema-diff] and similar schema diffing solutions:: I liked the idea, but
+none of the implementations seemed to be complete enough, and usage of raw sql does not permit the implementation of
+<<types-goal,user-defined types>>. They also don't provide good enough solution to storing the schema history, and
+most useable tools <<autonomous-goal,require the connection to the database>>.
+

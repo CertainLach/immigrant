@@ -1,5 +1,5 @@
 
-= My Schema Language
+= Immigrant
 :toc: right
 
 == Introduction
