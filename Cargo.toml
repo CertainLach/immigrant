@@ -1,18 +1,16 @@
-[package]
-name = "immigrant"
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = [
+	'crates/*',
+	'cmds/*',
+]
 
-[dependencies]
-Inflector = "0.11.4"
-anyhow = "1.0.71"
-clap = { version = "4.2.7", features = ["derive"] }
-imara-diff = "0.1.5"
-ouroboros = "0.15.6"
-paste = "1.0.12"
-patch = "0.7.0"
-peg = "0.8.1"
-rand = "0.8.5"
-slug = "0.1.4"
+[workspace.dependencies]
+schema = { package = "immigrant-schema", path = "crates/schema" }
+file-diffs = { package = "immigrant-file-diffs", path = "crates/file-diffs" }
+cli = { package = "immigrant-cli", path = "crates/cli" }
+generator-postgres = { package = "immigrant-generator-postgres", path = "crates/generator-postgres" }
+
