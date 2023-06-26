@@ -1,0 +1,12 @@
+[package]
+name = "immigrant-diesel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap = { version = "4.3.8", features = ["derive"] }
+schema.workspace = true
+cli.workspace = true
+Inflector = "0.11.4"
+file-diffs.workspace = true
+anyhow = "1.0.71"

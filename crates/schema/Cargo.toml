@@ -1,0 +1,10 @@
+[package]
+name = "immigrant-schema"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+paste = "1.0.12"
+peg = "0.8.1"
+rand = "0.8.5"
+thiserror = "1.0.40"

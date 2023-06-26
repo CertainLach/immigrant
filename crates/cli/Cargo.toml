@@ -1,0 +1,9 @@
+[package]
+name = "immigrant-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.71"
+ass-stroke = { git = "https://github.com/CertainLach/ass-stroke", version = "0.1.0" }
+immigrant-schema = { version = "0.1.0", path = "../schema" }

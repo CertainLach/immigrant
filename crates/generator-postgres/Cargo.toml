@@ -1,0 +1,7 @@
+[package]
+name = "immigrant-generator-postgres"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+schema.workspace = true

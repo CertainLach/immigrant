@@ -1,0 +1,11 @@
+[package]
+name = "immigrant-dmdl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.71"
+clap = { version = "4.3.3", features = ["derive"] }
+file-diffs.workspace = true
+schema.workspace = true
+cli.workspace = true
