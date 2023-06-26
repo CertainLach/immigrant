@@ -10,6 +10,7 @@ module.exports = grammar({
 			$.enum_declaration,
 		),
 		scalar_declaration: $ => seq(
+			repeat($.attribute),
 			'scalar',
 			field('name', $.type_identifier),
 			$.string,
@@ -17,6 +18,7 @@ module.exports = grammar({
 			';',
 		),
 		table_declaration: $ => seq(
+			repeat($.attribute),
 			'table',
 			field('name', $.type_db_name),
 			'{',
@@ -26,6 +28,7 @@ module.exports = grammar({
 			';',
 		),
 		enum_declaration: $ => seq(
+			repeat($.attribute),
 			'enum',
 			field('name', $.type_db_name),
 			'{',
@@ -54,6 +57,8 @@ module.exports = grammar({
 		variant_identifier: $ => $.identifier,
 		function_identifier: $ => $.identifier,
 		annotation_identifier: $ => $.identifier,
+		attribute_identifier: $ => $.identifier,
+		attribute_field_identifier: $ => $.identifier,
 		identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
 		string: $ => /"[^"]*"/,
 		number: $ => /[0-9]+/,
@@ -69,6 +74,24 @@ module.exports = grammar({
 		db_name: $ => seq(
 			$.identifier,
 			optional($.string),
+		),
+
+		attribute: $ => seq(
+			'#',
+			$.attribute_identifier,
+			optional(seq(
+				'(',
+				repeat1($.attribute_field),
+				')',
+			)),
+		),
+		attribute_field: $ => seq(
+			$.attribute_field_identifier,
+			optional(seq(
+				'=',
+				$.string,
+			)),
+			optional(','),
 		),
 
 		field_annotation: $ => repeat1(choice(
@@ -111,6 +134,8 @@ module.exports = grammar({
 		expression: $ => choice(
 			$.function_call,
 			$.binary_expression,
+			$.unary_expression,
+			$.parened_expression,
 			$.field_identifier,
 			$.string,
 			$.number,
@@ -118,17 +143,25 @@ module.exports = grammar({
 		function_call: $ => prec.left(seq(
 			$.function_identifier,
 			'(',
-			repeat(seq(
-				$.expression,
-				optional(','),
+			optional(seq(
+				repeat(seq($.expression, ',')),
+				$.expression, optional(','),
 			)),
 			')',
 		)),
+		unary_expression: $ => seq('!', $.expression),
+		// Precedence matching is wrong here
 		binary_expression: $ => choice(
 			prec.left(1, seq($.expression, '||', $.expression)),
 			prec.left(2, seq($.expression, '&&', $.expression)),
-			prec.left(3, seq($.expression, '==', $.expression)),
+			prec.left(3, seq($.expression, choice('==', '!=', '~~'), $.expression)),
 			prec.left(4, seq($.expression, '::', $.type_identifier)),
+			prec.left(5, seq($.expression, choice('<', '>', '<=', '>='), $.type_identifier)),
+		),
+		parened_expression: $ => seq(
+			'(',
+			$.expression,
+			')',
 		),
 		comment: $ =>
 			/\/\/[^\n]*\n/,

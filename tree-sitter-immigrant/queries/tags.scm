@@ -21,6 +21,7 @@
 	)
 ) @definition.property
 
+; column has name, but no type => imlicit type == column name
 (table_declaration
 	(table_field 
 		!type

@@ -20,7 +20,12 @@
 ["||"
 "&&"
 "=="
-"::"] @operator
+"::"
+"="
+"!"] @operator
+
+["#"
+] @keyword
 
 (number) @number
 (string) @string
@@ -28,4 +33,6 @@
 (field_identifier) @property
 (variant_identifier) @property
 (function_identifier) @function
+(attribute_identifier) @keyword
+(attribute_field_identifier) @property
 (comment) @comment
