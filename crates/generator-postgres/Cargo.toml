@@ -4,4 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+rand = "0.8.5"
 schema.workspace = true
+tempfile = "3.7.1"
+tracing = "0.1.37"
+tracing-test = "0.2.4"
+
+[dev-dependencies]
+tracing-subscriber = "0.3.17"
