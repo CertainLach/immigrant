@@ -3,7 +3,24 @@ module.exports = grammar({
 	fileTypes: ['schema'],
 	scope: 'immigrant',
 	rules: {
-		source_file: $ => repeat($.declaration),
+		source_file: $ => choice($.test_schema, $.normal_schema),
+
+		test_schema: $ => seq(
+			optional(field('setup', seq(
+				'!!!SETUP',
+				$.normal_schema,
+			))),
+			'!!!TEST',
+			field('first_example', $.normal_schema),
+			optional(field('examples', seq(
+				'!!!UPDATE',
+				$.normal_schema,
+			))),
+			optional(field('result', $.sql_block)),
+		),
+		sql_block: $ => seq('!!!RESULT', repeat(/.+/)),
+
+		normal_schema: $ => repeat1($.declaration),
 		declaration: $ => choice(
 			$.scalar_declaration,
 			$.table_declaration,
@@ -121,7 +138,7 @@ module.exports = grammar({
 			')',
 		),
 		pk_annotation: $ => seq(
-			choice('@primary_key', '@unique', '@index'),
+			choice('@primary_key', '@unique', '@index', '@inline'),
 		),
 		field_list: $ => seq(
 			'(',
