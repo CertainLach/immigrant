@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, env::current_dir};
+use std::{collections::BTreeSet, env::current_dir, mem};
 
 use clap::Parser;
 use cli::current_schema;
@@ -157,6 +157,51 @@ enum Opts {
 	PrintSchema,
 }
 
+fn disjoint_unions<T: Ord + Clone>(input: &[(T, T)]) -> Vec<BTreeSet<T>> {
+	let mut out = Vec::new();
+	let mut seen = BTreeSet::new();
+	let mut current = BTreeSet::new();
+
+	loop {
+		loop {
+			let mut changed = false;
+			for (a, b) in input {
+				if (current.contains(a) || current.contains(b))
+					|| (current.is_empty() && !seen.contains(a) && !seen.contains(b))
+				{
+					if current.insert(a.clone()) || current.insert(b.clone()) {
+						changed = true;
+					}
+				}
+			}
+			if !changed {
+				break;
+			}
+		}
+
+		if !current.is_empty() {
+			seen.extend(current.iter().cloned());
+			out.push(mem::take(&mut current));
+		} else {
+			break;
+		}
+	}
+
+	out
+}
+
+#[test]
+fn disjoint_union_works() {
+	assert_eq!(
+		disjoint_unions(&[(1, 2), (2, 3), (3, 4), (5, 6), (7, 8), (4, 10)]),
+		vec![
+			[1, 2, 3, 4, 10].into_iter().collect(),
+			[5, 6].into_iter().collect(),
+			[7, 8].into_iter().collect(),
+		]
+	);
+}
+
 fn main() -> anyhow::Result<()> {
 	let opts = Opts::parse();
 	match opts {
@@ -307,15 +352,25 @@ fn print_schema() -> anyhow::Result<()> {
 			allowed.insert(key);
 		}
 	}
+
 	let mut allowed: Vec<_> = allowed.into_iter().collect();
 	allowed.sort_by_key(|(_, b)| b.name());
 	allowed.sort_by_key(|(a, _)| a.name());
-	for (a, b) in allowed {
-		let a = schema.schema_table(&a).expect("a");
-		let b = schema.schema_table(&b).expect("b");
-		let a = table_mod_ident(&a);
-		let b = table_mod_ident(&b);
-		println!("diesel::prelude::allow_tables_to_appear_in_same_query!({a}, {b});");
+
+	{
+		let disjoint_input: Vec<_> = allowed.iter().cloned().collect();
+		for union in disjoint_unions(&disjoint_input) {
+			print!("diesel::prelude::allow_tables_to_appear_in_same_query!(");
+			for (i, t) in union.iter().enumerate() {
+				if i != 0 {
+					print!(", ");
+				}
+				let t = schema.schema_table(&t).expect("a");
+				let t = table_mod_ident(&t);
+				print!("{t}");
+			}
+			println!(");");
+		}
 	}
 
 	for table in schema.tables() {
@@ -349,6 +404,7 @@ fn print_schema() -> anyhow::Result<()> {
 	println!("use diesel::{{Insertable, Identifiable, Queryable, Selectable, AsChangeset, sql_types as dt, QueryDsl, SelectableHelper, result::Error, ExpressionMethods}};");
 	println!("use diesel_async::RunQueryDsl;");
 	println!("use super::user_types as ut;");
+	println!("fn assert_send<'u, R>(fut: impl 'u + Send + Future<Output = R>) -> impl 'u + Send + Future<Output = R> {{ fut }}");
 
 	for table in schema.tables() {
 		println!();
