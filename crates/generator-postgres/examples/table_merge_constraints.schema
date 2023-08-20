@@ -1,0 +1,43 @@
+!!!TEST
+scalar test = "TEXT" @inline @check "testcheck" (_ != "1");
+scalar int = "INTEGER";
+
+table Test {
+	test @check "testcheck" (_ != "2") @check (_ != "3") @check (_ != "4");
+
+	a: int @primary_key "hui";
+	b: int @primary_key "hui";
+
+	c: int @index;
+	d: int @index;
+
+	e: int @index "testidx";
+	f: int @index "testidx";
+};
+!!!RESULT
+CREATE DOMAIN int AS INTEGER;
+CREATE TABLE Test (
+	test TEXT NOT NULL
+,	a int NOT NULL
+,	b int NOT NULL
+,	c int NOT NULL
+,	d int NOT NULL
+,	e int NOT NULL
+,	f int NOT NULL
+,	CONSTRAINT testcheck CHECK(((test) <> ('2')) AND ((test) <> ('1')))
+,	CONSTRAINT Test_test_check CHECK(((test) <> ('3')) AND ((test) <> ('4')))
+,	CONSTRAINT hui PRIMARY KEY(a, b)
+);
+CREATE INDEX Test_c_idx ON Test(
+	c
+);
+CREATE INDEX Test_d_idx ON Test(
+	d
+);
+CREATE INDEX testidx ON Test(
+	e
+,	f
+);
+-- updated --
+DROP TABLE Test;
+DROP DOMAIN int;

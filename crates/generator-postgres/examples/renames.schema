@@ -1,0 +1,26 @@
+!!!TEST
+scalar B "B" = "TEXT";
+scalar A "A" = "TEXT";
+!!!UPDATE
+scalar B "C" = "TEXT";
+table A "A" {
+	field: B;
+};
+!!!RESULT
+CREATE DOMAIN B AS TEXT;
+CREATE DOMAIN A AS TEXT;
+-- updated --
+ALTER DOMAIN A
+	RENAME TO tmp_1
+;
+ALTER DOMAIN B
+	RENAME TO C
+;
+CREATE TABLE A (
+	field C NOT NULL
+);
+
+DROP DOMAIN tmp_1;
+-- updated --
+DROP TABLE A;
+DROP DOMAIN C;

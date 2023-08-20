@@ -1,0 +1,43 @@
+!!!TEST
+scalar a = "TEXT" @check(_ != "bad");
+scalar b = "TEXT" @inline @check(_ != "bad");
+table Example {
+	field: a;
+	other_field: b;
+};
+!!!UPDATE
+scalar a = "TEXT" @inline @check(_ != "good");
+table Example {
+	field: a;
+};
+!!!UPDATE
+scalar a = "TEXT" @check(_ != "average");
+table Example {
+	field: a;
+};
+!!!RESULT
+CREATE DOMAIN a AS TEXT
+	CONSTRAINT a_check CHECK (VALUE) <> ('bad');
+CREATE TABLE Example (
+	field a NOT NULL
+,	other_field TEXT NOT NULL
+,	CONSTRAINT Example_other_field_check CHECK((other_field) <> ('bad'))
+);
+-- updated --
+ALTER TABLE Example
+	DROP CONSTRAINT Example_other_field_check
+,	ALTER COLUMN field TYPE TEXT
+,	DROP COLUMN other_field
+,	ADD CONSTRAINT Example_field_check CHECK((field) <> ('good'))
+;
+DROP DOMAIN a;
+-- updated --
+CREATE DOMAIN a AS TEXT
+	CONSTRAINT a_check CHECK (VALUE) <> ('average');
+ALTER TABLE Example
+	DROP CONSTRAINT Example_field_check
+,	ALTER COLUMN field TYPE a
+;
+-- updated --
+DROP TABLE Example;
+DROP DOMAIN a;

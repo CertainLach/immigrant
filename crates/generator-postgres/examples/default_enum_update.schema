@@ -1,0 +1,37 @@
+!!!TEST
+table Table {
+	a: myenum @default("test"::myenum);
+};
+
+enum myenum {
+	test "test";
+};
+!!!UPDATE
+table Table {
+	a: myenum @default("test2"::myenum);
+};
+
+enum myenum {
+	test2 "test2";
+};
+!!!RESULT
+CREATE TYPE myenum AS ENUM (
+	'test'
+);
+
+CREATE TABLE Table (
+	a myenum NOT NULL DEFAULT (('test')::myenum)
+);
+-- updated --
+ALTER TYPE myenum
+	ADD VALUE 'test2'
+;
+ALTER TABLE Table
+	ALTER COLUMN a SET DEFAULT ('test2')::myenum
+;
+ALTER TYPE myenum
+	RENAME VALUE 'test' TO 'test_removed_v4qLk'
+;
+-- updated --
+DROP TABLE Table;
+DROP TYPE myenum;

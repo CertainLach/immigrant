@@ -1,0 +1,42 @@
+!!!SETUP
+scalar test = "TEXT";
+!!!TEST
+table A {
+	field: test @check(_ != "hui");
+};
+!!!UPDATE
+table A {
+	field: test;
+};
+!!!UPDATE
+table A {
+	field: test @check(_ != "hui");
+};
+!!!UPDATE
+table A {
+	field: test @check(_ != "pizda");
+};
+!!!RESULT
+CREATE DOMAIN test AS TEXT;
+-- updated --
+CREATE TABLE A (
+	field test NOT NULL
+,	CONSTRAINT A_field_check CHECK((field) <> ('hui'))
+);
+-- updated --
+ALTER TABLE A
+	DROP CONSTRAINT A_field_check
+;
+-- updated --
+ALTER TABLE A
+	ADD CONSTRAINT A_field_check CHECK((field) <> ('hui'))
+;
+-- updated --
+ALTER TABLE A
+	DROP CONSTRAINT A_field_check
+,	ADD CONSTRAINT A_field_check CHECK((field) <> ('pizda'))
+;
+-- updated --
+DROP TABLE A;
+-- updated --
+DROP DOMAIN test;

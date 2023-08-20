@@ -1,0 +1,35 @@
+!!!TEST
+scalar test = "TEXT";
+
+table A {
+	field: test @index;
+};
+!!!UPDATE
+scalar test = "TEXT";
+
+table A {
+	field: test;
+};
+!!!UPDATE
+scalar test = "TEXT";
+
+table A {
+	field: test @index;
+};
+!!!RESULT
+CREATE DOMAIN test AS TEXT;
+CREATE TABLE A (
+	field test NOT NULL
+);
+CREATE INDEX A_field_idx ON A(
+	field
+);
+-- updated --
+DROP INDEX A_field_idx;
+-- updated --
+CREATE INDEX A_field_idx ON A(
+	field
+);
+-- updated --
+DROP TABLE A;
+DROP DOMAIN test;
