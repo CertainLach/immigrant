@@ -7,7 +7,8 @@ use super::{
 };
 use crate::{
 	index::ConstraintTy,
-	names::{ColumnDefName, DbType, TypeIdent},
+	names::{ColumnDefName, DbNativeType, TypeIdent},
+	scalar::InlinedScalar,
 	SchemaEnum, SchemaScalar, TableColumn,
 };
 
@@ -45,13 +46,9 @@ pub struct PartialForeignKey {
 }
 
 impl Column {
-	pub fn apply_scalar_annotations(
-		&mut self,
-		scalar: TypeIdent,
-		annotations: &[ColumnAnnotation],
-	) {
+	pub(crate) fn apply_inlined_scalar(&mut self, scalar: TypeIdent, inlined: &InlinedScalar) {
 		if self.ty == scalar {
-			self.annotations.extend(annotations.iter().cloned())
+			self.annotations.extend(inlined.annotations.iter().cloned())
 		}
 	}
 	pub fn propagate_annotations(&mut self) -> Vec<TableAnnotation> {
@@ -91,18 +88,15 @@ pub enum SchemaType<'t> {
 impl SchemaType<'_> {
 	pub fn ident(&self) -> TypeIdent {
 		match self {
-			SchemaType::Scalar(s) => s.name,
-			SchemaType::Enum(e) => e.name.id(),
+			SchemaType::Scalar(s) => s.name().id(),
+			SchemaType::Enum(e) => e.name().id(),
 		}
 	}
 }
 
 impl TableColumn<'_> {
-	pub fn db_type(&self) -> DbType {
+	pub fn db_type(&self) -> DbNativeType {
 		self.table.schema.native_type(&self.ty)
-	}
-	pub fn ty(&self) -> SchemaType<'_> {
-		self.table.schema.schema_ty(self.ty)
 	}
 	pub fn default(&self) -> Option<&Sql> {
 		let res = self

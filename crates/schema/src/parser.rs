@@ -5,14 +5,14 @@ use peg::{error::ParseError, parser, str::LineCol};
 use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
-	ids::in_allocator,
+	ids::{in_allocator, DbIdent},
 	index::{Constraint, ConstraintTy, Index},
 	names::{
-		ColumnIdent, DbProcedure, DbType, DefName, EnumItemDefName, TableDefName, TableIdent,
-		TypeDefName, TypeIdent,
+		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
+		TypeIdent,
 	},
-	root::{Item, Schema},
-	scalar::{Enum, Scalar, ScalarAnnotation},
+	root::{Item, Schema, SchemaProcessOptions},
+	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
 	sql::{Sql, SqlOp, SqlUnOp},
 	table::{ForeignKey, OnDelete, Table, TableAnnotation},
 };
@@ -37,29 +37,20 @@ rule table() -> Table =
 		annotations:(a:table_annotation() _ ";" {a})**_ _
 		foreign_keys:(f:foreign_key() _ ";" {f})**_ _
 	"}" _ ";" {{
-	Table {
+	Table::new(
 		docs,
 		attrlist,
-		name: TableDefName::alloc(name),
-		columns: fields,
+		TableDefName::alloc(name),
+		fields,
 		annotations,
 		foreign_keys,
-	}
+	)
 }};
 rule enum() -> Enum = attrlist:attribute_list() _ "enum" _ name:def_name() _ "{" _ items:def_name()++(_ ";" _) _ ";"? _ "}" _ ";" {
-	Enum {
-		attrlist,
-		name: TypeDefName::alloc(name),
-		items: items.into_iter().map(EnumItemDefName::alloc).collect(),
-	}
+	Enum::new(attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
 };
-rule scalar() -> Scalar = attrlist:attribute_list() _ "scalar" _ name:code_ident() _ native:str() _ annotations:scalar_annotation()**_ ";"{
-	Scalar {
-		attrlist,
-		name: TypeIdent::alloc(name),
-		native: DbType::new(native),
-		annotations,
-	}
+rule scalar() -> Scalar = attrlist:attribute_list() _ "scalar" _ name:def_name() _ "=" _ native:str() _ annotations:scalar_annotation()**_ ";" {
+	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
 rule table_field() -> Column =
 	docs:docs()
@@ -67,9 +58,7 @@ rule table_field() -> Column =
 	Column {
 		docs,
 		nullable: n.is_some(),
-		ty: TypeIdent::alloc(t.unwrap_or_else(|| {
-			name.0.clone()
-		})),
+		ty: TypeIdent::alloc(t.unwrap_or(name.0)),
 		name: DefName::alloc(name),
 		annotations,
 		foreign_key,
@@ -93,6 +82,7 @@ rule attribute_value() -> AttributeValue
 rule scalar_annotation() -> ScalarAnnotation
 = c:constraint() {ScalarAnnotation::Constraint(c)}
 / d:default() {ScalarAnnotation::Default(d)}
+/ "@inline" {ScalarAnnotation::Inline}
 rule field_annotation() -> ColumnAnnotation
 = i:index() {ColumnAnnotation::Index(i)}
 / c:constraint() {ColumnAnnotation::Constraint(c)}
@@ -201,8 +191,8 @@ pub enum ParsingError {
 }
 
 type Result<T> = result::Result<T, Vec<ParsingError>>;
-pub fn parse(v: &str) -> Result<Schema> {
+pub fn parse(v: &str, opts: &SchemaProcessOptions) -> Result<Schema> {
 	let mut s = in_allocator(|| schema_parser::root(v).map_err(|e| vec![ParsingError::from(e)]))?;
-	s.process();
+	s.process(opts);
 	Ok(s)
 }

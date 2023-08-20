@@ -1,6 +1,6 @@
 use super::sql::Sql;
 use crate::{
-	names::{ColumnIdent, DbColumn, DbType},
+	names::{ColumnIdent, DbColumn, DbConstraint, DbIndex, DbNativeType},
 	TableIndex,
 };
 
@@ -16,6 +16,9 @@ pub struct Constraint {
 	pub name: Option<String>,
 }
 impl Constraint {
+	pub fn assigned_name(&self) -> DbConstraint {
+		DbConstraint::new(self.name.as_ref().expect("index name was not assigned"))
+	}
 	pub fn propagate_to_table(&mut self, column: ColumnIdent) {
 		match &mut self.kind {
 			ConstraintTy::PrimaryKey(pk) => pk.insert(0, column),
@@ -33,6 +36,9 @@ pub struct Index {
 }
 
 impl Index {
+	pub fn assigned_name(&self) -> DbIndex {
+		DbIndex::new(self.name.as_ref().expect("index name was not assigned"))
+	}
 	pub fn propagate_to_table(&mut self, column: ColumnIdent) {
 		self.fields.insert(0, column);
 	}
@@ -47,7 +53,7 @@ impl TableIndex<'_> {
 	pub fn db_columns(&self) -> impl Iterator<Item = DbColumn> + '_ {
 		self.fields.iter().map(|f| self.table.db_name(f))
 	}
-	pub fn db_types(&self) -> impl Iterator<Item = DbType> + '_ {
+	pub fn db_types(&self) -> impl Iterator<Item = DbNativeType> + '_ {
 		self.fields
 			.iter()
 			.map(|f| self.table.schema_column(*f).db_type())

@@ -1,63 +1,167 @@
+use std::collections::HashMap;
+
 use super::{
 	scalar::{Enum, Scalar},
 	table::Table,
 };
 use crate::{
+	changelist::{mk_change_list, ChangeList},
 	column::SchemaType,
-	names::{DbTable, DbType, TableIdent, TypeIdent},
-	newty_enum, EnumDiff, SchemaDiff, SchemaEnum, SchemaScalar, SchemaTable, TableDiff,
+	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
+	sql::Sql,
+	EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableDiff,
 };
 
-newty_enum!(
-#[derive(Debug)]
+// newty_enum!(
+// pub enum Item {
+// 	Table = table,
+// 	Enum = enum,
+// 	Scalar = scalar,
+// }
+// );
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub enum Item {
-	Table = table,
-	Enum = enum,
-	Scalar = scalar,
+	#[derivative(Debug = "transparent")]
+	Table(Table),
+	#[derivative(Debug = "transparent")]
+	Enum(Enum),
+	#[derivative(Debug = "transparent")]
+	Scalar(Scalar),
 }
-);
+impl Item {
+	pub fn is_table(&self) -> bool {
+		matches!(self, Self::Table(_))
+	}
+	pub fn as_table(&self) -> Option<&Table> {
+		match self {
+			Self::Table(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn as_table_mut(&mut self) -> Option<&mut Table> {
+		match self {
+			Self::Table(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn is_enum(&self) -> bool {
+		matches!(self, Self::Enum(_))
+	}
+	pub fn as_enum(&self) -> Option<&Enum> {
+		match self {
+			Self::Enum(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn as_enum_mut(&mut self) -> Option<&mut Enum> {
+		match self {
+			Self::Enum(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn is_scalar(&self) -> bool {
+		matches!(self, Self::Scalar(_))
+	}
+	pub fn as_scalar(&self) -> Option<&Scalar> {
+		match self {
+			Self::Scalar(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn as_scalar_mut(&mut self) -> Option<&mut Scalar> {
+		match self {
+			Self::Scalar(value) => Some(value),
+			_ => None,
+		}
+	}
+}
+
+pub struct SchemaProcessOptions {
+	/// If not - then every scalar is transformed to a regular type by inlining.
+	pub generator_supports_domain: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct Schema(pub Vec<Item>);
 impl Schema {
-	pub fn process(&mut self) {
+	pub fn process(&mut self, options: &SchemaProcessOptions) {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
 			Item::Enum(_) => 0,
 			Item::Scalar(_) => 9999,
 		});
 
-		// Propagate scalar annotations to columns
-		{
-			let mut annotated_scalars = Vec::new();
-			for scalar in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
-				annotated_scalars.push((scalar.name, scalar.propagate_to_column()));
-			}
-
-			for table in self.0.iter_mut().filter_map(Item::as_table_mut) {
-				for (id, annotations) in annotated_scalars.iter() {
-					table.apply_scalar_annotations(*id, annotations);
-				}
-				table.process();
+		let mut inlined_scalars = HashMap::new();
+		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
+			if s.is_always_inline() || !options.generator_supports_domain {
+				let data = s.inline();
+				inlined_scalars.insert(s.name().id(), data);
 			}
 		}
+
+		// Propagate scalar annotations to columns
+		for table in self.0.iter_mut().filter_map(Item::as_table_mut) {
+			for (id, data) in &inlined_scalars {
+				table.apply_inlined_scalar(*id, data);
+			}
+			table.process();
+		}
+	}
+	pub fn material_items(&self) -> Vec<SchemaItem<'_>> {
+		self.0
+			.iter()
+			.filter_map(|v| {
+				Some(match v {
+					Item::Table(table) => SchemaItem::Table(SchemaTable {
+						schema: self,
+						table,
+					}),
+					Item::Enum(en) => SchemaItem::Enum(SchemaEnum { schema: self, en }),
+					Item::Scalar(scalar) if !scalar.is_always_inline() => {
+						SchemaItem::Scalar(SchemaScalar {
+							schema: self,
+							scalar,
+						})
+					}
+					_ => return None,
+				})
+			})
+			.collect()
+	}
+	pub fn items(&self) -> Vec<SchemaItem<'_>> {
+		self.0
+			.iter()
+			.map(|v| match v {
+				Item::Table(table) => SchemaItem::Table(SchemaTable {
+					schema: self,
+					table,
+				}),
+				Item::Enum(en) => SchemaItem::Enum(SchemaEnum { schema: self, en }),
+				Item::Scalar(scalar) => SchemaItem::Scalar(SchemaScalar {
+					schema: self,
+					scalar,
+				}),
+			})
+			.collect()
 	}
 	pub fn schema_ty(&self, name: TypeIdent) -> SchemaType<'_> {
-		if let Some(scalar) = self.scalars().find(|s| s.name == name) {
+		if let Some(scalar) = self.scalars().find(|s| s.name() == name) {
 			return SchemaType::Scalar(SchemaScalar {
 				schema: self,
 				scalar,
 			});
 		}
-		if let Some(en) = self.enums().find(|s| s.name == name) {
+		if let Some(en) = self.enums().find(|s| s.name() == name) {
 			return SchemaType::Enum(SchemaEnum { schema: self, en });
 		}
 		panic!("type not found: {name:?}")
 	}
-	pub fn native_type(&self, name: &TypeIdent) -> DbType {
+	pub fn native_type(&self, name: &TypeIdent) -> DbNativeType {
 		for item in self.0.iter() {
 			match item {
-				Item::Enum(e) if &e.name == name => return e.name.db(),
-				Item::Scalar(v) if &v.name == name => return v.native.clone(),
+				Item::Enum(e) if &e.name() == name => return e.db_type(),
+				Item::Scalar(v) if &v.name() == name => return v.native(),
 				_ => continue,
 			}
 		}
@@ -75,7 +179,7 @@ impl Schema {
 
 	pub fn table(&self, name: &DbTable) -> Option<SchemaTable<'_>> {
 		self.tables()
-			.find(|t| &t.name == name)
+			.find(|t| &t.name() == name)
 			.map(|t| SchemaTable {
 				schema: self,
 				table: t,
@@ -83,17 +187,19 @@ impl Schema {
 	}
 	pub fn schema_table(&self, name: &TableIdent) -> Option<SchemaTable<'_>> {
 		self.tables()
-			.find(|t| &t.name == name)
+			.find(|t| &t.name() == name)
 			.map(|t| SchemaTable {
 				schema: self,
 				table: t,
 			})
 	}
 	pub fn r#enum(&self, name: &DbType) -> Option<SchemaEnum<'_>> {
-		self.enums().find(|t| &t.name == name).map(|t| SchemaEnum {
-			schema: self,
-			en: t,
-		})
+		self.enums()
+			.find(|t| &t.name() == name)
+			.map(|t| SchemaEnum {
+				schema: self,
+				en: t,
+			})
 	}
 
 	pub fn schema_scalar(&self, scalar: TypeIdent) -> SchemaScalar<'_> {
@@ -101,19 +207,27 @@ impl Schema {
 			schema: self,
 			scalar: self
 				.scalars()
-				.find(|c| c.name == scalar)
+				.find(|c| c.name() == scalar)
 				.expect("column not found"),
 		}
 	}
 
 	pub fn db_tables(&self) -> Vec<DbTable> {
-		self.tables().map(|t| t.name.db()).collect()
+		self.tables().map(|t| t.name().db()).collect()
 	}
 	pub fn db_enums(&self) -> Vec<DbType> {
-		self.enums().map(|t| t.name.db()).collect()
+		self.enums().map(|t| t.name().db()).collect()
+	}
+	pub fn sql<'a>(&'a self, sql: &'a Sql) -> SchemaSql<'_> {
+		SchemaSql { schema: self, sql }
 	}
 }
 impl SchemaDiff<'_> {
+	pub fn changelist(&self) -> ChangeList<SchemaItem<'_>> {
+		let old = self.old.material_items();
+		let new = self.new.material_items();
+		mk_change_list(&old, &new)
+	}
 	pub fn altered_tables(&self) -> Vec<TableDiff<'_>> {
 		let old_tables = self.old.db_tables();
 		let new_tables = self.new.db_tables();

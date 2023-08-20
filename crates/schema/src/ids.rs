@@ -92,6 +92,11 @@ pub struct Ident<K> {
 	id: u16,
 	_marker: PhantomData<fn() -> K>,
 }
+impl<K> Ident<K> {
+	pub fn name(&self) -> String {
+		ALLOCATOR.with(|a| a.1.name(self.id))
+	}
+}
 impl<K: Kind> Ident<K> {
 	pub fn alloc(name: &str) -> Self {
 		ALLOCATOR.with(|a| {
@@ -99,17 +104,22 @@ impl<K: Kind> Ident<K> {
 			a.1.ident(name)
 		})
 	}
-	pub fn name(&self) -> String {
-		ALLOCATOR.with(|a| a.1.name(self.id))
+	pub fn unchecked_cast<U: Kind>(v: Ident<U>) -> Self {
+		assert_eq!(
+			K::id(),
+			U::id(),
+			"types should be explicitly marked as compatible"
+		);
+		Ident {
+			kind: v.kind,
+			id: v.id,
+			_marker: PhantomData,
+		}
 	}
 }
 impl<K> Clone for Ident<K> {
 	fn clone(&self) -> Self {
-		Self {
-			kind: self.kind,
-			id: self.id,
-			_marker: PhantomData,
-		}
+		*self
 	}
 }
 impl<K> Copy for Ident<K> {}
@@ -161,9 +171,15 @@ impl<K> DbIdent<K> {
 		}
 	}
 }
-impl<K: Kind> PartialEq for DbIdent<K> {
+impl<K> PartialEq for DbIdent<K> {
 	fn eq(&self, other: &Self) -> bool {
 		self.id == other.id
+	}
+}
+impl<K> Eq for DbIdent<K> {}
+impl<K> Hash for DbIdent<K> {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.id.hash(state);
 	}
 }
 impl<K> Display for DbIdent<K> {
@@ -180,6 +196,15 @@ impl<K> Clone for DbIdent<K> {
 	fn clone(&self) -> Self {
 		Self {
 			id: self.id.clone(),
+			_marker: PhantomData,
+		}
+	}
+}
+
+impl<T> DbIdent<T> {
+	pub fn unchecked_from<U>(t: DbIdent<U>) -> Self {
+		DbIdent {
+			id: t.id,
 			_marker: PhantomData,
 		}
 	}

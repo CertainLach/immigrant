@@ -6,7 +6,11 @@ use super::{
 };
 use crate::{
 	attribute::AttributeList,
-	names::{ColumnIdent, DbColumn, DbType, TableDefName, TableIdent, TypeIdent},
+	names::{
+		ColumnIdent, DbColumn, DbNativeType, DbTable, DbType, TableDefName, TableIdent, TypeIdent,
+		UpdateableTableDefName,
+	},
+	scalar::InlinedScalar,
 	w, Index, SchemaTable, TableColumn, TableConstraint, TableForeignKey, TableIndex, TableItem,
 };
 
@@ -14,10 +18,35 @@ use crate::{
 pub struct Table {
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
-	pub name: TableDefName,
+	name: UpdateableTableDefName,
 	pub columns: Vec<Column>,
 	pub annotations: Vec<TableAnnotation>,
 	pub foreign_keys: Vec<ForeignKey>,
+}
+impl Table {
+	pub fn new(
+		docs: Vec<String>,
+		attrlist: AttributeList,
+		name: TableDefName,
+		columns: Vec<Column>,
+		annotations: Vec<TableAnnotation>,
+		foreign_keys: Vec<ForeignKey>,
+	) -> Self {
+		Self {
+			docs,
+			attrlist,
+			name: UpdateableTableDefName::new(name),
+			columns,
+			annotations,
+			foreign_keys,
+		}
+	}
+	pub fn name(&self) -> TableDefName {
+		self.name.name()
+	}
+	pub fn set_db(&self, db: DbTable) {
+		self.name.set_db(db)
+	}
 }
 #[derive(Debug)]
 pub enum TableAnnotation {
@@ -55,13 +84,13 @@ pub struct ForeignKey {
 }
 
 impl TableAnnotation {
-	fn as_index(&self) -> Option<&Index> {
+	pub fn as_index(&self) -> Option<&Index> {
 		match self {
 			TableAnnotation::Index(i) => Some(i),
 			_ => None,
 		}
 	}
-	fn as_constraint(&self) -> Option<&Constraint> {
+	pub fn as_constraint(&self) -> Option<&Constraint> {
 		match self {
 			TableAnnotation::Constraint(i) => Some(i),
 			_ => None,
@@ -79,13 +108,9 @@ impl Table {
 			}
 		}
 	}
-	pub fn apply_scalar_annotations(
-		&mut self,
-		scalar: TypeIdent,
-		annotations: &[ColumnAnnotation],
-	) {
+	pub(crate) fn apply_inlined_scalar(&mut self, scalar: TypeIdent, annotations: &InlinedScalar) {
 		for col in self.columns.iter_mut() {
-			col.apply_scalar_annotations(scalar, annotations)
+			col.apply_inlined_scalar(scalar, annotations)
 		}
 	}
 
@@ -272,7 +297,7 @@ impl<'s> TableForeignKey<'s> {
 			.map(|f| target_table.db_name(&f))
 			.collect()
 	}
-	pub fn db_types(&self) -> Vec<DbType> {
+	pub fn db_types(&self) -> Vec<DbNativeType> {
 		let db_types: Vec<_> = self
 			.source_columns()
 			.into_iter()
