@@ -15,12 +15,12 @@
       system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [rust-overlay.overlay];
+          overlays = [rust-overlay.overlays.default];
           config.allowUnfree = true;
         };
         rust =
           (pkgs.rustChannelOf {
-            date = "2023-05-09";
+            date = "2023-08-14";
             channel = "nightly";
           })
           .default
@@ -30,10 +30,12 @@
       in rec {
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
+            alejandra
             rust
             cargo-edit
             cargo-expand
-            cargo-watch
+
+            just
 
             nodePackages_latest.yarn
             nodejs_latest
