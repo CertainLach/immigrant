@@ -8,6 +8,7 @@ use itertools::{Either, Itertools};
 
 use crate::{
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
+	names::UpdateableDbName,
 	root::{Item, Schema},
 	scalar::{Scalar, ScalarAnnotation},
 	sql::Sql,
@@ -123,7 +124,7 @@ impl Pgnc<&mut Table> {
 		let pk_name = annotations
 			.iter()
 			.filter_map(TableAnnotation::as_primary_key)
-			.filter_map(|pk| pk.name.clone())
+			.filter_map(|pk| pk.name.db_if_assigned())
 			.at_most_one()
 			.expect("at most one pk have name set");
 		let (pks, mut annotations): (Vec<_>, Vec<_>) =
@@ -132,7 +133,9 @@ impl Pgnc<&mut Table> {
 				a => Either::Right(a),
 			});
 		annotations.push(TableAnnotation::PrimaryKey(PrimaryKey {
-			name: pk_name,
+			name: pk_name
+				.map(UpdateableDbName::new)
+				.unwrap_or_else(UpdateableDbName::guard),
 			columns: pks.into_iter().flat_map(|pk| pk.columns).collect(),
 		}));
 
@@ -251,7 +254,7 @@ impl Pgnc<&mut Table> {
 					w!(out, "_key");
 					decided_names.push(Some(out));
 				}
-				TableAnnotation::PrimaryKey(p) if p.name.is_none() => {
+				TableAnnotation::PrimaryKey(p) if !p.name.assigned() => {
 					let mut out = self.name().to_string();
 					w!(out, "_");
 					for ele in self.db_names(p.columns.iter().cloned()) {

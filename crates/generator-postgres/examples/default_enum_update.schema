@@ -30,7 +30,7 @@ ALTER TABLE Table
 	ALTER COLUMN a SET DEFAULT ('test2')::myenum
 ;
 ALTER TYPE myenum
-	RENAME VALUE 'test' TO 'test_removed_v4qLk'
+	RENAME VALUE 'test' TO 'test_removed_u27Au'
 ;
 -- updated --
 DROP TABLE Table;

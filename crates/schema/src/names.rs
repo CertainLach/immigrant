@@ -140,3 +140,44 @@ impl<K> UpdateableDefName<K> {
 pub type UpdateableTableDefName = UpdateableDefName<TableKind>;
 pub type UpdateableTypeDefName = UpdateableDefName<TypeKind>;
 pub type UpdateableEnumItemDefName = UpdateableDefName<EnumItemKind>;
+
+#[derive(Derivative)]
+#[derivative(
+	Debug(bound = ""),
+	PartialEq(bound = ""),
+	Clone(bound = ""),
+	Default(bound = "")
+)]
+pub struct UpdateableDbName<K> {
+	db: RefCell<DbIdent<K>>,
+}
+impl<K> UpdateableDbName<K> {
+	pub(crate) fn guard() -> Self {
+		Self {
+			db: RefCell::new(DbIdent::guard()),
+		}
+	}
+	pub(crate) fn new(db: DbIdent<K>) -> Self {
+		Self {
+			db: RefCell::new(db),
+		}
+	}
+	pub(crate) fn db(&self) -> DbIdent<K> {
+		let r = self.db.borrow();
+		r.assert_not_guard();
+		r.clone()
+	}
+	pub(crate) fn db_if_assigned(&self) -> Option<DbIdent<K>> {
+		if self.assigned() {
+			Some(self.db())
+		} else {
+			None
+		}
+	}
+	pub(crate) fn set(&self, name: DbIdent<K>) {
+		*self.db.borrow_mut() = name;
+	}
+	pub(crate) fn assigned(&self) -> bool {
+		self.db.borrow().assigned()
+	}
+}

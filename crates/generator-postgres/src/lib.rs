@@ -6,14 +6,14 @@ use std::{
 
 use rand::distributions::DistString;
 use schema::{
-	index::ConstraintTy,
 	names::{DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	w, wl, ColumnDiff, Diff, EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, TableColumn, TableConstraint, TableDiff, TableForeignKey, TableIndex, TableSql,
+	SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey,
+	TableSql, TableUniqueConstraint,
 };
 
 mod process;
@@ -99,8 +99,15 @@ impl Pg<TableSql<'_>> {
 				let a = Pg(self.table).format_sql(a);
 				w!(out, "({a})")
 			}
+			Sql::Boolean(b) => {
+				if *b {
+					w!(out, "TRUE")
+				} else {
+					w!(out, "FALSE")
+				}
+			}
 			Sql::Placeholder => unreachable!("placeholder should be replaced on this point"),
-			Sql::Null => todo!(),
+			Sql::Null => w!(out, "NULL"),
 		}
 	}
 }
@@ -125,15 +132,35 @@ impl Pg<SchemaTable<'_>> {
 			Pg(v).create_inline(out);
 			wl!(out, "");
 		}
-		for cons in self.constraints() {
+		if let Some(pk) = self.primary_key() {
 			if !had {
-				had = true;
+				had = true
 			} else {
 				w!(out, ",");
 			};
 			w!(out, "\t");
-			Pg(cons).create_inline(out);
-			wl!(out, "");
+			Pg(pk).create_inline(out);
+			wl!(out);
+		}
+		for check in self.checks() {
+			if !had {
+				had = true
+			} else {
+				w!(out, ",");
+			};
+			w!(out, "\t");
+			Pg(check).create_inline(out);
+			wl!(out);
+		}
+		for unique in self.unique_constraints() {
+			if !had {
+				had = true
+			} else {
+				w!(out, ",");
+			};
+			w!(out, "\t");
+			Pg(unique).create_inline(out);
+			wl!(out);
 		}
 		wl!(out, ");");
 		for idx in self.indexes() {
@@ -178,10 +205,10 @@ impl Pg<SchemaTable<'_>> {
 		}
 		wl!(out, ";");
 	}
-	fn constraint_isomorphic_to(&self, other: TableConstraint<'_>) -> Option<TableConstraint<'_>> {
-		self.constraints()
-			.find(|i| Pg(*i).isomorphic_to(&Pg(other)))
-	}
+	// fn constraint_isomorphic_to(&self, other: TableConstraint<'_>) -> Option<TableConstraint<'_>> {
+	// 	self.constraints()
+	// 		.find(|i| Pg(*i).isomorphic_to(&Pg(other)))
+	// }
 }
 
 impl Pg<ColumnDiff<'_>> {
@@ -251,6 +278,12 @@ impl Pg<TableDiff<'_>> {
 			}
 		}
 		let mut alternations = Vec::new();
+		match (self.old.primary_key(), self.new.primary_key()) {
+			(None, None) => {}
+			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations),
+			(None, Some(pk)) => Pg(pk).create_alter(&mut alternations),
+			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations),
+		}
 		for old_constraint in self.old.constraints() {
 			if let Some(new_constraint) = Pg(self.new).constraint_isomorphic_to(old_constraint) {
 				Pg(old_constraint).rename_alter(new_constraint.assigned_name(), &mut alternations);
@@ -341,61 +374,61 @@ impl Pg<TableForeignKey<'_>> {
 		Some(format!("RENAME CONSTRAINT {name} TO {new_name}"))
 	}
 }
-impl Pg<TableConstraint<'_>> {
-	pub fn isomorphic_to(&self, other: &Self) -> bool {
-		match (&self.kind, &other.kind) {
-			(ConstraintTy::PrimaryKey(a), ConstraintTy::PrimaryKey(b)) => {
-				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
-			}
-			(ConstraintTy::Unique { columns: a }, ConstraintTy::Unique { columns: b }) => {
-				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
-			}
-			(ConstraintTy::Check { sql: a }, ConstraintTy::Check { sql: b }) => {
-				Pg(self.table).format_sql(a) == Pg(other.table).format_sql(b)
-			}
-			_ => false,
-		}
-	}
-	pub fn create_inline(&self, out: &mut String) {
-		use ConstraintTy::*;
-		let name = self.assigned_name();
-		w!(out, "CONSTRAINT {name} ");
-		match &self.kind {
-			PrimaryKey(columns) => {
-				w!(out, "PRIMARY KEY(");
-				self.table.print_column_list(out, columns.iter().copied());
-				w!(out, ")");
-			}
-			Unique { columns } => {
-				w!(out, "UNIQUE(");
-				self.table.print_column_list(out, columns.iter().copied());
-				w!(out, ")");
-			}
-			Check { sql } => {
-				w!(out, "CHECK(");
-				Pg(self.table.sql(sql)).print(out);
-				w!(out, ")");
-			}
-		}
-	}
-	pub fn create_alter(&self, out: &mut Vec<String>) {
-		let mut s = String::new();
-		w!(s, "ADD ");
-		self.create_inline(&mut s);
-		out.push(s);
-	}
-	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
-		let name = self.assigned_name();
-		if name == new_name {
-			return;
-		}
-		out.push(format!("RENAME CONSTRAINT {name} TO {new_name}"))
-	}
-	pub fn drop_alter(&self, out: &mut Vec<String>) {
-		let name = self.name.as_ref().expect("assigned");
-		out.push(format!("DROP CONSTRAINT {name}"))
-	}
-}
+// impl Pg<TableConstraint<'_>> {
+// 	pub fn isomorphic_to(&self, other: &Self) -> bool {
+// 		match (&self.kind, &other.kind) {
+// 			(ConstraintTy::PrimaryKey(a), ConstraintTy::PrimaryKey(b)) => {
+// 				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
+// 			}
+// 			(ConstraintTy::Unique { columns: a }, ConstraintTy::Unique { columns: b }) => {
+// 				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
+// 			}
+// 			(ConstraintTy::Check { sql: a }, ConstraintTy::Check { sql: b }) => {
+// 				Pg(self.table).format_sql(a) == Pg(other.table).format_sql(b)
+// 			}
+// 			_ => false,
+// 		}
+// 	}
+// 	pub fn create_inline(&self, out: &mut String) {
+// 		use ConstraintTy::*;
+// 		let name = self.assigned_name();
+// 		w!(out, "CONSTRAINT {name} ");
+// 		match &self.kind {
+// 			PrimaryKey(columns) => {
+// 				w!(out, "PRIMARY KEY(");
+// 				self.table.print_column_list(out, columns.iter().copied());
+// 				w!(out, ")");
+// 			}
+// 			Unique { columns } => {
+// 				w!(out, "UNIQUE(");
+// 				self.table.print_column_list(out, columns.iter().copied());
+// 				w!(out, ")");
+// 			}
+// 			Check { sql } => {
+// 				w!(out, "CHECK(");
+// 				Pg(self.table.sql(sql)).print(out);
+// 				w!(out, ")");
+// 			}
+// 		}
+// 	}
+// 	pub fn create_alter(&self, out: &mut Vec<String>) {
+// 		let mut s = String::new();
+// 		w!(s, "ADD ");
+// 		self.create_inline(&mut s);
+// 		out.push(s);
+// 	}
+// 	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
+// 		let name = self.assigned_name();
+// 		if name == new_name {
+// 			return;
+// 		}
+// 		out.push(format!("RENAME CONSTRAINT {name} TO {new_name}"))
+// 	}
+// 	pub fn drop_alter(&self, out: &mut Vec<String>) {
+// 		let name = self.name.as_ref().expect("assigned");
+// 		out.push(format!("DROP CONSTRAINT {name}"))
+// 	}
+// }
 impl Pg<TableIndex<'_>> {
 	pub fn create(&self, out: &mut String) {
 		let name = self.name.as_ref().expect("assigned");
@@ -756,7 +789,7 @@ impl Pg<SchemaSql<'_>> {
 			Sql::Ident(_) => {
 				unreachable!("only placeholder is allowed for schema-bound checks")
 			}
-			Sql::Null => todo!(),
+			Sql::Null => w!(out, "NULL"),
 		}
 	}
 }
@@ -768,16 +801,64 @@ impl Pg<&Schema> {
 	}
 }
 
+impl Pg<TablePrimaryKey<'_>> {
+	pub fn create_inline(&self, out: &mut String) {
+		w!(out, "CONSTRAINT {} PRIMARY KEY(", self.assigned_name());
+		self.table
+			.print_column_list(&mut out, self.columns.into_iter());
+		wl!(out, ")");
+	}
+	pub fn drop_alter(&self, out: &mut Vec<String>) {
+		out.push(format!("DROP CONSTRAINT {}", self.assigned_name()));
+	}
+	pub fn create_alter(&self, out: &mut Vec<String>) {
+		let mut inl = String::new();
+		self.create_inline(&mut inl);
+		out.push(format!("ADD {inl}"));
+	}
+	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
+		out.push(format!(
+			"RENAME CONSTRAINT {} TO {}",
+			self.assigned_name(),
+			new_name
+		));
+		self.set_db(new_name)
+	}
+}
+impl Pg<TableUniqueConstraint<'_>> {
+	pub fn create_inline(&self, out: &mut String) {
+		w!(out, "CONSTRAINT {} UNIQUE(", self.assigned_name());
+		self.table
+			.print_column_list(&mut out, self.columns.into_iter());
+		wl!(out, ")");
+	}
+}
+impl Pg<TableCheck<'_>> {
+	pub fn create_inline(&self, out: &mut String) {
+		w!(out, "CONSTRAINT {} CHECK(", self.assigned_name());
+		Pg(self.table.sql(&self.check)).print(out);
+		wl!(out, ")");
+	}
+}
+
+impl Pg<Diff<TablePrimaryKey<'_>>> {
+	fn alter(&self, out: &mut Vec<String>) {
+		if self.old.assigned_name() != self.new.assigned_name() {
+			Pg(self.old).rename_alter(self.new.assigned_name(), out);
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use std::{fs, io::Write};
 
-	use schema::{wl, Diff};
+	use schema::{parser::parse, wl, Diff};
 	use tempfile::NamedTempFile;
 	use tracing::info;
 	use tracing_test::traced_test;
 
-	use crate::{process, Pg};
+	use crate::{process::default_options, Pg};
 
 	#[traced_test]
 	#[test]
@@ -815,7 +896,7 @@ mod tests {
 			let examples = examples
 				.iter()
 				.map(|example| {
-					let mut schema = match process::parse(example.as_str()) {
+					let mut schema = match parse(example.as_str(), &default_options()) {
 						Ok(s) => s,
 						Err(e) => {
 							panic!("failed to parse schema:\n{example}\n\n{e:#?}");

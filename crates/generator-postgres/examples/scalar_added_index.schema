@@ -1,0 +1,20 @@
+!!!TEST
+scalar A = "TEXT";
+table B {
+	a: A;
+};
+!!!UPDATE
+scalar A = "TEXT" @primary_key;
+table B {
+	a: A;
+};
+!!!RESULT
+CREATE DOMAIN A AS TEXT;
+CREATE TABLE B (
+	a A NOT NULL
+);
+-- updated --
+
+-- updated --
+DROP TABLE B;
+DROP DOMAIN A;

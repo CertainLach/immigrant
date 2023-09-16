@@ -7,20 +7,20 @@ use names::{DefName, ItemKind, TypeKind};
 use self::{
 	changelist::IsCompatible,
 	column::Column,
-	index::Index,
+	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
-	table::{ForeignKey, Table},
+	table::{ForeignKey, Table, TableAnnotation},
 };
 
 pub mod column;
 pub mod index;
+pub mod process;
 pub mod root;
 pub mod scalar;
 pub mod sql;
 pub mod table;
-pub mod process;
 
 pub mod ids;
 pub mod names;
@@ -46,6 +46,10 @@ macro_rules! wl {
     ($out:ident, $($tt:tt)*) => {{
         use std::fmt::Write;
 			writeln!($out, $($tt)*).unwrap();
+    }};
+    ($out:ident) => {{
+        use std::fmt::Write;
+			writeln!($out).unwrap();
     }};
 }
 #[macro_export]
@@ -111,6 +115,9 @@ pub type TableIndex<'a> = TableItem<'a, Index>;
 pub type TableColumn<'a> = TableItem<'a, Column>;
 pub type TableForeignKey<'a> = TableItem<'a, ForeignKey>;
 pub type TableSql<'a> = TableItem<'a, Sql>;
+pub type TablePrimaryKey<'a> = TableItem<'a, PrimaryKey>;
+pub type TableCheck<'a> = TableItem<'a, Check>;
+pub type TableUniqueConstraint<'a> = TableItem<'a, UniqueConstraint>;
 
 pub struct SchemaSql<'a> {
 	pub schema: &'a Schema,
@@ -211,6 +218,31 @@ impl SchemaTable<'_> {
 			table: *self,
 			value: sql,
 		}
+	}
+	pub fn primary_key(&self) -> Option<TablePrimaryKey> {
+		let pk = self.table.primary_key()?;
+		Some(TablePrimaryKey {
+			table: *self,
+			value: pk,
+		})
+	}
+	pub fn checks(&self) -> impl Iterator<Item = TableCheck> {
+		self.annotations
+			.iter()
+			.filter_map(TableAnnotation::as_check)
+			.map(|value| TableCheck {
+				table: *self,
+				value,
+			})
+	}
+	pub fn unique_constraints(&self) -> impl Iterator<Item = TableUniqueConstraint> {
+		self.annotations
+			.iter()
+			.filter_map(TableAnnotation::as_unique_constraint)
+			.map(|value| TableUniqueConstraint {
+				table: *self,
+				value,
+			})
 	}
 }
 impl Deref for SchemaTable<'_> {

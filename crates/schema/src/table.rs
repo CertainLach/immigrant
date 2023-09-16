@@ -47,6 +47,13 @@ impl Table {
 	pub fn set_db(&self, db: DbTable) {
 		self.name.set_db(db)
 	}
+	pub fn primary_key(&self) -> Option<&PrimaryKey> {
+		self.annotations
+			.iter()
+			.filter_map(TableAnnotation::as_primary_key)
+			.at_most_one()
+			.expect("at most one pk")
+	}
 }
 #[derive(Debug)]
 pub enum TableAnnotation {
@@ -96,6 +103,22 @@ impl TableAnnotation {
 	pub fn as_primary_key(&self) -> Option<&PrimaryKey> {
 		if let Self::PrimaryKey(v) = self {
 			Some(v)
+		} else {
+			None
+		}
+	}
+
+	pub fn as_check(&self) -> Option<&Check> {
+		if let Self::Check(c) = self {
+			Some(c)
+		} else {
+			None
+		}
+	}
+
+	pub fn as_unique_constraint(&self) -> Option<&UniqueConstraint> {
+		if let Self::Unique(u) = self {
+			Some(u)
 		} else {
 			None
 		}

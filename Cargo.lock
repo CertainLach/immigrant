@@ -281,6 +281,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "850878694b7933ca4c9569d30a34b55031b9b139ee1fc7b94a527c4ef960d690"
 
 [[package]]
+name = "either"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
+
+[[package]]
 name = "equivalent"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -469,6 +475,7 @@ name = "immigrant-generator-postgres"
 version = "0.1.0"
 dependencies = [
  "immigrant-schema",
+ "itertools",
  "rand 0.8.5",
  "tempfile",
  "tracing",
@@ -481,6 +488,7 @@ name = "immigrant-schema"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "itertools",
  "paste",
  "peg",
  "rand 0.8.5",
@@ -521,6 +529,15 @@ dependencies = [
  "io-lifetimes",
  "rustix 0.37.20",
  "windows-sys",
+]
+
+[[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+dependencies = [
+ "either",
 ]
 
 [[package]]

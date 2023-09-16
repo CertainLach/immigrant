@@ -1,6 +1,9 @@
 use super::sql::Sql;
 use crate::{
-	names::{ColumnIdent, DbColumn, DbConstraint, DbIndex, DbNativeType},
+	names::{
+		ColumnIdent, ConstraintKind, DbColumn, DbConstraint, DbIndex, DbNativeType, IndexKind,
+		UpdateableDbName,
+	},
 	TableIndex,
 };
 
@@ -10,11 +13,11 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Check {
 	pub check: Sql,
-	pub name: Option<String>,
+	pub name: UpdateableDbName<ConstraintKind>,
 }
 impl Check {
 	pub fn assigned_name(&self) -> DbConstraint {
-		DbConstraint::new(self.name.as_ref().expect("check name was not assigned"))
+		self.name.db()
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.check.replace_placeholder(column);
@@ -29,11 +32,11 @@ impl Check {
 #[derive(Debug, Clone)]
 pub struct UniqueConstraint {
 	pub columns: Vec<ColumnIdent>,
-	pub name: Option<String>,
+	pub name: UpdateableDbName<ConstraintKind>,
 }
 impl UniqueConstraint {
 	pub fn assigned_name(&self) -> DbConstraint {
-		DbConstraint::new(self.name.as_ref().expect("check name was not assigned"))
+		self.name.db()
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.columns.insert(0, column);
@@ -49,15 +52,18 @@ impl UniqueConstraint {
 #[derive(Debug, Clone)]
 pub struct PrimaryKey {
 	pub columns: Vec<ColumnIdent>,
-	pub name: Option<String>,
+	pub name: UpdateableDbName<ConstraintKind>,
 }
 impl PrimaryKey {
 	pub fn assigned_name(&self) -> DbConstraint {
-		DbConstraint::new(self.name.as_ref().expect("check name was not assigned"))
+		self.name.db()
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.columns.insert(0, column);
 		self
+	}
+	pub fn set_db(&self, db: DbConstraint) {
+		self.name.set(db)
 	}
 }
 
@@ -69,12 +75,12 @@ impl PrimaryKey {
 pub struct Index {
 	pub unique: bool,
 	pub fields: Vec<ColumnIdent>,
-	pub name: Option<String>,
+	pub name: UpdateableDbName<IndexKind>,
 }
 
 impl Index {
 	pub fn assigned_name(&self) -> DbIndex {
-		DbIndex::new(self.name.as_ref().expect("index name was not assigned"))
+		self.name.db()
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.fields.insert(0, column);

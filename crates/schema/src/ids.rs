@@ -7,6 +7,8 @@ use std::{
 	marker::PhantomData,
 };
 
+use derivative::Derivative;
+
 #[derive(Default)]
 pub struct CodeIdentAllocator {
 	ids: RefCell<HashMap<String, u16>>,
@@ -159,36 +161,52 @@ impl<K> Debug for Ident<K> {
 	}
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct DbIdent<K> {
 	id: String,
 	_marker: PhantomData<K>,
 }
 impl<K> DbIdent<K> {
+	pub fn guard() -> Self {
+		Self::new("")
+	}
 	pub fn new(v: &str) -> Self {
 		Self {
 			id: v[..63.min(v.len())].to_owned(),
 			_marker: PhantomData,
 		}
 	}
+	pub(crate) fn assert_not_guard(&self) {
+		assert!(self.assigned(), "db name was not assigned")
+	}
+	pub fn assigned(&self) -> bool {
+		!self.id.is_empty()
+	}
 }
 impl<K> PartialEq for DbIdent<K> {
 	fn eq(&self, other: &Self) -> bool {
+		self.assert_not_guard();
+		other.assert_not_guard();
 		self.id == other.id
 	}
 }
 impl<K> Eq for DbIdent<K> {}
 impl<K> Hash for DbIdent<K> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.assert_not_guard();
 		self.id.hash(state);
 	}
 }
 impl<K> Display for DbIdent<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.assert_not_guard();
 		write!(f, "{}", self.id)
 	}
 }
 impl<K> Debug for DbIdent<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.assert_not_guard();
 		write!(f, "{:?}", self.id)
 	}
 }

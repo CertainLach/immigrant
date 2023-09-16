@@ -9,7 +9,7 @@ use crate::{
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
-		TypeIdent,
+		TypeIdent, UpdateableDbName,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
 	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
@@ -132,20 +132,19 @@ rule on_delete() -> OnDelete
 rule default() -> Sql
 = "@default" _ "(" _ s:sql() _ ")" {s}
 rule primary_key() -> PrimaryKey
-= "@primary_key" _ name:name()? _ columns:index_fields()? {PrimaryKey{columns: columns.unwrap_or_default(), name}}
+= "@primary_key" _ name:db_ident()? _ columns:index_fields()? {PrimaryKey{columns: columns.unwrap_or_default(), name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
 rule unique() -> UniqueConstraint
-= "@unique" _ name:name()? _ columns:index_fields()? {UniqueConstraint{columns: columns.unwrap_or_default(), name}}
+= "@unique" _ name:db_ident()? _ columns:index_fields()? {UniqueConstraint{columns: columns.unwrap_or_default(), name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
 rule check() -> Check
-= "@check" _ name:name()? _ "(" _ check:sql() _ ")" {Check{check, name}}
+= "@check" _ name:db_ident()? _ "(" _ check:sql() _ ")" {Check{check, name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
 rule index() -> Index
-= "@index" _ unq:("." _ "unique" _)? name:name()? _ f:index_fields()? {Index{name, unique:unq.is_some(), fields:f.unwrap_or_default()}}
+= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields()? {Index{name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default(), unique:unq.is_some(), fields:f.unwrap_or_default()}}
 
 rule index_fields() -> Vec<ColumnIdent> = "(" _ i:code_ident()**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
 rule code_ident() -> &'input str = n: $(['a'..='z' | 'A'..='Z' | '_' | '0'..='9']+) {n};
 rule db_ident() -> &'input str = str()
 rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
-rule name() -> String = v:str() {v.to_owned()}
 
 rule sqlexpr() -> Sql = "(" s:sql() ")" {s};
 rule sql() -> Sql
