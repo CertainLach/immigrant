@@ -1,8 +1,13 @@
-use super::{index::Constraint, sql::Sql};
+use std::mem;
+
+use itertools::{Either, Itertools};
+
+use super::sql::Sql;
 use crate::{
 	attribute::AttributeList,
 	changelist::IsCompatible,
 	column::ColumnAnnotation,
+	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		DbEnumItem, DbNativeType, DbType, EnumItemDefName, EnumItemKind, TypeDefName,
 		UpdateableEnumItemDefName, UpdateableTypeDefName,
@@ -97,10 +102,13 @@ impl EnumDiff<'_> {
 }
 
 #[derive(Debug)]
-pub(crate) struct InlinedScalar {
+pub(crate) struct PropagatedScalarData {
 	pub annotations: Vec<ColumnAnnotation>,
 }
 
+/// Even though CREATE DOMAIN allows domains to be constrained as non-nulls, currently it is not possible to make
+/// scalar non-null, you should create a constraint, and then make a column not null, because non-null domain
+/// might work not as user would expect. I.e it allows value to be null in case of outer joins.
 #[derive(Debug)]
 pub struct Scalar {
 	pub attrlist: AttributeList,
@@ -130,21 +138,13 @@ impl Scalar {
 	pub fn set_db(&self, name: DbType) {
 		self.name.set_db(name)
 	}
-	pub(crate) fn inline(&mut self) -> InlinedScalar {
-		let annotations = self
-			.annotations
-			.iter()
-			.cloned()
-			.filter_map(|a| match a {
-				ScalarAnnotation::Default(d) => Some(ColumnAnnotation::Default(d)),
-				ScalarAnnotation::Constraint(c) => Some(ColumnAnnotation::Constraint(c)),
-				ScalarAnnotation::Inline => None,
-			})
-			.collect();
-		self.annotations
-			.retain(|ann| matches!(ann, ScalarAnnotation::Inline));
+	pub(crate) fn propagate(&mut self, inline: bool) -> PropagatedScalarData {
+		let (annotations, retained) = mem::take(&mut self.annotations)
+			.into_iter()
+			.partition_map(|a| a.propagate_to_column(inline));
+		self.annotations = retained;
 		self.inlined = true;
-		InlinedScalar { annotations }
+		PropagatedScalarData { annotations }
 	}
 	pub fn is_always_inline(&self) -> bool {
 		self.annotations
@@ -179,13 +179,32 @@ impl Scalar {
 
 #[derive(Debug, Clone)]
 pub enum ScalarAnnotation {
+	/// Moved to column if inlined.
 	Default(Sql),
-	Constraint(Constraint),
-	// Always convert to native types, even if database supports domain types
+	/// Moved to column if inlined.
+	Check(Check),
+	/// Moved to column.
+	PrimaryKey(PrimaryKey),
+	/// Moved to column.
+	Unique(UniqueConstraint),
+	/// Moved to column.
+	Index(Index),
+	// Always convert to native types, even if database supports domain types.
 	Inline,
 }
 impl ScalarAnnotation {
+	/// Should annotation be removed after inlining?
 	fn is_inline_target(&self) -> bool {
-		matches!(self, Self::Default(_) | Self::Constraint(_))
+		!matches!(self, Self::Inline)
+	}
+	fn propagate_to_column(self, inline: bool) -> Either<ColumnAnnotation, Self> {
+		Either::Left(match self {
+			ScalarAnnotation::PrimaryKey(p) => ColumnAnnotation::PrimaryKey(p),
+			ScalarAnnotation::Unique(u) => ColumnAnnotation::Unique(u),
+			ScalarAnnotation::Index(i) => ColumnAnnotation::Index(i),
+			ScalarAnnotation::Default(d) if inline => ColumnAnnotation::Default(d),
+			ScalarAnnotation::Check(c) if inline => ColumnAnnotation::Check(c),
+			_ => return Either::Right(self),
+		})
 	}
 }

@@ -1,17 +1,17 @@
 use std::collections::BTreeSet;
 
-use super::{
-	column::{Column, ColumnAnnotation},
-	index::{Constraint, ConstraintTy},
-};
+use itertools::Itertools;
+
+use super::column::Column;
 use crate::{
 	attribute::AttributeList,
+	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{
-		ColumnIdent, DbColumn, DbNativeType, DbTable, DbType, TableDefName, TableIdent, TypeIdent,
+		ColumnIdent, DbColumn, DbNativeType, DbTable, TableDefName, TableIdent, TypeIdent,
 		UpdateableTableDefName,
 	},
-	scalar::InlinedScalar,
-	w, Index, SchemaTable, TableColumn, TableConstraint, TableForeignKey, TableIndex, TableItem,
+	scalar::PropagatedScalarData,
+	w, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex, TableItem,
 };
 
 #[derive(Debug)]
@@ -50,8 +50,10 @@ impl Table {
 }
 #[derive(Debug)]
 pub enum TableAnnotation {
+	Check(Check),
+	Unique(UniqueConstraint),
+	PrimaryKey(PrimaryKey),
 	Index(Index),
-	Constraint(Constraint),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -90,10 +92,12 @@ impl TableAnnotation {
 			_ => None,
 		}
 	}
-	pub fn as_constraint(&self) -> Option<&Constraint> {
-		match self {
-			TableAnnotation::Constraint(i) => Some(i),
-			_ => None,
+
+	pub fn as_primary_key(&self) -> Option<&PrimaryKey> {
+		if let Self::PrimaryKey(v) = self {
+			Some(v)
+		} else {
+			None
 		}
 	}
 }
@@ -108,9 +112,13 @@ impl Table {
 			}
 		}
 	}
-	pub(crate) fn apply_inlined_scalar(&mut self, scalar: TypeIdent, annotations: &InlinedScalar) {
+	pub(crate) fn propagate_scalar_data(
+		&mut self,
+		scalar: TypeIdent,
+		propagated: &PropagatedScalarData,
+	) {
 		for col in self.columns.iter_mut() {
-			col.apply_inlined_scalar(scalar, annotations)
+			col.propagate_scalar_data(scalar, propagated)
 		}
 	}
 
@@ -177,11 +185,12 @@ impl SchemaTable<'_> {
 			.filter_map(TableAnnotation::as_index)
 			.map(|i| self.item(i))
 	}
-	pub fn constraints(&self) -> impl Iterator<Item = TableConstraint<'_>> {
+	pub fn pk(&self) -> Option<&PrimaryKey> {
 		self.annotations
 			.iter()
-			.filter_map(TableAnnotation::as_constraint)
-			.map(|i| self.item(i))
+			.filter_map(TableAnnotation::as_primary_key)
+			.at_most_one()
+			.expect("pk is not merged")
 	}
 	pub fn foreign_keys(&self) -> impl Iterator<Item = TableForeignKey<'_>> {
 		self.foreign_keys.iter().map(|i| self.item(i))
@@ -212,21 +221,17 @@ impl SchemaTable<'_> {
 						return Cardinality::One;
 					}
 				}
-				TableAnnotation::Constraint(constraint) => match &constraint.kind {
-					ConstraintTy::PrimaryKey(constrained) => {
-						if is_unique_by_index(constrained.iter().copied(), &columns) {
-							return Cardinality::One;
-						}
+				TableAnnotation::PrimaryKey(pk) => {
+					if is_unique_by_index(pk.columns.iter().copied(), &columns) {
+						return Cardinality::One;
 					}
-					ConstraintTy::Unique {
-						columns: constrained,
-					} => {
-						if is_unique_by_index(constrained.iter().copied(), &columns) {
-							return Cardinality::One;
-						}
+				}
+				TableAnnotation::Unique(u) => {
+					if is_unique_by_index(u.columns.iter().copied(), &columns) {
+						return Cardinality::One;
 					}
-					ConstraintTy::Check { .. } => {}
-				},
+				}
+				TableAnnotation::Check { .. } => {}
 			}
 		}
 		// FIXME: Wrong assumption? When target is one, it doesn't mean the source is one too
@@ -241,7 +246,6 @@ impl SchemaTable<'_> {
 		// 		return Cardinality::One;
 		// 	}
 		// }
-		// TODO: Check inverse foreign keys too
 		Cardinality::Many
 	}
 }

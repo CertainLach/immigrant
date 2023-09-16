@@ -8,6 +8,7 @@ use crate::{
 	changelist::{mk_change_list, ChangeList},
 	column::SchemaType,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
+	process::{NamingConvention, Pgnc},
 	sql::Sql,
 	EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableDiff,
 };
@@ -80,6 +81,8 @@ impl Item {
 pub struct SchemaProcessOptions {
 	/// If not - then every scalar is transformed to a regular type by inlining.
 	pub generator_supports_domain: bool,
+	/// How to create item names, how annotation deduplication should be handled, etc.
+	pub naming_convention: NamingConvention,
 }
 
 #[derive(Debug, Default)]
@@ -92,21 +95,24 @@ impl Schema {
 			Item::Scalar(_) => 9999,
 		});
 
-		let mut inlined_scalars = HashMap::new();
+		let mut propagated_scalars = HashMap::new();
 		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
-			if s.is_always_inline() || !options.generator_supports_domain {
-				let data = s.inline();
-				inlined_scalars.insert(s.name().id(), data);
-			}
+			let inline = s.is_always_inline() || !options.generator_supports_domain;
+			let data = s.propagate(inline);
+			propagated_scalars.insert(s.name().id(), data);
 		}
 
 		// Propagate scalar annotations to columns
 		for table in self.0.iter_mut().filter_map(Item::as_table_mut) {
-			for (id, data) in &inlined_scalars {
-				table.apply_inlined_scalar(*id, data);
+			for (id, data) in &propagated_scalars {
+				table.propagate_scalar_data(*id, data);
 			}
 			table.process();
 		}
+
+		match options.naming_convention {
+			NamingConvention::Postgres => (Pgnc(self)).process_naming(),
+		};
 	}
 	pub fn material_items(&self) -> Vec<SchemaItem<'_>> {
 		self.0

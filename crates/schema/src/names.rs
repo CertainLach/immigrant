@@ -5,11 +5,7 @@ use std::{
 
 use derivative::Derivative;
 
-use crate::{
-	changelist::IsCompatible,
-	ids::{DbIdent, Ident, Kind},
-	HasName,
-};
+use crate::ids::{DbIdent, Ident, Kind};
 
 macro_rules! def_kind {
     ($($name:ident($v:expr)),+ $(,)?) => {

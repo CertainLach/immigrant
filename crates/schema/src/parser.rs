@@ -6,7 +6,7 @@ use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
 	ids::{in_allocator, DbIdent},
-	index::{Constraint, ConstraintTy, Index},
+	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
 		TypeIdent,
@@ -80,15 +80,21 @@ rule attribute_value() -> AttributeValue
 = s:str() {AttributeValue::String(s.to_owned())}
 
 rule scalar_annotation() -> ScalarAnnotation
-= c:constraint() {ScalarAnnotation::Constraint(c)}
+= c:check() {ScalarAnnotation::Check(c)}
+/ u:unique() {ScalarAnnotation::Unique(u)}
+/ pk:primary_key() {ScalarAnnotation::PrimaryKey(pk)}
 / d:default() {ScalarAnnotation::Default(d)}
 / "@inline" {ScalarAnnotation::Inline}
 rule field_annotation() -> ColumnAnnotation
 = i:index() {ColumnAnnotation::Index(i)}
-/ c:constraint() {ColumnAnnotation::Constraint(c)}
+/ c:check() {ColumnAnnotation::Check(c)}
+/ u:unique() {ColumnAnnotation::Unique(u)}
+/ pk:primary_key() {ColumnAnnotation::PrimaryKey(pk)}
 / d:default() {ColumnAnnotation::Default(d)}
 rule table_annotation() -> TableAnnotation
-= c:constraint() {TableAnnotation::Constraint(c)}
+= c:check() {TableAnnotation::Check(c)}
+/ u:unique() {TableAnnotation::Unique(u)}
+/ pk:primary_key() {TableAnnotation::PrimaryKey(pk)}
 / i:index() {TableAnnotation::Index(i)}
 
 rule def_name() -> (&'input str, Option<&'input str>)
@@ -125,10 +131,12 @@ rule on_delete() -> OnDelete
 
 rule default() -> Sql
 = "@default" _ "(" _ s:sql() _ ")" {s}
-rule constraint() -> Constraint
-= "@primary_key" _ name:name()? _ columns:index_fields()? {Constraint {kind: ConstraintTy::PrimaryKey(columns.unwrap_or_default()), name}}
-/ "@unique" _ name:name()? _ columns:index_fields()? {Constraint {kind: ConstraintTy::Unique{columns: columns.unwrap_or_default()}, name}}
-/ "@check" _ name:name()? _ "(" _ s:sql() _ ")" {Constraint {kind: ConstraintTy::Check {sql: s}, name}}
+rule primary_key() -> PrimaryKey
+= "@primary_key" _ name:name()? _ columns:index_fields()? {PrimaryKey{columns: columns.unwrap_or_default(), name}}
+rule unique() -> UniqueConstraint
+= "@unique" _ name:name()? _ columns:index_fields()? {UniqueConstraint{columns: columns.unwrap_or_default(), name}}
+rule check() -> Check
+= "@check" _ name:name()? _ "(" _ check:sql() _ ")" {Check{check, name}}
 rule index() -> Index
 = "@index" _ unq:("." _ "unique" _)? name:name()? _ f:index_fields()? {Index{name, unique:unq.is_some(), fields:f.unwrap_or_default()}}
 

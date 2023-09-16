@@ -7,7 +7,7 @@ use names::{DefName, ItemKind, TypeKind};
 use self::{
 	changelist::IsCompatible,
 	column::Column,
-	index::{Constraint, Index},
+	index::Index,
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
@@ -20,6 +20,7 @@ pub mod root;
 pub mod scalar;
 pub mod sql;
 pub mod table;
+pub mod process;
 
 pub mod ids;
 pub mod names;
@@ -108,7 +109,6 @@ impl<I> Clone for TableItem<'_, I> {
 impl<I> Copy for TableItem<'_, I> {}
 pub type TableIndex<'a> = TableItem<'a, Index>;
 pub type TableColumn<'a> = TableItem<'a, Column>;
-pub type TableConstraint<'a> = TableItem<'a, Constraint>;
 pub type TableForeignKey<'a> = TableItem<'a, ForeignKey>;
 pub type TableSql<'a> = TableItem<'a, Sql>;
 

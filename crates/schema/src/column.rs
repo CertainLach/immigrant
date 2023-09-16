@@ -1,32 +1,48 @@
 use std::mem;
 
+use itertools::{Either, Itertools};
+
 use super::{
-	index::{Constraint, Index},
+	index::Index,
 	sql::Sql,
 	table::{ForeignKey, TableAnnotation},
 };
 use crate::{
-	index::ConstraintTy,
-	names::{ColumnDefName, DbNativeType, TypeIdent},
-	scalar::InlinedScalar,
+	index::{Check, PrimaryKey, UniqueConstraint},
+	names::{ColumnDefName, ColumnIdent, DbNativeType, TypeIdent},
+	scalar::PropagatedScalarData,
 	SchemaEnum, SchemaScalar, TableColumn,
 };
 
 #[derive(Debug, Clone)]
 pub enum ColumnAnnotation {
-	Constraint(Constraint),
+	/// Moved to table.
+	Check(Check),
+	/// Moved to table.
+	Unique(UniqueConstraint),
+	/// Moved to table.
+	PrimaryKey(PrimaryKey),
+	/// Moved to table.
 	Index(Index),
 	Default(Sql),
 }
 impl ColumnAnnotation {
-	fn is_table_bound(&self) -> bool {
-		matches!(self, Self::Constraint(_) | Self::Index(_))
-	}
 	fn as_default(&self) -> Option<&Sql> {
 		match self {
 			Self::Default(s) => Some(s),
 			_ => None,
 		}
+	}
+	fn propagate_to_table(self, column: ColumnIdent) -> Either<TableAnnotation, Self> {
+		Either::Left(match self {
+			ColumnAnnotation::Check(c) => TableAnnotation::Check(c.propagate_to_table(column)),
+			ColumnAnnotation::Unique(u) => TableAnnotation::Unique(u.propagate_to_table(column)),
+			ColumnAnnotation::PrimaryKey(p) => {
+				TableAnnotation::PrimaryKey(p.propagate_to_table(column))
+			}
+			ColumnAnnotation::Index(i) => TableAnnotation::Index(i.propagate_to_table(column)),
+			_ => return Either::Right(self),
+		})
 	}
 }
 
@@ -46,32 +62,22 @@ pub struct PartialForeignKey {
 }
 
 impl Column {
-	pub(crate) fn apply_inlined_scalar(&mut self, scalar: TypeIdent, inlined: &InlinedScalar) {
+	pub(crate) fn propagate_scalar_data(
+		&mut self,
+		scalar: TypeIdent,
+		propagated: &PropagatedScalarData,
+	) {
 		if self.ty == scalar {
-			self.annotations.extend(inlined.annotations.iter().cloned())
+			self.annotations
+				.extend(propagated.annotations.iter().cloned())
 		}
 	}
 	pub fn propagate_annotations(&mut self) -> Vec<TableAnnotation> {
-		let (table, column) = mem::take(&mut self.annotations)
+		let (annotations, retained) = mem::take(&mut self.annotations)
 			.into_iter()
-			.partition(ColumnAnnotation::is_table_bound);
-		self.annotations = column;
-
-		let mut out = Vec::new();
-		for annotation in table {
-			match annotation {
-				ColumnAnnotation::Index(mut i) => {
-					i.propagate_to_table(self.name.id());
-					out.push(TableAnnotation::Index(i));
-				}
-				ColumnAnnotation::Constraint(mut c) => {
-					c.propagate_to_table(self.name.id());
-					out.push(TableAnnotation::Constraint(c));
-				}
-				_ => unreachable!(),
-			}
-		}
-		out
+			.partition_map(|a| a.propagate_to_table(self.name.id().clone()));
+		self.annotations = retained;
+		annotations
 	}
 	pub fn propagate_foreign_key(&mut self) -> Option<ForeignKey> {
 		let mut fk = self.foreign_key.take()?;
@@ -108,24 +114,15 @@ impl TableColumn<'_> {
 		res.into_iter().next()
 	}
 	pub fn is_pk_part(&self) -> bool {
-		for ele in self.table.constraints() {
-			if let ConstraintTy::PrimaryKey(columns) = &ele.kind {
-				if columns.contains(&self.name.id()) {
-					return true;
-				}
-			}
-		}
-		false
+		let Some(pk) = self.table.pk() else {
+			return false;
+		};
+		pk.columns.contains(&self.name.id())
 	}
 	pub fn is_pk_full(&self) -> bool {
-		// FIXME: Will be broken after adding pk merging
-		for ele in self.table.constraints() {
-			if let ConstraintTy::PrimaryKey(columns) = &ele.kind {
-				if columns.contains(&self.name.id()) && columns.len() == 1 {
-					return true;
-				}
-			}
-		}
-		false
+		let Some(pk) = self.table.pk() else {
+			return false;
+		};
+		pk.columns == [self.name.id().clone()]
 	}
 }
