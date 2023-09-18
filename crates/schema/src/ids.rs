@@ -175,7 +175,7 @@ pub struct DbIdent<K> {
 }
 impl<K> PartialOrd for DbIdent<K> {
 	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-	    Some(self.cmp(other))
+		Some(self.cmp(other))
 	}
 }
 impl<K> DbIdent<K> {
