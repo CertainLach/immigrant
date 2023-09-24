@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
-	Diff, HasDbName, HasName,
+	Diff, 
 };
 
 #[derive(Debug, PartialEq)]
@@ -140,6 +140,7 @@ mod tests {
 		ids::{in_allocator, DbIdent},
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
+		span::{register_source, SimpleSpan},
 		HasName,
 	};
 	#[test]
@@ -161,7 +162,9 @@ mod tests {
 				}
 			}
 			fn p(a: &'static str, b: &'static str) -> P {
-				P(DefName::alloc((a, Some(b))))
+				let s = a.to_string();
+				let s = register_source(s);
+				P(DefName::alloc((SimpleSpan::new(s, 0, a.len() as u32), a, Some(b))))
 			}
 			fn i(n: &'static str) -> DbIdent<TypeKind> {
 				DbIdent::new(n)

@@ -7,6 +7,7 @@ use std::{
 use itertools::{Either, Itertools};
 
 use crate::{
+	ids::DbIdent,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::UpdateableDbName,
 	root::{Item, Schema},
@@ -63,10 +64,10 @@ impl Pgnc<&mut Scalar> {
 		let name = self.name();
 		for ann in &mut self.annotations {
 			if let ScalarAnnotation::Check(c) = ann {
-				if c.name.is_some() {
+				if c.name.assigned() {
 					continue;
 				}
-				c.name = Some(format!("{name}_check"));
+				c.name.set(DbIdent::new(&format!("{name}_check")));
 			}
 		}
 	}
@@ -81,13 +82,13 @@ impl Pgnc<&mut Scalar> {
 			});
 		let merged_checks = checks
 			.into_iter()
-			.map(|c| (c.name.expect("name is assigned"), c.check))
+			.map(|c| (c.name.db(), c.check))
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
 		for (name, checks) in merged_checks {
 			annotations.push(ScalarAnnotation::Check(Check {
-				name: Some(name),
+				name: UpdateableDbName::new(name),
 				check: Sql::all(checks),
 			}))
 		}
@@ -147,16 +148,16 @@ impl Pgnc<&mut Table> {
 			});
 		let (named_unqs, unnamed_unqs) = unqs
 			.into_iter()
-			.partition::<Vec<_>, _>(|u| u.name.is_some());
+			.partition::<Vec<_>, _>(|u| u.name.assigned());
 		let named_unqs = named_unqs
 			.into_iter()
-			.map(|u| (u.name.expect("has name"), u.columns))
+			.map(|u| (u.name.db(), u.columns))
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
 		for (name, cols) in named_unqs {
 			annotations.push(TableAnnotation::Unique(UniqueConstraint {
-				name: Some(name),
+				name: UpdateableDbName::new(name),
 				columns: cols.into_iter().flatten().collect(),
 			}))
 		}
@@ -172,21 +173,21 @@ impl Pgnc<&mut Table> {
 			});
 		let (named_cks, unnamed_cks) = checks
 			.into_iter()
-			.partition::<Vec<_>, _>(|c| c.name.is_some());
+			.partition::<Vec<_>, _>(|c| c.name.assigned());
 		let named_cks = named_cks
 			.into_iter()
-			.map(|c| (c.name.expect("has name"), c.check))
+			.map(|c| (c.name.db(), c.check))
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
 		for (name, checks) in named_cks {
 			annotations.push(TableAnnotation::Check(Check {
-				name: Some(name),
+				name: UpdateableDbName::new(name),
 				check: Sql::all(checks),
 			}))
 		}
 		annotations.push(TableAnnotation::Check(Check {
-			name: None,
+			name: UpdateableDbName::guard(),
 			check: Sql::all(unnamed_cks.into_iter().map(|c| c.check)),
 		}));
 
@@ -198,19 +199,19 @@ impl Pgnc<&mut Table> {
 			});
 		let (named_idxs, unnamed_idxs) = indexes
 			.into_iter()
-			.partition::<Vec<_>, _>(|i| i.name.is_some());
+			.partition::<Vec<_>, _>(|i| i.name.assigned());
 		// let (unique_idxs, normal_idxs) =
 		// 	named_idxs.into_iter().partition::<Vec<_>, _>(|i| i.unique);
 		// let unique_idxs = na
 		let named_idxs = named_idxs
 			.into_iter()
-			.map(|i| ((i.unique, i.name.expect("has name")), i.fields))
+			.map(|i| ((i.unique, i.name.db()), i.fields))
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
 		for ((unique, name), fields) in named_idxs {
 			annotations.push(TableAnnotation::Index(Index {
-				name: Some(name),
+				name: UpdateableDbName::new(name),
 				unique,
 				fields: fields.into_iter().flatten().collect(),
 			}))
@@ -223,7 +224,7 @@ impl Pgnc<&mut Table> {
 		let mut decided_names = Vec::new();
 		for ann in self.annotations.iter() {
 			match ann {
-				TableAnnotation::Index(i) if i.name.is_none() => {
+				TableAnnotation::Index(i) if !i.name.assigned() => {
 					let mut out = self.name().to_string();
 					w!(out, "_");
 					for column in self.db_names(i.fields.iter().cloned()) {
@@ -236,7 +237,7 @@ impl Pgnc<&mut Table> {
 					}
 					decided_names.push(Some(out));
 				}
-				TableAnnotation::Check(c) if c.name.is_none() => {
+				TableAnnotation::Check(c) if !c.name.assigned() => {
 					let mut out = self.name().to_string();
 					w!(out, "_");
 					for ele in self.db_names(c.check.affected_columns()) {
@@ -245,7 +246,7 @@ impl Pgnc<&mut Table> {
 					w!(out, "check");
 					decided_names.push(Some(out));
 				}
-				TableAnnotation::Unique(u) if u.name.is_none() => {
+				TableAnnotation::Unique(u) if !u.name.assigned() => {
 					let mut out = self.name().to_string();
 					w!(out, "_");
 					for ele in self.db_names(u.columns.iter().cloned()) {
@@ -270,12 +271,13 @@ impl Pgnc<&mut Table> {
 		for (i, ann) in self.annotations.iter_mut().enumerate() {
 			let name = decided_names[i].clone();
 			match ann {
-				TableAnnotation::Index(i) if i.name.is_none() => {
+				TableAnnotation::Index(i) if !i.name.assigned() => {
 					assert!(name.is_some());
-					i.name = name;
+					i.name.set(DbIdent::new(&name.unwrap()));
 				}
 				_ => assert!(name.is_none()),
 			}
 		}
 	}
 }
+

@@ -10,7 +10,7 @@ use crate::{
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
 	sql::Sql,
-	EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableDiff,
+	EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableDiff, HasIdent,
 };
 
 // newty_enum!(
@@ -152,13 +152,13 @@ impl Schema {
 			.collect()
 	}
 	pub fn schema_ty(&self, name: TypeIdent) -> SchemaType<'_> {
-		if let Some(scalar) = self.scalars().find(|s| s.name() == name) {
+		if let Some(scalar) = self.scalars().find(|s| s.id() == name) {
 			return SchemaType::Scalar(SchemaScalar {
 				schema: self,
 				scalar,
 			});
 		}
-		if let Some(en) = self.enums().find(|s| s.name() == name) {
+		if let Some(en) = self.enums().find(|s| s.id() == name) {
 			return SchemaType::Enum(SchemaEnum { schema: self, en });
 		}
 		panic!("type not found: {name:?}")
@@ -166,8 +166,8 @@ impl Schema {
 	pub fn native_type(&self, name: &TypeIdent) -> DbNativeType {
 		for item in self.0.iter() {
 			match item {
-				Item::Enum(e) if &e.name() == name => return e.db_type(),
-				Item::Scalar(v) if &v.name() == name => return v.native(),
+				Item::Enum(e) if &e.id() == name => return e.db_type(),
+				Item::Scalar(v) if &v.id() == name => return v.native(),
 				_ => continue,
 			}
 		}
@@ -183,28 +183,12 @@ impl Schema {
 		self.0.iter().filter_map(Item::as_scalar)
 	}
 
-	pub fn table(&self, name: &DbTable) -> Option<SchemaTable<'_>> {
-		self.tables()
-			.find(|t| &t.name() == name)
-			.map(|t| SchemaTable {
-				schema: self,
-				table: t,
-			})
-	}
 	pub fn schema_table(&self, name: &TableIdent) -> Option<SchemaTable<'_>> {
 		self.tables()
 			.find(|t| &t.name() == name)
 			.map(|t| SchemaTable {
 				schema: self,
 				table: t,
-			})
-	}
-	pub fn r#enum(&self, name: &DbType) -> Option<SchemaEnum<'_>> {
-		self.enums()
-			.find(|t| &t.name() == name)
-			.map(|t| SchemaEnum {
-				schema: self,
-				en: t,
 			})
 	}
 

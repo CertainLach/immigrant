@@ -5,24 +5,26 @@ use itertools::Itertools;
 use super::column::Column;
 use crate::{
 	attribute::AttributeList,
+	ids::{Ident, DbIdent},
 	index::{Check, PrimaryKey, UniqueConstraint},
-	names::{
-		ColumnIdent, DbColumn, DbNativeType, DbTable, TableDefName, TableIdent, TypeIdent,
-		UpdateableTableDefName,
-	},
+	names::{ColumnIdent, DbColumn, DbNativeType, TableDefName, TableIdent, TableKind, TypeIdent},
 	scalar::PropagatedScalarData,
-	w, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex, TableItem,
+	uid::{next_uid, HasUid, Uid},
+	w, HasIdent, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex,
+	TableItem, HasDefaultDbName, def_name_impls,
 };
 
 #[derive(Debug)]
 pub struct Table {
+	uid: Uid,
+	name: TableDefName,
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
-	name: UpdateableTableDefName,
 	pub columns: Vec<Column>,
 	pub annotations: Vec<TableAnnotation>,
 	pub foreign_keys: Vec<ForeignKey>,
 }
+def_name_impls!(Table, TableKind);
 impl Table {
 	pub fn new(
 		docs: Vec<String>,
@@ -33,19 +35,14 @@ impl Table {
 		foreign_keys: Vec<ForeignKey>,
 	) -> Self {
 		Self {
+			uid: next_uid(),
+			name,
 			docs,
 			attrlist,
-			name: UpdateableTableDefName::new(name),
 			columns,
 			annotations,
 			foreign_keys,
 		}
-	}
-	pub fn name(&self) -> TableDefName {
-		self.name.name()
-	}
-	pub fn set_db(&self, db: DbTable) {
-		self.name.set_db(db)
 	}
 	pub fn primary_key(&self) -> Option<&PrimaryKey> {
 		self.annotations

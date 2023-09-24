@@ -9,6 +9,8 @@ use std::{
 
 use derivative::Derivative;
 
+use crate::span::SimpleSpan;
+
 #[derive(Default)]
 pub struct CodeIdentAllocator {
 	ids: RefCell<HashMap<String, u16>>,
@@ -37,7 +39,7 @@ impl CodeIdentAllocator {
 		}
 		unreachable!()
 	}
-	fn ident<K: Kind>(&self, name: &str) -> Ident<K> {
+	fn ident<K: Kind>(&self, span: SimpleSpan, name: &str) -> Ident<K> {
 		let kind = K::id();
 		self.max_kind.set(self.max_kind.get().max(kind));
 		let kind = self
@@ -51,6 +53,7 @@ impl CodeIdentAllocator {
 				return Ident {
 					kind,
 					id: *v.get(),
+					span,
 					_marker: PhantomData,
 				}
 			}
@@ -61,6 +64,7 @@ impl CodeIdentAllocator {
 				Ident {
 					kind,
 					id,
+					span,
 					_marker: PhantomData,
 				}
 			}
@@ -92,6 +96,7 @@ pub fn in_allocator<T>(f: impl FnOnce() -> T) -> T {
 pub struct Ident<K> {
 	kind: u8,
 	id: u16,
+	span: SimpleSpan,
 	_marker: PhantomData<fn() -> K>,
 }
 impl<K> Ident<K> {
@@ -100,10 +105,10 @@ impl<K> Ident<K> {
 	}
 }
 impl<K: Kind> Ident<K> {
-	pub fn alloc(name: &str) -> Self {
+	pub fn alloc((span, name): (SimpleSpan, &str)) -> Self {
 		ALLOCATOR.with(|a| {
 			assert!(a.0.get(), "should be in allocator");
-			a.1.ident(name)
+			a.1.ident(span, name)
 		})
 	}
 	pub fn unchecked_cast<U: Kind>(v: Ident<U>) -> Self {
@@ -115,6 +120,7 @@ impl<K: Kind> Ident<K> {
 		Ident {
 			kind: v.kind,
 			id: v.id,
+			span: v.span,
 			_marker: PhantomData,
 		}
 	}
@@ -162,10 +168,15 @@ impl<K> Debug for Ident<K> {
 }
 
 #[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derivative(Default(bound = ""), Ord(bound = ""))]
 pub struct DbIdent<K> {
 	id: String,
 	_marker: PhantomData<K>,
+}
+impl<K> PartialOrd for DbIdent<K> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+	    Some(self.cmp(other))
+	}
 }
 impl<K> DbIdent<K> {
 	pub fn guard() -> Self {
@@ -173,7 +184,7 @@ impl<K> DbIdent<K> {
 	}
 	pub fn new(v: &str) -> Self {
 		Self {
-			id: v[..63.min(v.len())].to_owned(),
+			id: v.to_owned(),
 			_marker: PhantomData,
 		}
 	}

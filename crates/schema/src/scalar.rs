@@ -7,38 +7,29 @@ use crate::{
 	attribute::AttributeList,
 	changelist::IsCompatible,
 	column::ColumnAnnotation,
+	def_name_impls,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
-		DbEnumItem, DbNativeType, DbType, EnumItemDefName, EnumItemKind, TypeDefName,
-		UpdateableEnumItemDefName, UpdateableTypeDefName,
+		DbEnumItem, DbNativeType, DbType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind,
+		UpdateableTypeDefName,
 	},
-	EnumDiff, HasName,
+	uid::{next_uid, RenameExt, RenameMap, Uid},
 };
 
 #[derive(Debug)]
 pub struct EnumItem {
-	name: UpdateableEnumItemDefName,
+	uid: Uid,
+	name: EnumItemDefName,
 }
 impl EnumItem {
 	pub fn new(name: EnumItemDefName) -> Self {
 		Self {
-			name: UpdateableEnumItemDefName::new(name),
+			uid: next_uid(),
+			name,
 		}
 	}
-	pub fn set_db(&self, db: DbEnumItem) {
-		self.name.set_db(db)
-	}
-	pub fn db(&self) -> DbEnumItem {
-		self.name.name().db()
-	}
 }
-impl HasName for &EnumItem {
-	type Kind = EnumItemKind;
-
-	fn name(&self) -> EnumItemDefName {
-		self.name.name()
-	}
-}
+def_name_impls!(EnumItem, EnumItemKind);
 impl IsCompatible for &EnumItem {
 	fn is_compatible(&self, _new: &Self) -> bool {
 		true
@@ -47,59 +38,28 @@ impl IsCompatible for &EnumItem {
 
 #[derive(Debug)]
 pub struct Enum {
+	uid: Uid,
+	name: TypeDefName,
 	pub attrlist: AttributeList,
-	name: UpdateableTypeDefName,
 	pub items: Vec<EnumItem>,
 }
 impl Enum {
 	pub fn new(attrlist: AttributeList, name: TypeDefName, items: Vec<EnumItem>) -> Self {
 		Self {
+			uid: next_uid(),
+			name,
 			attrlist,
-			name: UpdateableTypeDefName::new(name),
 			items,
 		}
 	}
-	pub fn name(&self) -> TypeDefName {
-		self.name.name()
+	pub fn db_items(&self, rn: &RenameMap) -> Vec<DbEnumItem> {
+		self.items.iter().map(|i| i.db(rn)).collect()
 	}
-	pub fn set_db(&self, db: DbType) {
-		self.name.set_db(db)
-	}
-
-	pub fn db_items(&self) -> Vec<DbEnumItem> {
-		self.items.iter().map(|i| i.db()).collect()
-	}
-	pub fn db_type(&self) -> DbNativeType {
-		DbNativeType::unchecked_from(self.name().db())
+	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
+		DbNativeType::unchecked_from(self.db(rn))
 	}
 }
-
-impl EnumDiff<'_> {
-	pub fn added_items(&self) -> Vec<DbEnumItem> {
-		let old_items = self.old.db_items();
-		let new_items = self.new.db_items();
-
-		let mut out = Vec::new();
-		for new_item in new_items.iter() {
-			if !old_items.contains(new_item) {
-				out.push(new_item.clone())
-			}
-		}
-		out
-	}
-	pub fn removed_items(&self) -> Vec<DbEnumItem> {
-		let old_items = self.old.db_items();
-		let new_items = self.new.db_items();
-
-		let mut out = Vec::new();
-		for old_item in old_items.iter() {
-			if !new_items.contains(old_item) {
-				out.push(old_item.clone())
-			}
-		}
-		out
-	}
-}
+def_name_impls!(Enum, TypeKind);
 
 #[derive(Debug)]
 pub(crate) struct PropagatedScalarData {
@@ -111,8 +71,9 @@ pub(crate) struct PropagatedScalarData {
 /// might work not as user would expect. I.e it allows value to be null in case of outer joins.
 #[derive(Debug)]
 pub struct Scalar {
+	uid: Uid,
+	name: TypeDefName,
 	pub attrlist: AttributeList,
-	name: UpdateableTypeDefName,
 	native: DbNativeType,
 	pub annotations: Vec<ScalarAnnotation>,
 	inlined: bool,
@@ -125,18 +86,13 @@ impl Scalar {
 		annotations: Vec<ScalarAnnotation>,
 	) -> Self {
 		Self {
+			uid: next_uid(),
+			name,
 			attrlist,
-			name: UpdateableTypeDefName::new(name),
 			native,
 			annotations,
 			inlined: false,
 		}
-	}
-	pub fn name(&self) -> TypeDefName {
-		self.name.name()
-	}
-	pub fn set_db(&self, name: DbType) {
-		self.name.set_db(name)
 	}
 	pub(crate) fn propagate(&mut self, inline: bool) -> PropagatedScalarData {
 		let (annotations, retained) = mem::take(&mut self.annotations)

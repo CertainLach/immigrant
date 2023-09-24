@@ -7,6 +7,7 @@ use names::{DefName, ItemKind, TypeKind};
 use self::{
 	changelist::IsCompatible,
 	column::Column,
+	ids::Ident,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	root::Schema,
 	scalar::{Enum, Scalar},
@@ -33,6 +34,9 @@ mod changelist;
 pub mod renamelist;
 
 pub use changelist::{mk_change_list, ChangeList};
+
+mod span;
+pub mod uid;
 
 #[macro_export]
 macro_rules! w {
@@ -253,32 +257,34 @@ impl Deref for SchemaTable<'_> {
 	}
 }
 
-pub trait HasName {
+pub trait HasIdent {
 	type Kind;
-	fn name(&self) -> DefName<Self::Kind>;
+	fn id(&self) -> Ident<Self::Kind>;
 }
-pub trait HasDbName {
+pub trait HasDefaultDbName {
 	type Kind;
-	fn db(&self) -> DbIdent<Self::Kind>;
-}
-impl<T> HasDbName for T
-where
-	T: HasName,
-{
-	type Kind = <T as HasName>::Kind;
-
-	fn db(&self) -> DbIdent<Self::Kind> {
-		self.name().db()
-	}
+	fn default_db(&self) -> DbIdent<Self::Kind>;
 }
 
-impl HasName for SchemaEnumOrScalar<'_> {
-	type Kind = TypeKind;
-
-	fn name(&self) -> DefName<Self::Kind> {
-		match self {
-			SchemaEnumOrScalar::Enum(e) => e.name(),
-			SchemaEnumOrScalar::Scalar(s) => s.name(),
+#[macro_export]
+macro_rules! def_name_impls {
+	($t:ty, $k:ident) => {
+		impl $crate::uid::HasUid for $t {
+			fn uid(&self) -> Uid {
+				self.uid
+			}
 		}
-	}
+		impl $crate::HasIdent for $t {
+			type Kind = $k;
+			fn id(&self) -> $crate::ids::Ident<Self::Kind> {
+				self.name.id()
+			}
+		}
+		impl $crate::HasDefaultDbName for $t {
+			type Kind = $k;
+			fn default_db(&self) -> $crate::ids::DbIdent<Self::Kind> {
+				self.name.db()
+			}
+		}
+	};
 }

@@ -17,6 +17,7 @@ use schema::{
 };
 
 mod process;
+mod validate;
 
 pub struct Pg<T>(pub T);
 impl<T> Deref for Pg<T> {
@@ -279,18 +280,21 @@ impl Pg<TableDiff<'_>> {
 		}
 		let mut alternations = Vec::new();
 		match (self.old.primary_key(), self.new.primary_key()) {
-			(None, None) => {}
 			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations),
-			(None, Some(pk)) => Pg(pk).create_alter(&mut alternations),
-			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations),
-		}
-		for old_constraint in self.old.constraints() {
-			if let Some(new_constraint) = Pg(self.new).constraint_isomorphic_to(old_constraint) {
-				Pg(old_constraint).rename_alter(new_constraint.assigned_name(), &mut alternations);
-			} else {
-				Pg(old_constraint).drop_alter(&mut alternations);
+			(Some(old), Some(new)) => {
+				if old.assigned_name() != new.assigned_name() {
+					Pg(old).rename_alter(new.assigned_name(), &mut alternations)
+				}
 			}
+			(None, None | Some(_)) => {}
 		}
+		// for old_constraint in self.old.constraints() {
+		// 	if let Some(new_constraint) = Pg(self.new).constraint_isomorphic_to(old_constraint) {
+		// 		Pg(old_constraint).rename_alter(new_constraint.assigned_name(), &mut alternations);
+		// 	} else {
+		// 		Pg(old_constraint).drop_alter(&mut alternations);
+		// 	}
+		// }
 		for old_column in self.old.columns() {
 			if let Some(new_column) = self.new.column(&old_column.name.db()) {
 				Pg(ColumnDiff {
@@ -307,14 +311,19 @@ impl Pg<TableDiff<'_>> {
 				Pg(new_column).create_alter(&mut alternations)
 			}
 		}
-		for new_constraint in self.new.constraints() {
-			if Pg(self.old)
-				.constraint_isomorphic_to(new_constraint)
-				.is_none()
-			{
-				Pg(new_constraint).create_alter(&mut alternations);
-			}
-		}
+		match (self.old.primary_key(), self.new.primary_key()) {
+			(None, Some(v)) => Pg(v).create_alter(&mut alternations),
+			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations),
+			(Some(_) | None, None) => {}
+		};
+		// for new_constraint in self.new.constraints() {
+		// 	if Pg(self.old)
+		// 		.constraint_isomorphic_to(new_constraint)
+		// 		.is_none()
+		// 	{
+		// 		Pg(new_constraint).create_alter(&mut alternations);
+		// 	}
+		// }
 		Pg(self.new).print_alternations(&alternations, out);
 		for new_idx in self.new.indexes() {
 			if self.old.index_isomophic_to(new_idx).is_none() {
@@ -431,7 +440,7 @@ impl Pg<TableForeignKey<'_>> {
 // }
 impl Pg<TableIndex<'_>> {
 	pub fn create(&self, out: &mut String) {
-		let name = self.name.as_ref().expect("assigned");
+		let name = self.assigned_name();
 		let table_name = &self.table.name();
 
 		w!(out, "CREATE ");
@@ -448,7 +457,7 @@ impl Pg<TableIndex<'_>> {
 		w!(out, ");\n");
 	}
 	pub fn drop(&self, out: &mut String) {
-		let name = self.name.as_ref().expect("assigned");
+		let name = self.assigned_name();
 		w!(out, "DROP INDEX {name};\n")
 	}
 	pub fn rename(&self, new_name: DbIndex, out: &mut String) {
@@ -691,19 +700,19 @@ impl Pg<SchemaScalar<'_>> {
 					let formatted = Pg(self.schema).format_sql(d);
 					w!(out, "{formatted}");
 				}
-				ScalarAnnotation::Constraint(constraint) => match &constraint.kind {
-					ConstraintTy::Check { sql } => {
-						let name = constraint.name.as_ref().expect("generated");
-						w!(out, "\n\tCONSTRAINT {name} CHECK ");
-						let formatted = Pg(self.schema).format_sql(sql);
-						w!(out, "{formatted}")
-					}
-					ConstraintTy::PrimaryKey(_) | ConstraintTy::Unique { .. } => {
-						unreachable!("only check constrains are allowed on domain scalars")
-					}
-				},
+				ScalarAnnotation::Check(sql) => {
+					let name = sql.assigned_name();
+					w!(out, "\n\tCONSTRAINT {name} CHECK ");
+					let formatted = Pg(self.schema).format_sql(&sql.check);
+					w!(out, "{formatted}")
+				}
 				ScalarAnnotation::Inline => {
 					unreachable!("non-material scalars are not created")
+				}
+				ScalarAnnotation::Index(_)
+				| ScalarAnnotation::Unique(_)
+				| ScalarAnnotation::PrimaryKey(_) => {
+					unreachable!("only check constrains are allowed on domain scalars")
 				}
 			}
 		}
@@ -790,6 +799,8 @@ impl Pg<SchemaSql<'_>> {
 				unreachable!("only placeholder is allowed for schema-bound checks")
 			}
 			Sql::Null => w!(out, "NULL"),
+			Sql::Boolean(true) => w!(out, "TRUE"),
+			Sql::Boolean(false) => w!(out, "FALSE"),
 		}
 	}
 }
@@ -799,6 +810,13 @@ impl Pg<&Schema> {
 		Pg(self.sql(sql)).print(&mut out);
 		out
 	}
+}
+
+enum PgTableConstraint<'s> {
+	PrimaryKey(TablePrimaryKey<'s>),
+	Unique(TableUniqueConstraint<'s>),
+	Check(TableCheck<'s>),
+	ForeignKey(TableForeignKey<'s>),
 }
 
 impl Pg<TablePrimaryKey<'_>> {

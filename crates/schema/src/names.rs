@@ -5,7 +5,10 @@ use std::{
 
 use derivative::Derivative;
 
-use crate::ids::{DbIdent, Ident, Kind};
+use crate::{
+	ids::{DbIdent, Ident, Kind},
+	span::SimpleSpan,
+};
 
 macro_rules! def_kind {
     ($($name:ident($v:expr)),+ $(,)?) => {
@@ -49,9 +52,12 @@ impl<K> DefName<K> {
 	}
 }
 impl<K: Kind> DefName<K> {
-	pub fn alloc((code, db): (&str, Option<&str>)) -> Self {
+	pub fn unchecked_new(code: Ident<K>, db: DbIdent<K>) -> Self {
+		Self { code, db }
+	}
+	pub fn alloc((span, code, db): (SimpleSpan, &str, Option<&str>)) -> Self {
 		Self {
-			code: Ident::alloc(code),
+			code: Ident::alloc((span, code)),
 			db: DbIdent::new(db.unwrap_or(code)),
 		}
 	}
