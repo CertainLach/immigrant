@@ -9,10 +9,7 @@ use crate::{
 	column::ColumnAnnotation,
 	def_name_impls,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::{
-		DbEnumItem, DbNativeType, DbType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind,
-		UpdateableTypeDefName,
-	},
+	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
 	uid::{next_uid, RenameExt, RenameMap, Uid},
 };
 
@@ -78,6 +75,7 @@ pub struct Scalar {
 	pub annotations: Vec<ScalarAnnotation>,
 	inlined: bool,
 }
+def_name_impls!(Scalar, TypeKind);
 impl Scalar {
 	pub fn new(
 		attrlist: AttributeList,
@@ -113,7 +111,7 @@ impl Scalar {
 	pub fn inner_type(&self) -> DbNativeType {
 		self.native.clone()
 	}
-	pub fn native(&self) -> DbNativeType {
+	pub fn native(&self, rn: &RenameMap) -> DbNativeType {
 		assert!(
 			!self.is_always_inline() || self.inlined,
 			"always-inline type was not inlined"
@@ -128,7 +126,7 @@ impl Scalar {
 			);
 			self.native.clone()
 		} else {
-			DbNativeType::unchecked_from(self.name().db())
+			DbNativeType::unchecked_from(self.db(rn))
 		}
 	}
 }

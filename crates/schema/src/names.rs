@@ -1,9 +1,4 @@
-use std::{
-	cell::RefCell,
-	fmt::{self, Debug, Display},
-};
-
-use derivative::Derivative;
+use std::fmt::{self, Debug, Display};
 
 use crate::{
 	ids::{DbIdent, Ident, Kind},
@@ -37,34 +32,23 @@ def_kind!(
 );
 
 pub struct DefName<K> {
-	code: Ident<K>,
-	db: DbIdent<K>,
-}
-impl<K> DefName<K> {
-	pub fn id(&self) -> Ident<K> {
-		self.code
-	}
-	pub fn db(&self) -> DbIdent<K> {
-		self.db.clone()
-	}
-	pub fn set_db(&mut self, db: DbIdent<K>) {
-		self.db = db
-	}
+	pub code: Ident<K>,
+	pub db: Option<DbIdent<K>>,
 }
 impl<K: Kind> DefName<K> {
-	pub fn unchecked_new(code: Ident<K>, db: DbIdent<K>) -> Self {
+	pub fn unchecked_new(code: Ident<K>, db: Option<DbIdent<K>>) -> Self {
 		Self { code, db }
 	}
 	pub fn alloc((span, code, db): (SimpleSpan, &str, Option<&str>)) -> Self {
 		Self {
 			code: Ident::alloc((span, code)),
-			db: DbIdent::new(db.unwrap_or(code)),
+			db: db.map(DbIdent::new),
 		}
 	}
 	pub fn unchecked_cast<U: Kind>(v: DefName<U>) -> Self {
 		Self {
 			code: Ident::unchecked_cast(v.code),
-			db: DbIdent::unchecked_from(v.db),
+			db: v.db.map(DbIdent::unchecked_from),
 		}
 	}
 }
@@ -123,67 +107,3 @@ pub type DbForeignKey = DbIdent<ForeignKeyKind>;
 pub type DbEnumItem = DbIdent<EnumItemKind>;
 pub type DbNativeType = DbIdent<NativeTypeKind>;
 pub type DbItem = DbIdent<ItemKind>;
-
-#[derive(Derivative)]
-#[derivative(Debug(bound = ""))]
-pub struct UpdateableDefName<K> {
-	name: RefCell<DefName<K>>,
-}
-impl<K> UpdateableDefName<K> {
-	pub(crate) fn new(name: DefName<K>) -> Self {
-		Self {
-			name: RefCell::new(name),
-		}
-	}
-	pub(crate) fn name(&self) -> DefName<K> {
-		self.name.borrow().clone()
-	}
-	pub(crate) fn set_db(&self, name: DbIdent<K>) {
-		self.name.borrow_mut().set_db(name)
-	}
-}
-
-pub type UpdateableTableDefName = UpdateableDefName<TableKind>;
-pub type UpdateableTypeDefName = UpdateableDefName<TypeKind>;
-pub type UpdateableEnumItemDefName = UpdateableDefName<EnumItemKind>;
-
-#[derive(Derivative)]
-#[derivative(
-	Debug(bound = ""),
-	PartialEq(bound = ""),
-	Clone(bound = ""),
-	Default(bound = "")
-)]
-pub struct UpdateableDbName<K> {
-	db: RefCell<DbIdent<K>>,
-}
-impl<K> UpdateableDbName<K> {
-	pub(crate) fn guard() -> Self {
-		Self {
-			db: RefCell::new(DbIdent::guard()),
-		}
-	}
-	pub(crate) fn new(db: DbIdent<K>) -> Self {
-		Self {
-			db: RefCell::new(db),
-		}
-	}
-	pub(crate) fn db(&self) -> DbIdent<K> {
-		let r = self.db.borrow();
-		r.assert_not_guard();
-		r.clone()
-	}
-	pub(crate) fn db_if_assigned(&self) -> Option<DbIdent<K>> {
-		if self.assigned() {
-			Some(self.db())
-		} else {
-			None
-		}
-	}
-	pub(crate) fn set(&self, name: DbIdent<K>) {
-		*self.db.borrow_mut() = name;
-	}
-	pub(crate) fn assigned(&self) -> bool {
-		self.db.borrow().assigned()
-	}
-}

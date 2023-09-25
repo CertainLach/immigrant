@@ -1,10 +1,6 @@
 use std::{cell::Cell, collections::HashMap};
 
-use crate::{
-	ids::{DbIdent, Ident, Kind},
-	names::DefName,
-	HasIdent, HasDefaultDbName,
-};
+use crate::{ids::DbIdent, HasDefaultDbName};
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
 pub struct Uid(usize);
@@ -31,6 +27,7 @@ pub trait RenameExt {
 	type Kind;
 	fn db(&self, rn: &RenameMap) -> DbIdent<Self::Kind>;
 	fn set_db(&self, rn: &mut RenameMap, name: DbIdent<Self::Kind>);
+	fn db_assigned(&self, rn: &RenameMap) -> bool;
 }
 impl<T: HasDefaultDbName + HasUid> RenameExt for T {
 	type Kind = T::Kind;
@@ -38,27 +35,13 @@ impl<T: HasDefaultDbName + HasUid> RenameExt for T {
 		if let Some(v) = rn.0.get(&self.uid()) {
 			DbIdent::new(v.as_str())
 		} else {
-			self.default_db()
+			self.default_db().expect("name was not assigned")
 		}
 	}
 	fn set_db(&self, rn: &mut RenameMap, name: DbIdent<Self::Kind>) {
 		rn.0.insert(self.uid(), name.to_string());
 	}
-}
-pub trait RenameDefExt: RenameExt {
-	fn id(&self) -> Ident<Self::Kind>;
-	fn name(&self, rn: &RenameMap) -> DefName<Self::Kind>;
-}
-impl<T: HasIdent + RenameExt> RenameDefExt for T
-where
-	<T as HasIdent>::Kind: Kind,
-	<T as RenameExt>::Kind: Kind,
-{
-	fn id(&self) -> Ident<Self::Kind> {
-		Ident::unchecked_cast(self.id())
-	}
-	fn name(&self, rn: &RenameMap) -> DefName<Self::Kind> {
-		DefName::unchecked_new(Ident::unchecked_cast(self.id()), self.db(rn))
+	fn db_assigned(&self, rn: &RenameMap) -> bool {
+		rn.0.contains_key(&self.uid()) || self.default_db().is_some()
 	}
 }
-

@@ -1,9 +1,9 @@
 use super::sql::Sql;
 use crate::{
-	names::{
-		ColumnIdent, ConstraintKind, DbColumn, DbConstraint, DbIndex, DbNativeType, IndexKind,
-		UpdateableDbName,
-	},
+	db_name_impls,
+	ids::DbIdent,
+	names::{ColumnIdent, ConstraintKind, DbColumn, DbNativeType, IndexKind},
+	uid::{next_uid, Uid},
 	TableIndex,
 };
 
@@ -12,12 +12,18 @@ use crate::{
 /// Checks with the same name are merged using sql AND operator.
 #[derive(Debug, Clone)]
 pub struct Check {
+	uid: Uid,
+	name: DbIdent<ConstraintKind>,
 	pub check: Sql,
-	pub name: UpdateableDbName<ConstraintKind>,
 }
+db_name_impls!(Check, ConstraintKind);
 impl Check {
-	pub fn assigned_name(&self) -> DbConstraint {
-		self.name.db()
+	pub fn new(name: DbIdent<ConstraintKind>, check: Sql) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			check,
+		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.check.replace_placeholder(column);
@@ -31,12 +37,18 @@ impl Check {
 /// When appears on a scalar - always inlined to column.
 #[derive(Debug, Clone)]
 pub struct UniqueConstraint {
+	uid: Uid,
+	name: DbIdent<ConstraintKind>,
 	pub columns: Vec<ColumnIdent>,
-	pub name: UpdateableDbName<ConstraintKind>,
 }
+db_name_impls!(UniqueConstraint, ConstraintKind);
 impl UniqueConstraint {
-	pub fn assigned_name(&self) -> DbConstraint {
-		self.name.db()
+	pub fn new(name: DbIdent<ConstraintKind>, columns: Vec<ColumnIdent>) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			columns,
+		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.columns.insert(0, column);
@@ -51,19 +63,22 @@ impl UniqueConstraint {
 /// When appears on a scalar - always inlined to column.
 #[derive(Debug, Clone)]
 pub struct PrimaryKey {
+	uid: Uid,
+	name: DbIdent<ConstraintKind>,
 	pub columns: Vec<ColumnIdent>,
-	pub name: UpdateableDbName<ConstraintKind>,
 }
+db_name_impls!(PrimaryKey, ConstraintKind);
 impl PrimaryKey {
-	pub fn assigned_name(&self) -> DbConstraint {
-		self.name.db()
+	pub fn new(name: DbIdent<ConstraintKind>, columns: Vec<ColumnIdent>) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			columns,
+		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.columns.insert(0, column);
 		self
-	}
-	pub fn set_db(&self, db: DbConstraint) {
-		self.name.set(db)
 	}
 }
 
@@ -73,14 +88,20 @@ impl PrimaryKey {
 // TODO: Index kind? BTREE/etc
 #[derive(Debug, Clone)]
 pub struct Index {
+	uid: Uid,
+	name: DbIdent<IndexKind>,
 	pub unique: bool,
 	pub fields: Vec<ColumnIdent>,
-	pub name: UpdateableDbName<IndexKind>,
 }
-
+db_name_impls!(Index, IndexKind);
 impl Index {
-	pub fn assigned_name(&self) -> DbIndex {
-		self.name.db()
+	pub fn new(name: DbIdent<IndexKind>, unique: bool, fields: Vec<ColumnIdent>) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			unique,
+			fields,
+		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
 		self.fields.insert(0, column);
@@ -88,12 +109,6 @@ impl Index {
 	}
 }
 impl TableIndex<'_> {
-	pub fn isomorphic_to(&self, other: &Self) -> bool {
-		self.unique == other.unique
-			&& self.db_columns().collect::<Vec<_>>() == other.db_columns().collect::<Vec<_>>()
-			&& self.db_types().collect::<Vec<_>>() == other.db_types().collect::<Vec<_>>()
-	}
-
 	pub fn db_columns(&self) -> impl Iterator<Item = DbColumn> + '_ {
 		self.fields.iter().map(|f| self.table.db_name(f))
 	}

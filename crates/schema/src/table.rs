@@ -5,13 +5,12 @@ use itertools::Itertools;
 use super::column::Column;
 use crate::{
 	attribute::AttributeList,
-	ids::{Ident, DbIdent},
+	def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnIdent, DbColumn, DbNativeType, TableDefName, TableIdent, TableKind, TypeIdent},
 	scalar::PropagatedScalarData,
 	uid::{next_uid, HasUid, Uid},
-	w, HasIdent, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex,
-	TableItem, HasDefaultDbName, def_name_impls,
+	w, HasIdent, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex, TableItem,
 };
 
 #[derive(Debug)]
@@ -144,8 +143,8 @@ impl Table {
 
 	pub fn db_name(&self, column: &ColumnIdent) -> DbColumn {
 		for ele in self.columns.iter() {
-			if &ele.name == column {
-				return ele.name.db();
+			if &ele.id() == column {
+				return ele.db();
 			}
 		}
 		unreachable!("unknown field: {column:?}");

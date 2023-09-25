@@ -8,9 +8,11 @@ use super::{
 	table::{ForeignKey, TableAnnotation},
 };
 use crate::{
+	def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
-	names::{ColumnDefName, ColumnIdent, DbNativeType, TypeIdent},
+	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
 	scalar::PropagatedScalarData,
+	uid::Uid,
 	SchemaEnum, SchemaScalar, TableColumn,
 };
 
@@ -48,13 +50,15 @@ impl ColumnAnnotation {
 
 #[derive(Debug)]
 pub struct Column {
+	uid: Uid,
+	name: ColumnDefName,
 	pub docs: Vec<String>,
-	pub name: ColumnDefName,
 	pub nullable: bool,
 	pub ty: TypeIdent,
 	pub annotations: Vec<ColumnAnnotation>,
 	pub foreign_key: Option<PartialForeignKey>,
 }
+def_name_impls!(Column, ColumnKind);
 
 #[derive(Debug)]
 pub struct PartialForeignKey {

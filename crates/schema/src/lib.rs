@@ -2,7 +2,6 @@ use std::ops::Deref;
 
 use derivative::Derivative;
 use ids::DbIdent;
-use names::{DefName, ItemKind, TypeKind};
 
 use self::{
 	changelist::IsCompatible,
@@ -13,6 +12,7 @@ use self::{
 	scalar::{Enum, Scalar},
 	sql::Sql,
 	table::{ForeignKey, Table, TableAnnotation},
+	uid::HasUid,
 };
 
 pub mod column;
@@ -165,14 +165,12 @@ pub enum SchemaItem<'a> {
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
 }
-impl HasName for SchemaItem<'_> {
-	type Kind = ItemKind;
-
-	fn name(&self) -> DefName<Self::Kind> {
+impl HasUid for SchemaItem<'_> {
+	fn uid(&self) -> uid::Uid {
 		match self {
-			SchemaItem::Table(t) => DefName::unchecked_cast(t.table.name()),
-			SchemaItem::Enum(e) => DefName::unchecked_cast(e.en.name()),
-			SchemaItem::Scalar(s) => DefName::unchecked_cast(s.scalar.name()),
+			SchemaItem::Table(t) => t.uid(),
+			SchemaItem::Enum(e) => e.uid(),
+			SchemaItem::Scalar(s) => s.uid(),
 		}
 	}
 }
@@ -263,7 +261,7 @@ pub trait HasIdent {
 }
 pub trait HasDefaultDbName {
 	type Kind;
-	fn default_db(&self) -> DbIdent<Self::Kind>;
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>>;
 }
 
 #[macro_export]
@@ -277,13 +275,29 @@ macro_rules! def_name_impls {
 		impl $crate::HasIdent for $t {
 			type Kind = $k;
 			fn id(&self) -> $crate::ids::Ident<Self::Kind> {
-				self.name.id()
+				self.name.code.clone()
 			}
 		}
 		impl $crate::HasDefaultDbName for $t {
 			type Kind = $k;
-			fn default_db(&self) -> $crate::ids::DbIdent<Self::Kind> {
-				self.name.db()
+			fn default_db(&self) -> Option<$crate::ids::DbIdent<Self::Kind>> {
+				self.name.db.clone()
+			}
+		}
+	};
+}
+#[macro_export]
+macro_rules! db_name_impls {
+	($t:ty, $k:ident) => {
+		impl $crate::uid::HasUid for $t {
+			fn uid(&self) -> Uid {
+				self.uid
+			}
+		}
+		impl $crate::HasDefaultDbName for $t {
+			type Kind = $k;
+			fn default_db(&self) -> Option<$crate::ids::DbIdent<Self::Kind>> {
+				self.name.clone()
 			}
 		}
 	};

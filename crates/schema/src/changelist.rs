@@ -2,17 +2,18 @@ use std::collections::HashSet;
 
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
-	Diff, 
+	uid::{RenameDefExt, RenameMap},
+	Diff,
 };
 
 #[derive(Debug, PartialEq)]
-pub struct ChangeList<T: HasName> {
+pub struct ChangeList<T: RenameDefExt> {
 	pub dropped: Vec<(T, Option<RenameTemp>)>,
 	pub renamed: Vec<RenameOp<T>>,
 	pub updated: Vec<Diff<T>>,
 	pub created: Vec<T>,
 }
-impl<T: HasName> ChangeList<T> {
+impl<T: RenameDefExt> ChangeList<T> {
 	fn new() -> Self {
 		Self {
 			renamed: vec![],
@@ -32,19 +33,24 @@ pub trait IsCompatible {
 ///
 /// If values are not compatible by the decision of `IsCompatible` trait, then they will not be updated, and instead
 /// old version will be dropped, and the new version will be created.
-pub fn mk_change_list<T: HasName + Clone + IsCompatible>(old: &[T], new: &[T]) -> ChangeList<T> {
+pub fn mk_change_list<T: RenameDefExt + Clone + IsCompatible>(
+	rnold: &RenameMap,
+	old: &[T],
+	new: &[T],
+) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
+	let rnnew = &RenameMap::default();
 
 	let mut old_listed = HashSet::new();
 	let mut new_listed = HashSet::new();
 
-	let occupancy = new.iter().map(|n| n.db()).collect::<HashSet<_>>();
+	let occupancy = new.iter().map(|n| n.db(rnnew)).collect::<HashSet<_>>();
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
 			!new_listed.contains(i)
-				&& f.name().id().name() == old.name().id().name()
-				&& f.name().db() == old.name().db()
+				&& f.id().name() == old.id().name()
+				&& f.db(rnnew) == old.db(rnold)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
 			assert!(new_by_exact.next().is_none());
@@ -58,9 +64,11 @@ pub fn mk_change_list<T: HasName + Clone + IsCompatible>(old: &[T], new: &[T]) -
 		if old_listed.contains(&oid) {
 			continue;
 		}
-		let mut new_by_code = new.iter().cloned().enumerate().filter(|(i, f)| {
-			f.name().id().name() == old.name().id().name() && !new_listed.contains(i)
-		});
+		let mut new_by_code = new
+			.iter()
+			.cloned()
+			.enumerate()
+			.filter(|(i, f)| f.id().name() == old.id().name() && !new_listed.contains(i));
 		if let Some((nid, new)) = new_by_code.next() {
 			assert!(new_by_code.next().is_none());
 			old_listed.insert(oid);
@@ -79,7 +87,7 @@ pub fn mk_change_list<T: HasName + Clone + IsCompatible>(old: &[T], new: &[T]) -
 			.iter()
 			.cloned()
 			.enumerate()
-			.filter(|(i, f)| f.name().db() == old.name().db() && !new_listed.contains(i));
+			.filter(|(i, f)| f.db(rnnew) == old.db(rnold) && !new_listed.contains(i));
 		if let Some((nid, new)) = new_by_db.next() {
 			assert!(new_by_db.next().is_none());
 			old_listed.insert(oid);
@@ -87,7 +95,7 @@ pub fn mk_change_list<T: HasName + Clone + IsCompatible>(old: &[T], new: &[T]) -
 			out.updated.push(Diff { old, new });
 			continue;
 		}
-		let tmp = if occupancy.contains(&old.db()) {
+		let tmp = if occupancy.contains(&old.db(rnold)) {
 			Some(allocator.next())
 		} else {
 			None
@@ -117,15 +125,15 @@ pub fn mk_change_list<T: HasName + Clone + IsCompatible>(old: &[T], new: &[T]) -
 	}
 
 	let mut to_rename = vec![];
-	for ele in out.updated.iter() {
-		to_rename.push((ele.old.clone(), ele.new.db()));
+	for updated in out.updated.iter() {
+		to_rename.push((updated.old.clone(), updated.new.db(&rnnew)));
 	}
 	let mut moveaways = vec![];
-	for ele in out.dropped.iter() {
-		if let Some(tmp) = ele.1 {
-			moveaways.push((ele.0.clone(), tmp));
-		} else if new.iter().any(|n| n.name().db() == ele.0.name().db()) {
-			moveaways.push((ele.0.clone(), allocator.next()));
+	for old_dropped in out.dropped.iter() {
+		if let Some(tmp) = old_dropped.1 {
+			moveaways.push((old_dropped.0.clone(), tmp));
+		} else if new.iter().any(|n| n.db(rnnew) == old_dropped.0.db(rnold)) {
+			moveaways.push((old_dropped.0.clone(), allocator.next()));
 		}
 	}
 	out.renamed = reorder_renames(to_rename, moveaways, &mut allocator);
@@ -141,7 +149,7 @@ mod tests {
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
 		span::{register_source, SimpleSpan},
-		HasName,
+		uid::RenameMap,
 	};
 	#[test]
 	fn changelist_conflict() {
@@ -149,13 +157,6 @@ mod tests {
 		in_allocator(|| {
 			#[derive(Clone, Debug, PartialEq)]
 			struct P(DefName<TypeKind>);
-			impl HasName for P {
-				type Kind = TypeKind;
-
-				fn name(&self) -> DefName<Self::Kind> {
-					self.0.clone()
-				}
-			}
 			impl IsCompatible for P {
 				fn is_compatible(&self, _new: &Self) -> bool {
 					true
@@ -164,7 +165,11 @@ mod tests {
 			fn p(a: &'static str, b: &'static str) -> P {
 				let s = a.to_string();
 				let s = register_source(s);
-				P(DefName::alloc((SimpleSpan::new(s, 0, a.len() as u32), a, Some(b))))
+				P(DefName::alloc((
+					SimpleSpan::new(s, 0, a.len() as u32),
+					a,
+					Some(b),
+				)))
 			}
 			fn i(n: &'static str) -> DbIdent<TypeKind> {
 				DbIdent::new(n)
@@ -178,7 +183,11 @@ mod tests {
 			let ren1 = ren.next();
 
 			assert_eq!(
-				mk_change_list(&[p("A", "D"), p("C", "B")], &[p("C", "D"), p("A", "B")]),
+				mk_change_list(
+					&RenameMap::default(),
+					&[p("A", "D"), p("C", "B")],
+					&[p("C", "D"), p("A", "B")]
+				),
 				ChangeList {
 					renamed: vec![
 						RenameOp::Store(p("A", "D"), ren1),
@@ -195,7 +204,11 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list(&[p("A", "B")], &[p("A", "C"), p("D", "B")]),
+				mk_change_list(
+					&RenameMap::default(),
+					&[p("A", "B")],
+					&[p("A", "C"), p("D", "B")]
+				),
 				ChangeList {
 					renamed: vec![RenameOp::Rename(p("A", "B"), i("C"))],
 					updated: vec![diff!(p("A", "B"), p("A", "C"))],
@@ -205,7 +218,11 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list(&[p("D", "B"), p("A", "C")], &[p("A", "B")]),
+				mk_change_list(
+					&RenameMap::default(),
+					&[p("D", "B"), p("A", "C")],
+					&[p("A", "B")]
+				),
 				ChangeList {
 					renamed: vec![
 						RenameOp::Store(p("D", "B"), ren1),

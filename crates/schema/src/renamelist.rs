@@ -8,7 +8,7 @@ use tracing::{info, trace, trace_span};
 
 use crate::{
 	ids::{DbIdent, Kind},
-	HasDbName,
+	uid::{RenameExt, RenameMap},
 };
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Copy)]
@@ -21,7 +21,7 @@ impl RenameTemp {
 
 #[derive(Derivative)]
 #[derivative(Clone, PartialEq, Eq, Debug)]
-pub enum RenameOp<T: HasDbName> {
+pub enum RenameOp<T: RenameExt> {
 	/// Normal rename.
 	Rename(T, DbIdent<T::Kind>),
 	/// Name conflict has occured, to resolve it, the item should be temporarily renamed...
@@ -31,7 +31,7 @@ pub enum RenameOp<T: HasDbName> {
 	/// (Always queued after corresponding `Self::Store`, you should keep track of stored items)
 	Restore(RenameTemp, DbIdent<T::Kind>),
 }
-impl<T: HasDbName + Clone> RenameOp<T> {
+impl<T: RenameExt + Clone> RenameOp<T> {
 	fn target(&self) -> NameOrTemp<T> {
 		match self {
 			RenameOp::Rename(_, v) => NameOrTemp::Name(v.clone()),
@@ -39,17 +39,17 @@ impl<T: HasDbName + Clone> RenameOp<T> {
 			RenameOp::Restore(_, v) => NameOrTemp::Name(v.clone()),
 		}
 	}
-	fn source(&self) -> NameOrTemp<T> {
+	fn source(&self, rn: &RenameMap) -> NameOrTemp<T> {
 		match self {
-			RenameOp::Rename(v, _) => NameOrTemp::Name(v.db()),
-			RenameOp::Store(v, _) => NameOrTemp::Name(v.db()),
+			RenameOp::Rename(v, _) => NameOrTemp::Name(v.db(rn)),
+			RenameOp::Store(v, _) => NameOrTemp::Name(v.db(rn)),
 			RenameOp::Restore(v, _) => NameOrTemp::Temp(*v),
 		}
 	}
 }
 #[derive(Derivative)]
 #[derivative(Hash, PartialEq, Eq, Debug)]
-enum NameOrTemp<T: HasDbName> {
+enum NameOrTemp<T: RenameExt> {
 	#[derivative(Debug = "transparent")]
 	Name(DbIdent<T::Kind>),
 	#[derivative(Debug = "transparent")]
@@ -75,7 +75,8 @@ enum NameOrTemp<T: HasDbName> {
 /// ```
 ///
 /// And in the rest of cases, reordering of operations is needed, this method does everything for you.
-pub fn reorder_renames<T: HasDbName + Clone>(
+pub fn reorder_renames<T: RenameExt + Clone>(
+	rn: &RenameMap,
 	renames: Vec<(T, DbIdent<T::Kind>)>,
 	moveaways: Vec<(T, RenameTemp)>,
 	allocator: &mut RenameTempAllocator,
@@ -86,11 +87,12 @@ pub fn reorder_renames<T: HasDbName + Clone>(
 		ops.push(RenameOp::Store(t, temp))
 	}
 	ops.extend(renames.into_iter().map(|(a, b)| RenameOp::Rename(a, b)));
-	reorder_renames_inner(ops, &mut out, allocator);
+	reorder_renames_inner(rn, ops, &mut out, allocator);
 	out
 }
 
-fn reorder_renames_inner<T: HasDbName + Clone>(
+fn reorder_renames_inner<T: RenameExt + Clone>(
+	rn: &RenameMap,
 	mut renames: Vec<RenameOp<T>>,
 	out: &mut Vec<RenameOp<T>>,
 	id: &mut RenameTempAllocator,
@@ -99,7 +101,7 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 	// No loops possible/reordering needed
 	if renames.len() == 1 {
 		if let RenameOp::Rename(a, b) = &renames[0] {
-			if a.db() == *b {
+			if a.db(rn) == *b {
 				return;
 			}
 		}
@@ -111,19 +113,19 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 		"{:?}",
 		renames
 			.iter()
-			.map(|r| (r.source(), r.target()))
+			.map(|r| (r.source(rn), r.target()))
 			.collect::<Vec<_>>()
 	)
 	.entered();
-	let mut current_state: HashSet<NameOrTemp<T>> = renames.iter().map(|o| o.source()).collect();
+	let mut current_state: HashSet<NameOrTemp<T>> = renames.iter().map(|o| o.source(rn)).collect();
 
 	loop {
 		trace!("loop");
 		let mut performed = vec![];
 		for (i, op) in renames.iter().enumerate() {
-			trace!("trying to perform {:?} => {:?}", op.source(), op.target());
+			trace!("trying to perform {:?} => {:?}", op.source(rn), op.target());
 			if let RenameOp::Rename(a, b) = &op {
-				if a.db() == *b {
+				if a.db(rn) == *b {
 					// Already has needed name
 					// out.push(RenameOp::Rename(a.clone(), *b));
 					trace!("success");
@@ -136,7 +138,7 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 				continue;
 			}
 			performed.push(i);
-			current_state.remove(&op.source());
+			current_state.remove(&op.source(rn));
 			current_state.insert(op.target());
 			out.push(op.clone());
 		}
@@ -156,7 +158,7 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 		let mut looped = vec![];
 		let mut step = renames.remove(0);
 		loop {
-			let Some(pos) = renames.iter().position(|r| r.source() == step.target()) else {
+			let Some(pos) = renames.iter().position(|r| r.source(rn) == step.target()) else {
 				// Finished the loop
 				break;
 			};
@@ -165,12 +167,12 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 		}
 		looped.push(step);
 		assert_eq!(
-			looped.first().unwrap().source(),
+			looped.first().unwrap().source(rn),
 			looped.last().unwrap().target(),
 			"this meant to be a loop: {:?}",
 			looped
 				.iter()
-				.map(|r| (r.source(), r.target()))
+				.map(|r| (r.source(rn), r.target()))
 				.collect::<Vec<_>>()
 		);
 		let temp = id.next();
@@ -179,7 +181,7 @@ fn reorder_renames_inner<T: HasDbName + Clone>(
 			_ => unreachable!(),
 		});
 		let mut fixed_loop = Vec::new();
-		reorder_renames_inner(looped, &mut fixed_loop, id);
+		reorder_renames_inner(rn, looped, &mut fixed_loop, id);
 		fixed_loop.push(RenameOp::Restore(temp, target));
 		out.extend(fixed_loop);
 	}

@@ -9,7 +9,7 @@ use crate::{
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
-		TypeIdent, UpdateableDbName,
+		TypeIdent,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
 	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
@@ -135,13 +135,13 @@ rule on_delete() -> OnDelete
 rule default(s:S) -> Sql
 = "@default" _ "(" _ s:sql(s) _ ")" {s}
 rule primary_key(s:S) -> PrimaryKey
-= "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey{columns: columns.unwrap_or_default(), name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
+= "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey::new(name.map(DbIdent::new).unwrap_or_default(), columns.unwrap_or_default())}
 rule unique(s:S) -> UniqueConstraint
-= "@unique" _ name:db_ident()? _ columns:index_fields(s)? {UniqueConstraint{columns: columns.unwrap_or_default(), name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
+= "@unique" _ name:db_ident()? _ columns:index_fields(s)? {UniqueConstraint::new(name.map(DbIdent::new).unwrap_or_default(), columns.unwrap_or_default())}
 rule check(s:S) -> Check
-= "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check{check, name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default()}}
+= "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check::new(name.map(DbIdent::new).unwrap_or_default(), check)}
 rule index(s:S) -> Index
-= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index{name: name.map(|n| UpdateableDbName::new(DbIdent::new(n))).unwrap_or_default(), unique:unq.is_some(), fields:f.unwrap_or_default()}}
+= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new).unwrap_or_default(), unq.is_some(), f.unwrap_or_default())}
 
 rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
