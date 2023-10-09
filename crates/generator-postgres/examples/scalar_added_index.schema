@@ -10,11 +10,13 @@ table B {
 };
 !!!RESULT
 CREATE DOMAIN A AS TEXT;
-CREATE TABLE B (
-	a A NOT NULL
+CREATE TABLE bs (
+	a A
 );
 -- updated --
-
+ALTER TABLE bs
+	ADD CONSTRAINT bs_a_pkey PRIMARY KEY(a)
+;
 -- updated --
-DROP TABLE B;
+DROP TABLE bs;
 DROP DOMAIN A;

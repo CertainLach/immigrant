@@ -1,0 +1,41 @@
+!!!TEST
+scalar a = "TEXT";
+!!!UPDATE
+scalar a = "TEXT" @check(_ == "a");
+!!!UPDATE
+scalar a = "TEXT" @check "explicit_name" (_ == "a");
+!!!UPDATE
+scalar a = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d");
+!!!UPDATE
+scalar a "b" = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d") @check "third" (_ != "e");
+!!!UPDATE
+scalar a "b" = "TEXT";
+!!!RESULT
+CREATE DOMAIN a AS TEXT;
+-- updated --
+ALTER DOMAIN a
+	ADD CONSTRAINT a_check CHECK (VALUE = 'a')
+;
+-- updated --
+ALTER DOMAIN a
+	ALTER CONSTRAINT a_check RENAME TO explicit_name
+;
+-- updated --
+ALTER DOMAIN a
+	ADD CONSTRAINT other CHECK (VALUE <> 'd')
+;
+-- updated --
+ALTER DOMAIN a
+	RENAME TO b
+;
+ALTER DOMAIN b
+	ADD CONSTRAINT third CHECK (VALUE <> 'e')
+;
+-- updated --
+ALTER DOMAIN b
+	DROP CONSTRAINT explicit_name
+,	DROP CONSTRAINT other
+,	DROP CONSTRAINT third
+;
+-- updated --
+DROP DOMAIN b;

@@ -1,19 +1,22 @@
-use std::collections::HashSet;
+use std::{
+	collections::HashSet,
+	fmt::{self, Debug},
+};
 
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
-	uid::{RenameDefExt, RenameMap},
-	Diff,
+	uid::{RenameExt, RenameMap},
+	Diff, HasIdent,
 };
 
 #[derive(Debug, PartialEq)]
-pub struct ChangeList<T: RenameDefExt> {
+pub struct ChangeList<T: RenameExt + HasIdent> {
 	pub dropped: Vec<(T, Option<RenameTemp>)>,
 	pub renamed: Vec<RenameOp<T>>,
 	pub updated: Vec<Diff<T>>,
 	pub created: Vec<T>,
 }
-impl<T: RenameDefExt> ChangeList<T> {
+impl<T: RenameExt + HasIdent> ChangeList<T> {
 	fn new() -> Self {
 		Self {
 			renamed: vec![],
@@ -33,27 +36,30 @@ pub trait IsCompatible {
 ///
 /// If values are not compatible by the decision of `IsCompatible` trait, then they will not be updated, and instead
 /// old version will be dropped, and the new version will be created.
-pub fn mk_change_list<T: RenameDefExt + Clone + IsCompatible>(
-	rnold: &RenameMap,
+pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
+	rn: &RenameMap,
 	old: &[T],
 	new: &[T],
 ) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
-	let rnnew = &RenameMap::default();
 
 	let mut old_listed = HashSet::new();
 	let mut new_listed = HashSet::new();
 
-	let occupancy = new.iter().map(|n| n.db(rnnew)).collect::<HashSet<_>>();
+	let occupancy = new.iter().map(|n| n.db(rn)).collect::<HashSet<_>>();
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
-			!new_listed.contains(i)
-				&& f.id().name() == old.id().name()
-				&& f.db(rnnew) == old.db(rnold)
+			!new_listed.contains(i) && f.id().name() == old.id().name() && f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
-			assert!(new_by_exact.next().is_none());
+			{
+				let other = new_by_exact.next();
+				assert!(
+					other.is_none(),
+					"second exact match shouldn't be possible: {nid} {new:?} {other:?}"
+				);
+			}
 			old_listed.insert(oid);
 			new_listed.insert(nid);
 			out.updated.push(Diff { old, new });
@@ -87,7 +93,7 @@ pub fn mk_change_list<T: RenameDefExt + Clone + IsCompatible>(
 			.iter()
 			.cloned()
 			.enumerate()
-			.filter(|(i, f)| f.db(rnnew) == old.db(rnold) && !new_listed.contains(i));
+			.filter(|(i, f)| f.db(rn) == old.db(rn) && !new_listed.contains(i));
 		if let Some((nid, new)) = new_by_db.next() {
 			assert!(new_by_db.next().is_none());
 			old_listed.insert(oid);
@@ -95,7 +101,7 @@ pub fn mk_change_list<T: RenameDefExt + Clone + IsCompatible>(
 			out.updated.push(Diff { old, new });
 			continue;
 		}
-		let tmp = if occupancy.contains(&old.db(rnold)) {
+		let tmp = if occupancy.contains(&old.db(rn)) {
 			Some(allocator.next())
 		} else {
 			None
@@ -126,17 +132,17 @@ pub fn mk_change_list<T: RenameDefExt + Clone + IsCompatible>(
 
 	let mut to_rename = vec![];
 	for updated in out.updated.iter() {
-		to_rename.push((updated.old.clone(), updated.new.db(&rnnew)));
+		to_rename.push((updated.old.clone(), updated.new.db(&rn)));
 	}
 	let mut moveaways = vec![];
 	for old_dropped in out.dropped.iter() {
 		if let Some(tmp) = old_dropped.1 {
 			moveaways.push((old_dropped.0.clone(), tmp));
-		} else if new.iter().any(|n| n.db(rnnew) == old_dropped.0.db(rnold)) {
+		} else if new.iter().any(|n| n.db(rn) == old_dropped.0.db(rn)) {
 			moveaways.push((old_dropped.0.clone(), allocator.next()));
 		}
 	}
-	out.renamed = reorder_renames(to_rename, moveaways, &mut allocator);
+	out.renamed = reorder_renames(rn, to_rename, moveaways, &mut allocator);
 
 	out
 }

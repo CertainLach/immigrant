@@ -17,27 +17,17 @@ table Example {
 };
 !!!RESULT
 CREATE DOMAIN a AS TEXT
-	CONSTRAINT a_check CHECK (VALUE) <> ('bad');
-CREATE TABLE Example (
-	field a NOT NULL
-,	other_field TEXT NOT NULL
-,	CONSTRAINT Example_other_field_check CHECK((other_field) <> ('bad'))
+	CONSTRAINT a_check CHECK (VALUE <> 'bad');
+CREATE TABLE examples (
+	field a
+,	other_field TEXT
+,	CONSTRAINT examples_other_field_check CHECK (other_field <> 'bad')
 );
 -- updated --
-ALTER TABLE Example
-	DROP CONSTRAINT Example_other_field_check
-,	ALTER COLUMN field TYPE TEXT
-,	DROP COLUMN other_field
-,	ADD CONSTRAINT Example_field_check CHECK((field) <> ('good'))
-;
 DROP DOMAIN a;
 -- updated --
 CREATE DOMAIN a AS TEXT
-	CONSTRAINT a_check CHECK (VALUE) <> ('average');
-ALTER TABLE Example
-	DROP CONSTRAINT Example_field_check
-,	ALTER COLUMN field TYPE a
-;
+	CONSTRAINT a_check CHECK (VALUE <> 'average');
 -- updated --
-DROP TABLE Example;
+DROP TABLE examples;
 DROP DOMAIN a;

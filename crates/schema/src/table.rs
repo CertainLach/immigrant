@@ -5,11 +5,14 @@ use itertools::Itertools;
 use super::column::Column;
 use crate::{
 	attribute::AttributeList,
-	def_name_impls,
+	db_name_impls, def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
-	names::{ColumnIdent, DbColumn, DbNativeType, TableDefName, TableIdent, TableKind, TypeIdent},
+	names::{
+		ColumnIdent, ConstraintKind, DbColumn, DbConstraint, DbForeignKey, DbNativeType,
+		ForeignKeyKind, TableDefName, TableIdent, TableKind, TypeIdent,
+	},
 	scalar::PropagatedScalarData,
-	uid::{next_uid, HasUid, Uid},
+	uid::{next_uid, RenameExt, RenameMap, Uid},
 	w, HasIdent, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex, TableItem,
 };
 
@@ -81,11 +84,31 @@ impl OnDelete {
 
 #[derive(Debug)]
 pub struct ForeignKey {
-	pub name: Option<String>,
+	uid: Uid,
+	name: Option<DbForeignKey>,
 	pub source_fields: Option<Vec<ColumnIdent>>,
 	pub target: TableIdent,
 	pub target_fields: Option<Vec<ColumnIdent>>,
 	pub on_delete: OnDelete,
+}
+db_name_impls!(ForeignKey, ForeignKeyKind);
+impl ForeignKey {
+	pub fn new(
+		name: Option<DbForeignKey>,
+		source_fields: Option<Vec<ColumnIdent>>,
+		target: TableIdent,
+		target_fields: Option<Vec<ColumnIdent>>,
+		on_delete: OnDelete,
+	) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			source_fields,
+			target,
+			target_fields,
+			on_delete,
+		}
+	}
 }
 
 impl TableAnnotation {
@@ -141,35 +164,48 @@ impl Table {
 		}
 	}
 
-	pub fn db_name(&self, column: &ColumnIdent) -> DbColumn {
+	pub fn db_name(&self, column: &ColumnIdent, rn: &RenameMap) -> DbColumn {
 		for ele in self.columns.iter() {
 			if &ele.id() == column {
-				return ele.db();
+				return ele.db(rn);
 			}
 		}
 		unreachable!("unknown field: {column:?}");
 	}
-	pub fn db_names(&self, columns: impl IntoIterator<Item = ColumnIdent>) -> Vec<DbColumn> {
-		columns.into_iter().map(|c| self.db_name(&c)).collect()
+	pub fn db_names(
+		&self,
+		columns: impl IntoIterator<Item = ColumnIdent>,
+		rn: &RenameMap,
+	) -> Vec<DbColumn> {
+		columns.into_iter().map(|c| self.db_name(&c, rn)).collect()
 	}
-	pub fn format_index_name(&self, columns: impl Iterator<Item = ColumnIdent>) -> String {
+	pub fn format_index_name(
+		&self,
+		columns: impl Iterator<Item = ColumnIdent>,
+		rn: &RenameMap,
+	) -> String {
 		let mut out = String::new();
 		for (i, column) in columns.enumerate() {
 			if i != 0 {
 				w!(out, "_");
 			}
-			let db_name = self.db_name(&column);
+			let db_name = self.db_name(&column, rn);
 			w!(out, "{db_name}");
 		}
 		assert!(!out.is_empty(), "passed no columns");
 		out
 	}
-	pub fn print_column_list(&self, out: &mut String, columns: impl Iterator<Item = ColumnIdent>) {
+	pub fn print_column_list(
+		&self,
+		out: &mut String,
+		columns: impl Iterator<Item = ColumnIdent>,
+		rn: &RenameMap,
+	) {
 		for (i, column) in columns.enumerate() {
 			if i != 0 {
 				w!(out, ", ");
 			}
-			let db_name = self.db_name(&column);
+			let db_name = self.db_name(&column, rn);
 			w!(out, "{db_name}");
 		}
 	}
@@ -178,25 +214,13 @@ impl SchemaTable<'_> {
 	fn item<'a, I>(&'a self, value: &'a I) -> TableItem<'a, I> {
 		TableItem::unchecked_new(*self, value)
 	}
-	pub fn column(&self, name: &DbColumn) -> Option<TableColumn<'_>> {
-		self.columns().find(|c| &c.name == name)
-	}
 	pub fn schema_column(&self, column: ColumnIdent) -> TableColumn<'_> {
 		self.columns()
-			.find(|c| c.name == column)
+			.find(|c| c.id() == column)
 			.expect("column not found")
 	}
 	pub fn columns(&self) -> impl Iterator<Item = TableColumn<'_>> {
 		self.columns.iter().map(|i| self.item(i))
-	}
-	pub fn index_isomophic_to(&self, other: TableIndex<'_>) -> Option<TableIndex<'_>> {
-		self.indexes().find(|i| i.isomorphic_to(&other))
-	}
-	pub fn foreign_key_isomophic_to(
-		&self,
-		other: TableForeignKey<'_>,
-	) -> Option<TableForeignKey<'_>> {
-		self.foreign_keys().find(|i| i.isomorphic_to(&other))
 	}
 	pub fn indexes(&self) -> impl Iterator<Item = TableIndex<'_>> {
 		self.annotations
@@ -276,12 +300,6 @@ pub enum Cardinality {
 }
 
 impl<'s> TableForeignKey<'s> {
-	pub fn isomorphic_to(&self, other: &Self) -> bool {
-		self.on_delete == other.on_delete
-			&& self.source_db_columns() == other.source_db_columns()
-			&& self.target_db_columns() == other.target_db_columns()
-			&& self.db_types() == other.db_types()
-	}
 	pub fn source_columns(&self) -> Vec<ColumnIdent> {
 		if let Some(source) = &self.source_fields {
 			return source.clone();
@@ -307,31 +325,31 @@ impl<'s> TableForeignKey<'s> {
 			.schema_table(table)
 			.expect("target table is not defined")
 	}
-	pub fn source_db_columns(&self) -> Vec<DbColumn> {
+	pub fn source_db_columns(&self, rn: &RenameMap) -> Vec<DbColumn> {
 		self.source_columns()
 			.into_iter()
-			.map(|f| self.table.db_name(&f))
+			.map(|f| self.table.db_name(&f, rn))
 			.collect()
 	}
-	pub fn target_db_columns(&self) -> Vec<DbColumn> {
+	pub fn target_db_columns(&self, rn: &RenameMap) -> Vec<DbColumn> {
 		let target_table = self.target_table();
 		self.target_columns()
 			.into_iter()
-			.map(|f| target_table.db_name(&f))
+			.map(|f| target_table.db_name(&f, rn))
 			.collect()
 	}
-	pub fn db_types(&self) -> Vec<DbNativeType> {
+	pub fn db_types(&self, rn: &RenameMap) -> Vec<DbNativeType> {
 		let db_types: Vec<_> = self
 			.source_columns()
 			.into_iter()
-			.map(|f| self.table.schema_column(f).db_type())
+			.map(|f| self.table.schema_column(f).db_type(rn))
 			.collect();
 		// Sanity
 		let target_table = self.target_table();
 		let target_db_types: Vec<_> = self
 			.target_columns()
 			.into_iter()
-			.map(|f| target_table.schema_column(f).db_type())
+			.map(|f| target_table.schema_column(f).db_type(rn))
 			.collect();
 		assert_eq!(db_types, target_db_types);
 		db_types

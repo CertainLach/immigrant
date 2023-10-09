@@ -17,25 +17,37 @@ pub(crate) fn next_uid() -> Uid {
 	})
 }
 
+#[derive(Default)]
 pub struct RenameMap(HashMap<Uid, String>);
 
 pub(crate) trait HasUid {
 	fn uid(&self) -> Uid;
 }
+impl<T> HasUid for &T
+where
+	T: HasUid,
+{
+	fn uid(&self) -> Uid {
+		(*self).uid()
+	}
+}
 
 pub trait RenameExt {
 	type Kind;
-	fn db(&self, rn: &RenameMap) -> DbIdent<Self::Kind>;
+	fn db(&self, rn: &RenameMap) -> DbIdent<Self::Kind> {
+		self.try_db(rn).expect("name was not assigned")
+	}
+	fn try_db(&self, rn: &RenameMap) -> Option<DbIdent<Self::Kind>>;
 	fn set_db(&self, rn: &mut RenameMap, name: DbIdent<Self::Kind>);
 	fn db_assigned(&self, rn: &RenameMap) -> bool;
 }
 impl<T: HasDefaultDbName + HasUid> RenameExt for T {
 	type Kind = T::Kind;
-	fn db(&self, rn: &RenameMap) -> DbIdent<Self::Kind> {
+	fn try_db(&self, rn: &RenameMap) -> Option<DbIdent<Self::Kind>> {
 		if let Some(v) = rn.0.get(&self.uid()) {
-			DbIdent::new(v.as_str())
+			Some(DbIdent::new(v.as_str()))
 		} else {
-			self.default_db().expect("name was not assigned")
+			self.default_db()
 		}
 	}
 	fn set_db(&self, rn: &mut RenameMap, name: DbIdent<Self::Kind>) {

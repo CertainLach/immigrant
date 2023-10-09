@@ -1,13 +1,13 @@
 !!!TEST
 table A {
-	field: B;
+	field: b;
 };
-scalar B = "TEXT";
+scalar b = "TEXT";
 !!!RESULT
-CREATE DOMAIN B AS TEXT;
-CREATE TABLE A (
-	field B NOT NULL
+CREATE DOMAIN b AS TEXT;
+CREATE TABLE as (
+	field b
 );
 -- updated --
-DROP TABLE A;
-DROP DOMAIN B;
+DROP TABLE as;
+DROP DOMAIN b;

@@ -18,18 +18,16 @@ table A {
 };
 !!!RESULT
 CREATE DOMAIN test AS TEXT;
-CREATE TABLE A (
-	field test NOT NULL
+CREATE TABLE as (
+	field test
 );
-CREATE INDEX A_field_idx ON A(
+CREATE INDEX as_field_idx ON as(
 	field
 );
 -- updated --
-DROP INDEX A_field_idx;
+DROP INDEX as_field_idx;
 -- updated --
-CREATE INDEX A_field_idx ON A(
-	field
-);
+
 -- updated --
-DROP TABLE A;
+DROP TABLE as;
 DROP DOMAIN test;

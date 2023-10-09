@@ -1,26 +1,25 @@
 !!!TEST
-scalar B "B" = "TEXT";
-scalar A "A" = "TEXT";
+scalar b "b" = "TEXT";
+scalar a "a" = "TEXT";
 !!!UPDATE
-scalar B "C" = "TEXT";
-table A "A" {
-	field: B;
+scalar b "c" = "TEXT";
+table A "a" {
+	field: b;
 };
 !!!RESULT
-CREATE DOMAIN B AS TEXT;
-CREATE DOMAIN A AS TEXT;
+CREATE DOMAIN b AS TEXT;
+CREATE DOMAIN a AS TEXT;
 -- updated --
-ALTER DOMAIN A
+ALTER DOMAIN a
 	RENAME TO tmp_1
 ;
-ALTER DOMAIN B
-	RENAME TO C
+ALTER DOMAIN b
+	RENAME TO c
 ;
-CREATE TABLE A (
-	field C NOT NULL
+CREATE TABLE a (
+	field c
 );
-
 DROP DOMAIN tmp_1;
 -- updated --
-DROP TABLE A;
-DROP DOMAIN C;
+DROP TABLE a;
+DROP DOMAIN c;

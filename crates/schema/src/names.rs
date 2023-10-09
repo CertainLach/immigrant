@@ -52,14 +52,9 @@ impl<K: Kind> DefName<K> {
 		}
 	}
 }
-impl<K> Display for DefName<K> {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", self.db)
-	}
-}
 impl<K> Debug for DefName<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{:?} \"{}\"", self.code, self.db)
+		write!(f, "{:?} \"{:?}\"", self.code, self.db)
 	}
 }
 impl<K> PartialEq<Ident<K>> for DefName<K> {
@@ -67,12 +62,6 @@ impl<K> PartialEq<Ident<K>> for DefName<K> {
 		&self.code == other
 	}
 }
-impl<K> PartialEq<DbIdent<K>> for DefName<K> {
-	fn eq(&self, other: &DbIdent<K>) -> bool {
-		&self.db == other
-	}
-}
-
 impl<K> PartialEq for DefName<K> {
 	fn eq(&self, other: &Self) -> bool {
 		self.code == other.code && self.db == other.db

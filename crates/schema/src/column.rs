@@ -12,8 +12,8 @@ use crate::{
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
 	scalar::PropagatedScalarData,
-	uid::Uid,
-	SchemaEnum, SchemaScalar, TableColumn,
+	uid::{next_uid, RenameMap, Uid},
+	HasIdent, SchemaEnum, SchemaScalar, TableColumn,
 };
 
 #[derive(Debug, Clone)]
@@ -59,6 +59,26 @@ pub struct Column {
 	pub foreign_key: Option<PartialForeignKey>,
 }
 def_name_impls!(Column, ColumnKind);
+impl Column {
+	pub fn new(
+		name: ColumnDefName,
+		docs: Vec<String>,
+		nullable: bool,
+		ty: TypeIdent,
+		annotations: Vec<ColumnAnnotation>,
+		foreign_key: Option<PartialForeignKey>,
+	) -> Self {
+		Self {
+			uid: next_uid(),
+			name,
+			docs,
+			nullable,
+			ty,
+			annotations,
+			foreign_key,
+		}
+	}
+}
 
 #[derive(Debug)]
 pub struct PartialForeignKey {
@@ -73,19 +93,19 @@ impl Column {
 	) {
 		if self.ty == scalar {
 			self.annotations
-				.extend(propagated.annotations.iter().cloned())
+				.extend(propagated.annotations.iter().cloned());
 		}
 	}
 	pub fn propagate_annotations(&mut self) -> Vec<TableAnnotation> {
 		let (annotations, retained) = mem::take(&mut self.annotations)
 			.into_iter()
-			.partition_map(|a| a.propagate_to_table(self.name.id().clone()));
+			.partition_map(|a| a.propagate_to_table(self.id().clone()));
 		self.annotations = retained;
 		annotations
 	}
 	pub fn propagate_foreign_key(&mut self) -> Option<ForeignKey> {
 		let mut fk = self.foreign_key.take()?;
-		fk.fk.source_fields = Some(vec![self.name.id()]);
+		fk.fk.source_fields = Some(vec![self.id()]);
 		Some(fk.fk)
 	}
 }
@@ -98,15 +118,15 @@ pub enum SchemaType<'t> {
 impl SchemaType<'_> {
 	pub fn ident(&self) -> TypeIdent {
 		match self {
-			SchemaType::Scalar(s) => s.name().id(),
-			SchemaType::Enum(e) => e.name().id(),
+			SchemaType::Scalar(s) => s.id(),
+			SchemaType::Enum(e) => e.id(),
 		}
 	}
 }
 
 impl TableColumn<'_> {
-	pub fn db_type(&self) -> DbNativeType {
-		self.table.schema.native_type(&self.ty)
+	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
+		self.table.schema.native_type(&self.ty, rn)
 	}
 	pub fn default(&self) -> Option<&Sql> {
 		let res = self
@@ -121,12 +141,12 @@ impl TableColumn<'_> {
 		let Some(pk) = self.table.pk() else {
 			return false;
 		};
-		pk.columns.contains(&self.name.id())
+		pk.columns.contains(&self.id())
 	}
 	pub fn is_pk_full(&self) -> bool {
 		let Some(pk) = self.table.pk() else {
 			return false;
 		};
-		pk.columns == [self.name.id().clone()]
+		pk.columns == [self.id().clone()]
 	}
 }

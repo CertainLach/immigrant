@@ -4,20 +4,24 @@ use std::{
 	ops::{Deref, DerefMut},
 };
 
+use itertools::Itertools;
 use rand::distributions::DistString;
 use schema::{
+	index::Check,
+	mk_change_list,
 	names::{DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
+	uid::{RenameExt, RenameMap},
 	w, wl, ColumnDiff, Diff, EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
 	SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey,
 	TableSql, TableUniqueConstraint,
 };
 
 mod process;
-mod validate;
+// mod validate;
 
 pub struct Pg<T>(pub T);
 impl<T> Deref for Pg<T> {
@@ -34,93 +38,43 @@ impl<T> DerefMut for Pg<T> {
 }
 
 impl Pg<TableColumn<'_>> {
-	pub fn create_inline(&self, out: &mut String) {
-		let name = &self.name;
-		let db_type = self.db_type();
+	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
+		let name = &self.db(rn);
+		let db_type = self.db_type(rn);
 		let nullability = if self.nullable { "" } else { " NOT NULL" };
 		let defaultability = if let Some(default) = self.default() {
-			let sql = Pg(self.table).format_sql(default);
+			let sql = Pg(self.table).format_sql(default, rn);
 			format!(" DEFAULT ({sql})")
 		} else {
 			"".to_owned()
 		};
 		w!(out, "{name} {db_type}{nullability}{defaultability}")
 	}
-	pub fn drop_alter(&self, out: &mut Vec<String>) {
-		let name = &self.name;
+	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		let name = &self.db(rn);
 		out.push(format!("DROP COLUMN {name}"))
 	}
-	pub fn create_alter(&self, out: &mut Vec<String>) {
+	pub fn create_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
 		let mut inl = String::new();
-		self.create_inline(&mut inl);
+		self.create_inline(&mut inl, rn);
 		out.push(format!("ADD COLUMN {inl}"))
 	}
 }
 impl Pg<TableSql<'_>> {
-	pub fn print(&self, out: &mut String) {
-		match &*self.0 {
-			Sql::Cast(expr, ty) => {
-				let expr = Pg(self.table).format_sql(expr);
-				let native_ty = self.table.schema.native_type(ty);
-				w!(out, "({expr})::{native_ty}");
-			}
-			Sql::Call(proc, args) => {
-				w!(out, "{proc}(");
-				for (i, arg) in args.iter().enumerate() {
-					if i != 0 {
-						w!(out, ", ");
-					}
-					let arg = Pg(self.table).format_sql(arg);
-					w!(out, "{arg}");
-				}
-				w!(out, ")");
-			}
-			Sql::String(s) => {
-				w!(out, "'{s}'");
-			}
-			Sql::Number(n) => {
-				w!(out, "{n}");
-			}
-			Sql::Ident(c) => {
-				let native_name = self.table.db_name(c);
-				w!(out, "{native_name}");
-			}
-			Sql::UnOp(op, expr) => {
-				let op = op.format();
-				let expr = Pg(self.table).format_sql(expr);
-				w!(out, "{op}({expr})");
-			}
-			Sql::BinOp(a, op, b) => {
-				let op = op.format();
-				let a = Pg(self.table).format_sql(a);
-				let b = Pg(self.table).format_sql(b);
-				w!(out, "({a}) {op} ({b})")
-			}
-			Sql::Parened(a) => {
-				let a = Pg(self.table).format_sql(a);
-				w!(out, "({a})")
-			}
-			Sql::Boolean(b) => {
-				if *b {
-					w!(out, "TRUE")
-				} else {
-					w!(out, "FALSE")
-				}
-			}
-			Sql::Placeholder => unreachable!("placeholder should be replaced on this point"),
-			Sql::Null => w!(out, "NULL"),
-		}
+	pub fn print(&self, out: &mut String, rn: &RenameMap) {
+		let o = format_sql(&*self.0, &self.table.schema, Some(self.0.table), rn);
+		out.push_str(&o);
 	}
 }
 
 impl Pg<SchemaTable<'_>> {
-	fn format_sql(&self, sql: &Sql) -> String {
+	fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
 		let mut out = String::new();
-		Pg(self.sql(sql)).print(&mut out);
+		Pg(self.sql(sql)).print(&mut out, rn);
 		out
 	}
-	pub fn create(&self, out: &mut String) {
-		let table_name = &self.name();
+	pub fn create(&self, out: &mut String, rn: &RenameMap) {
+		let table_name = &self.db(rn);
 		wl!(out, "CREATE TABLE {table_name} (");
 		let mut had = false;
 		for v in self.columns() {
@@ -130,7 +84,7 @@ impl Pg<SchemaTable<'_>> {
 				w!(out, ",");
 			};
 			w!(out, "\t");
-			Pg(v).create_inline(out);
+			Pg(v).create_inline(out, rn);
 			wl!(out, "");
 		}
 		if let Some(pk) = self.primary_key() {
@@ -140,7 +94,7 @@ impl Pg<SchemaTable<'_>> {
 				w!(out, ",");
 			};
 			w!(out, "\t");
-			Pg(pk).create_inline(out);
+			Pg(pk).create_inline(out, rn);
 			wl!(out);
 		}
 		for check in self.checks() {
@@ -150,7 +104,7 @@ impl Pg<SchemaTable<'_>> {
 				w!(out, ",");
 			};
 			w!(out, "\t");
-			Pg(check).create_inline(out);
+			Pg(check).create_inline(out, rn);
 			wl!(out);
 		}
 		for unique in self.unique_constraints() {
@@ -160,43 +114,42 @@ impl Pg<SchemaTable<'_>> {
 				w!(out, ",");
 			};
 			w!(out, "\t");
-			Pg(unique).create_inline(out);
+			Pg(unique).create_inline(out, rn);
 			wl!(out);
 		}
 		wl!(out, ");");
 		for idx in self.indexes() {
-			Pg(idx).create(out);
+			Pg(idx).create(out, rn);
 		}
-		w!(out, "\n");
 	}
-	pub fn drop(&self, out: &mut String) {
-		let table_name = &self.name();
+	pub fn drop(&self, out: &mut String, rn: &RenameMap) {
+		let table_name = &self.db(rn);
 		wl!(out, "DROP TABLE {table_name};");
 	}
-	pub fn rename(&self, to: DbTable, out: &mut String) {
-		self.print_alternations(&[format!("RENAME TO {to}")], out);
-		self.set_db(to);
+	pub fn rename(&self, to: DbTable, out: &mut String, rn: &mut RenameMap) {
+		self.print_alternations(&[format!("RENAME TO {to}")], out, rn);
+		self.set_db(rn, to);
 	}
 
-	pub fn print_drop_foreign_keys(&self, out: &mut String) {
+	pub fn print_drop_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
 		let mut alternations = Vec::new();
 		for fk in self.foreign_keys() {
-			alternations.push(Pg(fk).drop_alter());
+			alternations.push(Pg(fk).drop_alter(rn));
 		}
-		self.print_alternations(&alternations, out);
+		self.print_alternations(&alternations, out, rn);
 	}
-	pub fn create_fks(&self, out: &mut String) {
+	pub fn create_fks(&self, out: &mut String, rn: &RenameMap) {
 		let mut alternations = Vec::new();
 		for fk in self.foreign_keys() {
-			alternations.push(Pg(fk).create_alter());
+			alternations.push(Pg(fk).create_alter(rn));
 		}
-		self.print_alternations(&alternations, out)
+		self.print_alternations(&alternations, out, rn)
 	}
-	pub fn print_alternations(&self, alternations: &[String], out: &mut String) {
+	pub fn print_alternations(&self, alternations: &[String], out: &mut String, rn: &RenameMap) {
 		if alternations.is_empty() {
 			return;
 		}
-		let name = &self.name();
+		let name = &self.db(rn);
 		w!(out, "ALTER TABLE {name}\n");
 		for (i, alt) in alternations.iter().enumerate() {
 			if i != 0 {
@@ -213,10 +166,10 @@ impl Pg<SchemaTable<'_>> {
 }
 
 impl Pg<ColumnDiff<'_>> {
-	pub fn print_alter(&self, out: &mut Vec<String>) {
-		let name = &self.new.name;
-		let new_ty = self.new.db_type();
-		if self.old.db_type() != new_ty {
+	pub fn print_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		let name = &self.new.db(rn);
+		let new_ty = self.new.db_type(rn);
+		if self.old.db_type(rn) != new_ty {
 			out.push(format!("ALTER COLUMN {name} TYPE {new_ty}"));
 		}
 		let new_nullable = self.new.nullable;
@@ -233,12 +186,12 @@ impl Pg<ColumnDiff<'_>> {
 		match (old_default, new_default) {
 			(None, Some(new_default)) => out.push(format!(
 				"ALTER COLUMN {name} SET DEFAULT {}",
-				Pg(self.new.table).format_sql(new_default)
+				Pg(self.new.table).format_sql(new_default, rn)
 			)),
 			(Some(_), None) => out.push(format!("ALTER COLUMN {name} DROP DEFAULT")),
 			(Some(old_default), Some(new_default)) => {
-				let old_default = Pg(self.old.table).format_sql(old_default);
-				let new_default = Pg(self.new.table).format_sql(new_default);
+				let old_default = Pg(self.old.table).format_sql(old_default, rn);
+				let new_default = Pg(self.new.table).format_sql(new_default, rn);
 				if new_default != old_default {
 					out.push(format!("ALTER COLUMN {name} SET DEFAULT {new_default}",));
 				}
@@ -248,42 +201,42 @@ impl Pg<ColumnDiff<'_>> {
 	}
 }
 impl Pg<TableDiff<'_>> {
-	pub fn print_renamed_or_fropped_foreign_keys(&self, out: &mut String) {
+	pub fn print_renamed_or_fropped_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
 		let mut alternations = Vec::new();
 		for old_fk in self.old.foreign_keys() {
-			if let Some(new_fk) = Pg(self.new).foreign_key_isomophic_to(old_fk) {
-				if let Some(ren) = Pg(old_fk).rename_alter(Pg(new_fk).db_name()) {
-					alternations.push(ren);
-				}
-			} else {
-				alternations.push(Pg(old_fk).drop_alter())
-			}
+			// if let Some(new_fk) = Pg(self.new).foreign_key_isomophic_to(old_fk) {
+			// 	if let Some(ren) = Pg(old_fk).rename_alter(Pg(new_fk).db_name()) {
+			// 		alternations.push(ren);
+			// 	}
+			// } else {
+			alternations.push(Pg(old_fk).drop_alter(rn))
+			// }
 		}
-		Pg(self.new).print_alternations(&alternations, out)
+		Pg(self.new).print_alternations(&alternations, out, rn)
 	}
-	pub fn print_added_foreign_keys(&self, out: &mut String) {
+	pub fn print_added_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
 		let mut alternations = Vec::new();
 		for new_fk in self.new.foreign_keys() {
-			if self.old.foreign_key_isomophic_to(new_fk).is_none() {
-				alternations.push(Pg(new_fk).create_alter())
-			}
+			// if self.old.foreign_key_isomophic_to(new_fk).is_none() {
+			alternations.push(Pg(new_fk).create_alter(rn))
+			// }
 		}
-		Pg(self.new).print_alternations(&alternations, out)
+		Pg(self.new).print_alternations(&alternations, out, rn)
 	}
-	pub fn print(&self, out: &mut String) {
+	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
 		for old_idx in self.old.indexes() {
-			if let Some(new_idx) = self.new.index_isomophic_to(old_idx) {
-				Pg(old_idx).rename(new_idx.assigned_name(), out)
-			} else {
-				Pg(old_idx).drop(out)
-			}
+			// if let Some(new_idx) = self.new.index_isomophic_to(old_idx) {
+			// 	Pg(old_idx).rename(new_idx.assigned_name(), out)
+			// } else {
+			Pg(old_idx).drop(out, rn)
+			// }
 		}
 		let mut alternations = Vec::new();
 		match (self.old.primary_key(), self.new.primary_key()) {
-			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations),
+			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations, rn),
 			(Some(old), Some(new)) => {
-				if old.assigned_name() != new.assigned_name() {
-					Pg(old).rename_alter(new.assigned_name(), &mut alternations)
+				if old.db(rn) != new.db(rn) {
+					Pg(old).rename_alter(new.db(rn), &mut alternations, rn)
 				}
 			}
 			(None, None | Some(_)) => {}
@@ -295,25 +248,25 @@ impl Pg<TableDiff<'_>> {
 		// 		Pg(old_constraint).drop_alter(&mut alternations);
 		// 	}
 		// }
-		for old_column in self.old.columns() {
-			if let Some(new_column) = self.new.column(&old_column.name.db()) {
-				Pg(ColumnDiff {
-					old: old_column,
-					new: new_column,
-				})
-				.print_alter(&mut alternations);
-			} else {
-				Pg(old_column).drop_alter(&mut alternations);
-			}
-		}
-		for new_column in self.new.columns() {
-			if self.old.column(&new_column.name.db()).is_none() {
-				Pg(new_column).create_alter(&mut alternations)
-			}
-		}
+		// for old_column in self.old.columns() {
+		// 	if let Some(new_column) = self.new.schema_column(&old_column.db(rn)) {
+		// 		Pg(ColumnDiff {
+		// 			old: old_column,
+		// 			new: new_column,
+		// 		})
+		// 		.print_alter(&mut alternations);
+		// 	} else {
+		// 		Pg(old_column).drop_alter(&mut alternations);
+		// 	}
+		// }
+		// for new_column in self.new.columns() {
+		// 	if self.old.column(&new_column.name.db()).is_none() {
+		// 		Pg(new_column).create_alter(&mut alternations)
+		// 	}
+		// }
 		match (self.old.primary_key(), self.new.primary_key()) {
-			(None, Some(v)) => Pg(v).create_alter(&mut alternations),
-			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations),
+			(None, Some(v)) => Pg(v).create_alter(&mut alternations, rn),
+			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations, rn),
 			(Some(_) | None, None) => {}
 		};
 		// for new_constraint in self.new.constraints() {
@@ -324,46 +277,30 @@ impl Pg<TableDiff<'_>> {
 		// 		Pg(new_constraint).create_alter(&mut alternations);
 		// 	}
 		// }
-		Pg(self.new).print_alternations(&alternations, out);
-		for new_idx in self.new.indexes() {
-			if self.old.index_isomophic_to(new_idx).is_none() {
-				Pg(new_idx).create(out)
-			}
-		}
+		Pg(self.new).print_alternations(&alternations, out, rn);
+		// for new_idx in self.new.indexes() {
+		// 	if self.old.index_isomophic_to(new_idx).is_none() {
+		// 		Pg(new_idx).create(out)
+		// 	}
+		// }
 	}
 }
 
 impl Pg<TableForeignKey<'_>> {
-	pub fn partial_name(&self) -> String {
-		if let Some(name) = &self.name {
-			return name.to_owned();
-		}
-		let mut out = String::new();
-		for column in self.source_db_columns() {
-			w!(out, "{column}_");
-		}
-		w!(out, "fk");
-		out
-	}
-	pub fn db_name(&self) -> DbForeignKey {
-		let partial_name = self.partial_name();
-		let table_name = &self.table.name();
-		DbForeignKey::new(&format!("{table_name}_{partial_name}"))
-	}
-	pub fn create_alter(&self) -> String {
+	pub fn create_alter(&self, rn: &RenameMap) -> String {
 		let mut out = String::new();
 
-		let name = self.db_name();
+		let name = self.db(rn);
 		w!(out, "ADD CONSTRAINT {name} FOREIGN KEY(");
 		let source_columns = self.source_columns();
 		self.table
-			.print_column_list(&mut out, source_columns.into_iter());
+			.print_column_list(&mut out, source_columns.into_iter(), rn);
 		w!(out, ") REFERENCES ");
 		let target_table = self.target_table();
 		let target_columns = self.target_columns();
-		let target_table_name = target_table.name().db();
+		let target_table_name = target_table.db(rn);
 		w!(out, "{target_table_name}(");
-		target_table.print_column_list(&mut out, target_columns.into_iter());
+		target_table.print_column_list(&mut out, target_columns.into_iter(), rn);
 		w!(out, ")");
 		if let Some(on_delete) = self.on_delete.sql() {
 			w!(out, " ON DELETE {on_delete}");
@@ -371,12 +308,12 @@ impl Pg<TableForeignKey<'_>> {
 
 		out
 	}
-	pub fn drop_alter(&self) -> String {
-		let name = self.db_name();
+	pub fn drop_alter(&self, rn: &RenameMap) -> String {
+		let name = self.db(rn);
 		format!("DROP CONSTRAINT {name}")
 	}
-	pub fn rename_alter(&self, new_name: DbForeignKey) -> Option<String> {
-		let name = self.db_name();
+	pub fn rename_alter(&self, new_name: DbForeignKey, rn: &RenameMap) -> Option<String> {
+		let name = self.db(rn);
 		if name == new_name {
 			return None;
 		}
@@ -439,16 +376,16 @@ impl Pg<TableForeignKey<'_>> {
 // 	}
 // }
 impl Pg<TableIndex<'_>> {
-	pub fn create(&self, out: &mut String) {
-		let name = self.assigned_name();
-		let table_name = &self.table.name();
+	pub fn create(&self, out: &mut String, rn: &RenameMap) {
+		let name = self.db(rn);
+		let table_name = &self.table.db(rn);
 
 		w!(out, "CREATE ");
 		if self.unique {
 			w!(out, "UNIQUE ");
 		}
 		w!(out, "INDEX {name} ON {table_name}(\n");
-		for (i, c) in self.db_columns().enumerate() {
+		for (i, c) in self.db_columns(rn).enumerate() {
 			if i != 0 {
 				w!(out, ",");
 			}
@@ -456,12 +393,12 @@ impl Pg<TableIndex<'_>> {
 		}
 		w!(out, ");\n");
 	}
-	pub fn drop(&self, out: &mut String) {
-		let name = self.assigned_name();
+	pub fn drop(&self, out: &mut String, rn: &RenameMap) {
+		let name = self.db(rn);
 		w!(out, "DROP INDEX {name};\n")
 	}
-	pub fn rename(&self, new_name: DbIndex, out: &mut String) {
-		let name = self.assigned_name();
+	pub fn rename(&self, new_name: DbIndex, out: &mut String, rn: &RenameMap) {
+		let name = self.db(rn);
 		if name == new_name {
 			return;
 		}
@@ -469,8 +406,8 @@ impl Pg<TableIndex<'_>> {
 	}
 }
 impl Pg<SchemaDiff<'_>> {
-	pub fn print(&self, out: &mut String) {
-		let mut changelist = self.changelist();
+	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
+		let mut changelist = self.changelist(rn);
 
 		#[derive(PartialOrd, Ord, PartialEq, Eq)]
 		enum SortOrder {
@@ -510,28 +447,33 @@ impl Pg<SchemaDiff<'_>> {
 			match ele {
 				RenameOp::Store(i, t) => {
 					stored.insert(t, i);
-					Pg(i).rename(t.db(), out)
+					Pg(i).rename(t.db(), out, rn)
 				}
-				RenameOp::Restore(t, n) => Pg(stored.remove(&t).expect("stored")).rename(n, out),
-				RenameOp::Rename(v, n) => Pg(v).rename(n, out),
+				RenameOp::Restore(t, n) => {
+					Pg(stored.remove(&t).expect("stored")).rename(n, out, rn)
+				}
+				RenameOp::Rename(v, n) => Pg(v).rename(n, out, rn),
 			}
 		}
 
 		for ele in changelist.created {
-			Pg(ele).create(out);
+			Pg(ele).create(out, rn);
 		}
 
 		let mut enum_changes = vec![];
 
 		for ele in changelist.updated.iter().copied() {
 			match (ele.old, ele.new) {
-				(SchemaItem::Table(_), SchemaItem::Table(_)) => {}
 				(SchemaItem::Enum(old), SchemaItem::Enum(new)) => {
 					let diff = Pg(Diff { old, new });
-					let removed = diff.print_renamed_added(out);
+					let removed = diff.print_renamed_added(out, rn);
+					// FIXME: Why did I tough removals should be deferred?..
 					enum_changes.push((diff, removed));
 				}
-				(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => {}
+				(SchemaItem::Scalar(_), SchemaItem::Scalar(_))
+				| (SchemaItem::Table(_), SchemaItem::Table(_)) => {
+					// Updated later
+				}
 				_ => unreachable!("will fail on sort"),
 			}
 		}
@@ -539,66 +481,67 @@ impl Pg<SchemaDiff<'_>> {
 		for ele in changelist.updated.iter().copied() {
 			match (ele.old, ele.new) {
 				(SchemaItem::Table(old), SchemaItem::Table(new)) => {
-					Pg(Diff { old, new }).print(out)
+					dbg!(old, new);
+					Pg(Diff { old, new }).print(out, rn)
+				}
+				(SchemaItem::Scalar(old), SchemaItem::Scalar(new)) => {
+					Pg(Diff { old, new }).print(out, rn)
 				}
 				(SchemaItem::Enum(_), SchemaItem::Enum(_)) => {}
-				(SchemaItem::Scalar(old), SchemaItem::Scalar(new)) => {
-					Pg(Diff { old, new }).print(out)
-				}
 				_ => unreachable!("will fail on sort"),
 			}
 		}
 
 		for (en, removed) in enum_changes {
-			en.print_removed(removed, out);
+			en.print_removed(removed, out, rn);
 		}
 
 		for (ele, _) in changelist.dropped {
-			Pg(ele).drop(out);
+			Pg(ele).drop(out, rn);
 		}
 	}
 }
 impl Pg<&Schema> {
-	pub fn diff(&self, target: &Self, out: &mut String) {
+	pub fn diff(&self, target: &Self, out: &mut String, rn: &mut RenameMap) {
 		Pg(SchemaDiff {
 			old: target,
 			new: self,
 		})
-		.print(out)
+		.print(out, rn)
 	}
-	pub fn create(&self, out: &mut String) {
-		self.diff(&Pg(&Schema::default()), out)
+	pub fn create(&self, out: &mut String, rn: &mut RenameMap) {
+		self.diff(&Pg(&Schema::default()), out, rn)
 	}
-	pub fn drop(&self, out: &mut String) {
-		Pg(&Schema::default()).diff(self, out)
+	pub fn drop(&self, out: &mut String, rn: &mut RenameMap) {
+		Pg(&Schema::default()).diff(self, out, rn)
 	}
 }
 impl Pg<SchemaEnum<'_>> {
-	pub fn rename(&self, db: DbType, out: &mut String) {
-		self.print_alternations(&[format!("RENAME TO {db}")], out);
-		self.set_db(db)
+	pub fn rename(&self, db: DbType, out: &mut String, rn: &mut RenameMap) {
+		self.print_alternations(&[format!("RENAME TO {db}")], out, rn);
+		self.set_db(rn, db)
 	}
-	pub fn create(&self, out: &mut String) {
-		let db_name = &self.name();
+	pub fn create(&self, out: &mut String, rn: &RenameMap) {
+		let db_name = &self.db(rn);
 		w!(out, "CREATE TYPE {db_name} AS ENUM (\n");
 		for (i, v) in self.items.iter().enumerate() {
 			if i != 0 {
 				w!(out, ",");
 			}
-			w!(out, "\t'{}'\n", v.db());
+			w!(out, "\t'{}'\n", v.db(rn));
 		}
 		wl!(out, ");");
 		wl!(out,);
 	}
-	pub fn drop(&self, out: &mut String) {
-		let db_name = &self.name();
+	pub fn drop(&self, out: &mut String, rn: &RenameMap) {
+		let db_name = &self.db(rn);
 		w!(out, "DROP TYPE {db_name};\n");
 	}
-	pub fn print_alternations(&self, alternations: &[String], out: &mut String) {
+	pub fn print_alternations(&self, alternations: &[String], out: &mut String, rn: &RenameMap) {
 		if alternations.is_empty() {
 			return;
 		}
-		let name = &self.name();
+		let name = &self.db(rn);
 		w!(out, "ALTER TYPE {name}\n");
 		for (i, alt) in alternations.iter().enumerate() {
 			if i != 0 {
@@ -610,15 +553,16 @@ impl Pg<SchemaEnum<'_>> {
 	}
 }
 impl Pg<&EnumItem> {
-	pub fn rename_alter(&self, to: DbEnumItem) -> String {
-		let out = format!("RENAME VALUE '{}' TO {to}", self.db());
-		self.set_db(to);
+	pub fn rename_alter(&self, to: DbEnumItem, rn: &mut RenameMap) -> String {
+		let out = format!("RENAME VALUE '{}' TO {to}", self.db(rn));
+		self.set_db(rn, to);
 		out
 	}
 }
 impl Pg<EnumDiff<'_>> {
-	pub fn print_renamed_added(&self, out: &mut String) -> Vec<String> {
+	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) -> Vec<String> {
 		let changelist = schema::mk_change_list(
+			rn,
 			&self.0.old.items.iter().collect::<Vec<_>>(),
 			&self.0.new.items.iter().collect::<Vec<_>>(),
 		);
@@ -628,23 +572,23 @@ impl Pg<EnumDiff<'_>> {
 			match el {
 				RenameOp::Store(i, t) => {
 					stored.insert(t, i);
-					changes.push(Pg(i).rename_alter(t.db()));
+					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
 				RenameOp::Rename(v, n) => {
-					changes.push(Pg(v).rename_alter(n));
+					changes.push(Pg(v).rename_alter(n, rn));
 				}
 				RenameOp::Restore(r, n) => {
 					let stored = stored.remove(&r).expect("was not stored");
-					Pg(stored).rename_alter(n);
+					Pg(stored).rename_alter(n, rn);
 				}
 			}
 		}
 
 		for added in changelist.created.iter() {
-			changes.push(format!("ADD VALUE '{}'", added.db()))
+			changes.push(format!("ADD VALUE '{}'", added.db(rn)))
 		}
 
-		Pg(self.old).print_alternations(&changes, out);
+		Pg(self.old).print_alternations(&changes, out, rn);
 
 		let mut changes_post = vec![];
 		for (removed, _) in changelist.dropped.iter() {
@@ -653,33 +597,33 @@ impl Pg<EnumDiff<'_>> {
 			let name = rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
 			changes_post.push(format!(
 				"RENAME VALUE '{}' TO '{0}_removed_{name}'",
-				removed.db()
+				removed.db(rn)
 			))
 		}
 		changes_post
 	}
-	pub fn print_added(&self, out: &mut String) {
-		let added = self.added_items();
-		let db_name = &self.new.name();
-		for added in added {
-			wl!(out, "ALTER TYPE {db_name} ADD VALUE '{added}';");
-		}
-	}
-
-	pub fn print_removed(&self, removed: Vec<String>, out: &mut String) {
-		Pg(self.old).print_alternations(&removed, out)
+	// pub fn print_added(&self, out: &mut String, rn:&RenameMap) {
+	// 	let added = self.added_items(rn);
+	// 	let db_name = &self.new.name();
+	// 	for added in added {
+	// 		wl!(out, "ALTER TYPE {db_name} ADD VALUE '{added}';");
+	// 	}
+	// }
+	//
+	pub fn print_removed(&self, removed: Vec<String>, out: &mut String, rn: &RenameMap) {
+		Pg(self.old).print_alternations(&removed, out, rn)
 	}
 }
 impl Pg<SchemaScalar<'_>> {
-	pub fn rename(&self, to: DbType, out: &mut String) {
-		self.print_alternations(&[format!("RENAME TO {to}")], out);
-		self.scalar.set_db(to);
+	pub fn rename(&self, to: DbType, out: &mut String, rn: &mut RenameMap) {
+		self.print_alternations(&[format!("RENAME TO {to}")], out, rn);
+		self.scalar.set_db(rn, to);
 	}
-	pub fn print_alternations(&self, alternations: &[String], out: &mut String) {
+	pub fn print_alternations(&self, alternations: &[String], out: &mut String, rn: &RenameMap) {
 		if alternations.is_empty() {
 			return;
 		}
-		let name = &self.name();
+		let name = &self.db(rn);
 		w!(out, "ALTER DOMAIN {name}\n");
 		for (i, alt) in alternations.iter().enumerate() {
 			if i != 0 {
@@ -689,22 +633,22 @@ impl Pg<SchemaScalar<'_>> {
 		}
 		wl!(out, ";");
 	}
-	pub fn create(&self, out: &mut String) {
-		let name = &self.name();
+	pub fn create(&self, out: &mut String, rn: &RenameMap) {
+		let name = &self.db(rn);
 		let ty = self.scalar.inner_type();
 		w!(out, "CREATE DOMAIN {name} AS {ty}");
 		for ele in &self.annotations {
 			match ele {
 				ScalarAnnotation::Default(d) => {
 					w!(out, "\n\tDEFAULT ");
-					let formatted = Pg(self.schema).format_sql(d);
+					let formatted = Pg(self.schema).format_sql(d, rn);
 					w!(out, "{formatted}");
 				}
 				ScalarAnnotation::Check(sql) => {
-					let name = sql.assigned_name();
-					w!(out, "\n\tCONSTRAINT {name} CHECK ");
-					let formatted = Pg(self.schema).format_sql(&sql.check);
-					w!(out, "{formatted}")
+					let name = sql.db(rn);
+					w!(out, "\n\tCONSTRAINT {name} CHECK (");
+					let formatted = Pg(self.schema).format_sql(&sql.check, rn);
+					w!(out, "{formatted})")
 				}
 				ScalarAnnotation::Inline => {
 					unreachable!("non-material scalars are not created")
@@ -718,96 +662,202 @@ impl Pg<SchemaScalar<'_>> {
 		}
 		wl!(out, ";")
 	}
-	pub fn drop(&self, out: &mut String) {
-		let name = &self.name();
+	pub fn drop(&self, out: &mut String, rn: &RenameMap) {
+		let name = &self.db(rn);
 		wl!(out, "DROP DOMAIN {name};");
 	}
 }
+impl Pg<&Check> {
+	fn rename_alter(&self, to: DbConstraint, out: &mut Vec<String>, rn: &mut RenameMap) {
+		let db = self.db(rn);
+		if db == to {
+			return;
+		}
+		out.push(format!("ALTER CONSTRAINT {db} RENAME TO {to}"));
+		self.set_db(rn, to);
+	}
+}
 impl Pg<Diff<SchemaScalar<'_>>> {
-	pub fn print(&self, out: &mut String) {
-		// FIXME
+	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
+		let mut new = self
+			.new
+			.annotations
+			.iter()
+			.filter_map(ScalarAnnotation::as_check)
+			.map(|c| {
+				let mut sql = String::new();
+				Pg(self.new.schema.sql(&c.check)).print(&mut sql, rn);
+				(c, sql)
+			})
+			.collect::<Vec<_>>();
+		let old = self
+			.old
+			.annotations
+			.iter()
+			.filter_map(ScalarAnnotation::as_check)
+			.collect::<Vec<_>>();
+		dbg!(&old, &new);
+		let mut alternations = Vec::new();
+		for ann in old.iter() {
+			let mut sql = String::new();
+			Pg(self.old.schema.sql(&ann.check)).print(&mut sql, rn);
+
+			if let Some((i, (c, _))) = new.iter().find_position(|(_, nsql)| nsql == &sql) {
+				Pg(*ann).rename_alter(c.db(rn), &mut alternations, rn);
+				new.remove(i);
+			} else {
+				let db = ann.db(rn);
+				alternations.push(format!("DROP CONSTRAINT {db}"));
+			}
+		}
+
+		for (check, _) in new.iter() {
+			let db = check.db(rn);
+			let mut out = format!("ADD CONSTRAINT {db} CHECK (");
+			Pg(self.new.schema.sql(&check.check)).print(&mut out, rn);
+			w!(out, ")");
+			alternations.push(out)
+		}
+
+		Pg(self.old).print_alternations(&alternations, out, rn)
 	}
 }
 
 impl Pg<SchemaItem<'_>> {
-	pub fn rename(&self, to: DbItem, out: &mut String) {
+	pub fn rename(&self, to: DbItem, out: &mut String, rn: &mut RenameMap) {
 		match self.0 {
-			SchemaItem::Table(t) => Pg(t).rename(DbTable::unchecked_from(to), out),
-			SchemaItem::Enum(e) => Pg(e).rename(DbType::unchecked_from(to), out),
-			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), out),
+			SchemaItem::Table(t) => Pg(t).rename(DbTable::unchecked_from(to), out, rn),
+			SchemaItem::Enum(e) => Pg(e).rename(DbType::unchecked_from(to), out, rn),
+			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), out, rn),
 		}
 	}
-	pub fn create(&self, out: &mut String) {
+	pub fn create(&self, out: &mut String, rn: &RenameMap) {
 		match self.0 {
-			SchemaItem::Table(t) => Pg(t).create(out),
-			SchemaItem::Enum(e) => Pg(e).create(out),
-			SchemaItem::Scalar(s) => Pg(s).create(out),
+			SchemaItem::Table(t) => Pg(t).create(out, rn),
+			SchemaItem::Enum(e) => Pg(e).create(out, rn),
+			SchemaItem::Scalar(s) => Pg(s).create(out, rn),
 		}
 	}
-	pub fn drop(&self, out: &mut String) {
+	pub fn drop(&self, out: &mut String, rn: &RenameMap) {
 		match self.0 {
-			SchemaItem::Table(t) => Pg(t).drop(out),
-			SchemaItem::Enum(e) => Pg(e).drop(out),
-			SchemaItem::Scalar(s) => Pg(s).drop(out),
+			SchemaItem::Table(t) => Pg(t).drop(out, rn),
+			SchemaItem::Enum(e) => Pg(e).drop(out, rn),
+			SchemaItem::Scalar(s) => Pg(s).drop(out, rn),
 		}
 	}
 }
-impl Pg<SchemaSql<'_>> {
-	pub fn print(&self, out: &mut String) {
-		match &*self.0 {
-			Sql::Cast(expr, ty) => {
-				let expr = Pg(self.schema).format_sql(expr);
-				let native_ty = self.schema.native_type(ty);
-				w!(out, "({expr})::{native_ty}");
-			}
-			Sql::Call(proc, args) => {
-				w!(out, "{proc}(");
-				for (i, arg) in args.iter().enumerate() {
-					if i != 0 {
-						w!(out, ", ");
-					}
-					let arg = Pg(self.schema).format_sql(arg);
-					w!(out, "{arg}");
-				}
-				w!(out, ")");
-			}
-			Sql::String(s) => {
-				w!(out, "'{s}'");
-			}
-			Sql::Number(n) => {
-				w!(out, "{n}");
-			}
-			Sql::UnOp(op, expr) => {
-				let op = op.format();
-				let expr = Pg(self.schema).format_sql(expr);
-				w!(out, "{op}({expr})");
-			}
-			Sql::BinOp(a, op, b) => {
-				let op = op.format();
-				let a = Pg(self.schema).format_sql(a);
-				let b = Pg(self.schema).format_sql(b);
-				w!(out, "({a}) {op} ({b})")
-			}
-			Sql::Parened(a) => {
-				let a = Pg(self.schema).format_sql(a);
-				w!(out, "({a})")
-			}
-			Sql::Placeholder => {
-				w!(out, "VALUE")
-			}
-			Sql::Ident(_) => {
-				unreachable!("only placeholder is allowed for schema-bound checks")
-			}
-			Sql::Null => w!(out, "NULL"),
-			Sql::Boolean(true) => w!(out, "TRUE"),
-			Sql::Boolean(false) => w!(out, "FALSE"),
+
+fn sql_needs_parens(sql: &Sql) -> bool {
+	match sql {
+		Sql::Cast(_, _)
+		| Sql::Call(_, _)
+		| Sql::String(_)
+		| Sql::Number(_)
+		| Sql::Ident(_)
+		| Sql::Parened(_)
+		| Sql::Boolean(_)
+		| Sql::Placeholder
+		| Sql::Null => false,
+
+		Sql::UnOp(_, _) | Sql::BinOp(_, _, _) => true,
+	}
+}
+fn format_sql(
+	sql: &Sql,
+	schema: &Schema,
+	table: Option<SchemaTable<'_>>,
+	rn: &RenameMap,
+) -> String {
+	let mut out = String::new();
+	match sql {
+		Sql::Cast(expr, ty) => {
+			let expr = format_sql(expr, schema, table, rn);
+			let native_ty = schema.native_type(ty, rn);
+			w!(out, "({expr})::{native_ty}");
 		}
+		Sql::Call(proc, args) => {
+			w!(out, "{proc}(");
+			for (i, arg) in args.iter().enumerate() {
+				if i != 0 {
+					w!(out, ", ");
+				}
+				let arg = format_sql(arg, schema, table, rn);
+				w!(out, "{arg}");
+			}
+			w!(out, ")");
+		}
+		Sql::String(s) => {
+			w!(out, "'{s}'");
+		}
+		Sql::Number(n) => {
+			w!(out, "{n}");
+		}
+		Sql::Ident(c) => {
+			let table = table
+				.as_ref()
+				.expect("only placeholder supported in schema sql");
+			let native_name = table.db_name(c, rn);
+			w!(out, "{native_name}");
+		}
+		Sql::UnOp(op, expr) => {
+			let op = op.format();
+			let expr = format_sql(expr, schema, table, rn);
+			w!(out, "{op}({expr})");
+		}
+		Sql::BinOp(a, op, b) => {
+			dbg!(op);
+			let op = op.format();
+			let va = format_sql(a, schema, table, rn);
+			let vb = format_sql(b, schema, table, rn);
+			if sql_needs_parens(a) {
+				w!(out, "({va})")
+			} else {
+				w!(out, "{va}")
+			}
+			w!(out, " {op} ");
+			if sql_needs_parens(b) {
+				w!(out, "({vb})")
+			} else {
+				w!(out, "{vb}")
+			}
+		}
+		Sql::Parened(a) => {
+			let va = format_sql(a, schema, table, rn);
+			if sql_needs_parens(a) {
+				w!(out, "({va})")
+			} else {
+				w!(out, "{va}")
+			}
+		}
+		Sql::Boolean(b) => {
+			if *b {
+				w!(out, "TRUE")
+			} else {
+				w!(out, "FALSE")
+			}
+		}
+		Sql::Placeholder => {
+			assert!(
+				table.is_none(),
+				"placeholder should be replaced on this point"
+			);
+			w!(out, "VALUE")
+		}
+		Sql::Null => w!(out, "NULL"),
+	}
+	out
+}
+
+impl Pg<SchemaSql<'_>> {
+	pub fn print(&self, out: &mut String, rn: &RenameMap) {
+		let o = format_sql(&*self.0, &self.schema, None, rn);
+		out.push_str(&o);
 	}
 }
 impl Pg<&Schema> {
-	pub fn format_sql(&self, sql: &Sql) -> String {
+	pub fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
 		let mut out = String::new();
-		Pg(self.sql(sql)).print(&mut out);
+		Pg(self.sql(sql)).print(&mut out, rn);
 		out
 	}
 }
@@ -820,127 +870,118 @@ enum PgTableConstraint<'s> {
 }
 
 impl Pg<TablePrimaryKey<'_>> {
-	pub fn create_inline(&self, out: &mut String) {
-		w!(out, "CONSTRAINT {} PRIMARY KEY(", self.assigned_name());
+	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
+		w!(out, "CONSTRAINT {} PRIMARY KEY(", self.db(rn));
 		self.table
-			.print_column_list(&mut out, self.columns.into_iter());
-		wl!(out, ")");
+			.print_column_list(out, self.columns.iter().cloned(), rn);
+		w!(out, ")");
 	}
-	pub fn drop_alter(&self, out: &mut Vec<String>) {
-		out.push(format!("DROP CONSTRAINT {}", self.assigned_name()));
+	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		out.push(format!("DROP CONSTRAINT {}", self.db(rn)));
 	}
-	pub fn create_alter(&self, out: &mut Vec<String>) {
+	pub fn create_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
 		let mut inl = String::new();
-		self.create_inline(&mut inl);
+		self.create_inline(&mut inl, rn);
 		out.push(format!("ADD {inl}"));
 	}
-	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
-		out.push(format!(
-			"RENAME CONSTRAINT {} TO {}",
-			self.assigned_name(),
-			new_name
-		));
-		self.set_db(new_name)
+	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>, rn: &mut RenameMap) {
+		out.push(format!("RENAME CONSTRAINT {} TO {}", self.db(rn), new_name));
+		self.set_db(rn, new_name)
 	}
 }
 impl Pg<TableUniqueConstraint<'_>> {
-	pub fn create_inline(&self, out: &mut String) {
-		w!(out, "CONSTRAINT {} UNIQUE(", self.assigned_name());
+	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
+		w!(out, "CONSTRAINT {} UNIQUE(", self.db(rn));
 		self.table
-			.print_column_list(&mut out, self.columns.into_iter());
+			.print_column_list(out, self.columns.iter().cloned(), rn);
 		wl!(out, ")");
 	}
 }
 impl Pg<TableCheck<'_>> {
-	pub fn create_inline(&self, out: &mut String) {
-		w!(out, "CONSTRAINT {} CHECK(", self.assigned_name());
-		Pg(self.table.sql(&self.check)).print(out);
-		wl!(out, ")");
+	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
+		w!(out, "CONSTRAINT {} CHECK (", self.db(rn));
+		Pg(self.table.sql(&self.check)).print(out, rn);
+		w!(out, ")");
 	}
 }
 
 impl Pg<Diff<TablePrimaryKey<'_>>> {
-	fn alter(&self, out: &mut Vec<String>) {
-		if self.old.assigned_name() != self.new.assigned_name() {
-			Pg(self.old).rename_alter(self.new.assigned_name(), out);
+	fn alter(&self, out: &mut Vec<String>, rn: &mut RenameMap) {
+		if self.old.db(rn) != self.new.db(rn) {
+			Pg(self.old).rename_alter(self.new.db(rn), out, rn);
 		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use std::{fs, io::Write};
+	use std::{fs, io::Write, path::PathBuf};
 
-	use schema::{parser::parse, wl, Diff};
+	use schema::{parser::parse, uid::RenameMap, wl, Diff};
 	use tempfile::NamedTempFile;
-	use tracing::info;
 	use tracing_test::traced_test;
 
 	use crate::{process::default_options, Pg};
 
-	#[traced_test]
-	#[test]
-	fn examples() {
-		for example in fs::read_dir("examples").expect("list examples") {
-			let example = example.expect("ex");
-			info!("Example {:?}", example.path());
-			let mut data = fs::read_to_string(&example.path()).expect("example read");
-			let result_offset = data.find("\n!!!RESULT\n").unwrap_or(data.len());
-			data.truncate(result_offset);
-			let (defaults, parts) = data.split_once("!!!TEST\n").unwrap_or(("", &data));
+	fn test_example(name: &str) {
+		let mut data = fs::read_to_string(name).expect("example read");
+		let result_offset = data.find("\n!!!RESULT\n").unwrap_or(data.len());
+		data.truncate(result_offset);
+		let (defaults, parts) = data.split_once("!!!TEST\n").unwrap_or(("", &data));
 
-			let defaults = defaults.strip_prefix("!!!SETUP\n").unwrap_or(defaults);
+		let defaults = defaults.strip_prefix("!!!SETUP\n").unwrap_or(defaults);
 
-			let mut examples = parts
-				.split("\n!!!UPDATE\n")
-				.map(|s| s.to_owned())
-				.collect::<Vec<_>>();
-			examples.push(String::new());
-			if !defaults.is_empty() {
-				for example in examples.iter_mut() {
-					if !example.is_empty() {
-						example.insert(0, '\n');
-					}
-					example.insert_str(0, defaults);
+		let mut examples = parts
+			.split("\n!!!UPDATE\n")
+			.map(|s| s.to_owned())
+			.collect::<Vec<_>>();
+		examples.push(String::new());
+		if !defaults.is_empty() {
+			for example in examples.iter_mut() {
+				if !example.is_empty() {
+					example.insert(0, '\n');
 				}
-				examples.insert(0, defaults.to_owned());
+				example.insert_str(0, defaults);
 			}
-			// Init defaults
-			examples.insert(0, String::new());
-			// Drop defaults
-			if !defaults.is_empty() {
-				examples.push(String::new());
-			}
-			let examples = examples
-				.iter()
-				.map(|example| {
-					let mut schema = match parse(example.as_str(), &default_options()) {
-						Ok(s) => s,
-						Err(e) => {
-							panic!("failed to parse schema:\n{example}\n\n{e:#?}");
-						}
-					};
-					schema
-				})
-				.collect::<Vec<_>>();
-			let mut out = String::new();
-			for (i, ele) in examples.windows(2).enumerate() {
-				if i != 0 {
-					wl!(out, "\n-- updated --");
-				}
-				let mut out_tmp = String::new();
-				Pg(Diff {
-					old: &ele[0],
-					new: &ele[1],
-				})
-				.print(&mut out_tmp);
-				out.push_str(out_tmp.trim());
-			}
-			let output = format!("{}\n!!!RESULT\n{}", data.trim(), out.trim());
-			let mut named_file =
-				NamedTempFile::new_in(example.path().parent().expect("parent")).expect("new temp");
-			named_file.write_all(output.as_bytes()).expect("write");
-			named_file.persist(example.path()).expect("persist");
+			examples.insert(0, defaults.to_owned());
 		}
+		// Init defaults
+		examples.insert(0, String::new());
+		// Drop defaults
+		if !defaults.is_empty() {
+			examples.push(String::new());
+		}
+		let mut rn = RenameMap::default();
+		let examples = examples
+			.iter()
+			.map(|example| {
+				let mut schema = match parse(example.as_str(), &default_options(), &mut rn) {
+					Ok(s) => s,
+					Err(e) => {
+						panic!("failed to parse schema:\n{example}\n\n{e:#?}");
+					}
+				};
+				schema
+			})
+			.collect::<Vec<_>>();
+		let mut out = String::new();
+		for (i, ele) in examples.windows(2).enumerate() {
+			if i != 0 {
+				wl!(out, "\n-- updated --");
+			}
+			let mut out_tmp = String::new();
+			Pg(Diff {
+				old: &ele[0],
+				new: &ele[1],
+			})
+			.print(&mut out_tmp, &mut rn);
+			out.push_str(out_tmp.trim());
+		}
+		let output = format!("{}\n!!!RESULT\n{}", data.trim(), out.trim());
+		let mut named_file =
+			NamedTempFile::new_in(PathBuf::from(name).parent().expect("parent")).expect("new temp");
+		named_file.write_all(output.as_bytes()).expect("write");
+		named_file.persist(name).expect("persist");
 	}
+	include!(concat!(env!("OUT_DIR"), "/example_tests.rs"));
 }

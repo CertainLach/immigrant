@@ -8,6 +8,7 @@ use self::{
 	column::Column,
 	ids::Ident,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
+	names::ItemKind,
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
@@ -96,7 +97,7 @@ macro_rules! newty_enum {
 pub struct TableItem<'a, I> {
 	#[derivative(Debug = "ignore")]
 	pub table: SchemaTable<'a>,
-	value: &'a I,
+	pub value: &'a I,
 }
 impl<'a, I> TableItem<'a, I> {
 	pub fn unchecked_new(table: SchemaTable<'a>, value: &'a I) -> Self {
@@ -184,6 +185,28 @@ impl IsCompatible for SchemaItem<'_> {
 		)
 	}
 }
+impl HasIdent for SchemaItem<'_> {
+	type Kind = ItemKind;
+
+	fn id(&self) -> Ident<Self::Kind> {
+		match self {
+			SchemaItem::Table(t) => Ident::unchecked_cast(t.id()),
+			SchemaItem::Enum(e) => Ident::unchecked_cast(e.id()),
+			SchemaItem::Scalar(s) => Ident::unchecked_cast(s.id()),
+		}
+	}
+}
+impl HasDefaultDbName for SchemaItem<'_> {
+	type Kind = ItemKind;
+
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		match self {
+			SchemaItem::Table(t) => t.default_db().map(DbIdent::unchecked_from),
+			SchemaItem::Enum(e) => e.default_db().map(DbIdent::unchecked_from),
+			SchemaItem::Scalar(s) => s.default_db().map(DbIdent::unchecked_from),
+		}
+	}
+}
 
 #[derive(Clone, Copy, Derivative)]
 #[derivative(Debug)]
@@ -259,9 +282,29 @@ pub trait HasIdent {
 	type Kind;
 	fn id(&self) -> Ident<Self::Kind>;
 }
+impl<T> HasIdent for &T
+where
+	T: HasIdent,
+{
+	type Kind = T::Kind;
+
+	fn id(&self) -> Ident<Self::Kind> {
+		(*self).id()
+	}
+}
 pub trait HasDefaultDbName {
 	type Kind;
 	fn default_db(&self) -> Option<DbIdent<Self::Kind>>;
+}
+impl<T> HasDefaultDbName for &T
+where
+	T: HasDefaultDbName,
+{
+	type Kind = T::Kind;
+
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		(*self).default_db()
+	}
 }
 
 #[macro_export]

@@ -10,7 +10,8 @@ use crate::{
 	def_name_impls,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
-	uid::{next_uid, RenameExt, RenameMap, Uid},
+	uid::{next_uid, HasUid, RenameExt, RenameMap, Uid},
+	HasDefaultDbName,
 };
 
 #[derive(Debug)]
@@ -97,7 +98,9 @@ impl Scalar {
 			.into_iter()
 			.partition_map(|a| a.propagate_to_column(inline));
 		self.annotations = retained;
-		self.inlined = true;
+		if inline {
+			self.inlined = true;
+		}
 		PropagatedScalarData { annotations }
 	}
 	pub fn is_always_inline(&self) -> bool {
@@ -147,6 +150,12 @@ pub enum ScalarAnnotation {
 	Inline,
 }
 impl ScalarAnnotation {
+	pub fn as_check(&self) -> Option<&Check> {
+		match self {
+			Self::Check(c) => Some(c),
+			_ => None,
+		}
+	}
 	/// Should annotation be removed after inlining?
 	fn is_inline_target(&self) -> bool {
 		!matches!(self, Self::Inline)

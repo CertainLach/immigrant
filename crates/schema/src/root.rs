@@ -10,7 +10,9 @@ use crate::{
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
 	sql::Sql,
-	EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableDiff, HasIdent,
+	uid::{RenameExt, RenameMap},
+	EnumDiff, HasIdent, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
+	TableDiff,
 };
 
 // newty_enum!(
@@ -88,7 +90,7 @@ pub struct SchemaProcessOptions {
 #[derive(Debug, Default)]
 pub struct Schema(pub Vec<Item>);
 impl Schema {
-	pub fn process(&mut self, options: &SchemaProcessOptions) {
+	pub fn process(&mut self, options: &SchemaProcessOptions, rn: &mut RenameMap) {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
 			Item::Enum(_) => 0,
@@ -99,7 +101,7 @@ impl Schema {
 		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
 			let inline = s.is_always_inline() || !options.generator_supports_domain;
 			let data = s.propagate(inline);
-			propagated_scalars.insert(s.name().id(), data);
+			propagated_scalars.insert(s.id(), data);
 		}
 
 		// Propagate scalar annotations to columns
@@ -111,7 +113,7 @@ impl Schema {
 		}
 
 		match options.naming_convention {
-			NamingConvention::Postgres => (Pgnc(self)).process_naming(),
+			NamingConvention::Postgres => (Pgnc(self)).process_naming(rn),
 		};
 	}
 	pub fn material_items(&self) -> Vec<SchemaItem<'_>> {
@@ -163,11 +165,11 @@ impl Schema {
 		}
 		panic!("type not found: {name:?}")
 	}
-	pub fn native_type(&self, name: &TypeIdent) -> DbNativeType {
+	pub fn native_type(&self, name: &TypeIdent, rn: &RenameMap) -> DbNativeType {
 		for item in self.0.iter() {
 			match item {
-				Item::Enum(e) if &e.id() == name => return e.db_type(),
-				Item::Scalar(v) if &v.id() == name => return v.native(),
+				Item::Enum(e) if &e.id() == name => return e.db_type(rn),
+				Item::Scalar(v) if &v.id() == name => return v.native(rn),
 				_ => continue,
 			}
 		}
@@ -185,7 +187,7 @@ impl Schema {
 
 	pub fn schema_table(&self, name: &TableIdent) -> Option<SchemaTable<'_>> {
 		self.tables()
-			.find(|t| &t.name() == name)
+			.find(|t| &t.id() == name)
 			.map(|t| SchemaTable {
 				schema: self,
 				table: t,
@@ -197,115 +199,25 @@ impl Schema {
 			schema: self,
 			scalar: self
 				.scalars()
-				.find(|c| c.name() == scalar)
+				.find(|c| c.id() == scalar)
 				.expect("column not found"),
 		}
 	}
 
-	pub fn db_tables(&self) -> Vec<DbTable> {
-		self.tables().map(|t| t.name().db()).collect()
+	pub fn db_tables(&self, rn: &RenameMap) -> Vec<DbTable> {
+		self.tables().map(|t| t.db(rn)).collect()
 	}
-	pub fn db_enums(&self) -> Vec<DbType> {
-		self.enums().map(|t| t.name().db()).collect()
+	pub fn db_enums(&self, rn: &RenameMap) -> Vec<DbType> {
+		self.enums().map(|t| t.db(rn)).collect()
 	}
 	pub fn sql<'a>(&'a self, sql: &'a Sql) -> SchemaSql<'_> {
 		SchemaSql { schema: self, sql }
 	}
 }
 impl SchemaDiff<'_> {
-	pub fn changelist(&self) -> ChangeList<SchemaItem<'_>> {
+	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
 		let old = self.old.material_items();
 		let new = self.new.material_items();
-		mk_change_list(&old, &new)
-	}
-	pub fn altered_tables(&self) -> Vec<TableDiff<'_>> {
-		let old_tables = self.old.db_tables();
-		let new_tables = self.new.db_tables();
-		let mut altered_names = Vec::new();
-		for table in new_tables {
-			if old_tables.contains(&table) {
-				altered_names.push(table)
-			}
-		}
-		altered_names
-			.into_iter()
-			.map(|name| TableDiff {
-				old: self.old.table(&name).expect("in both new and old"),
-				new: self.new.table(&name).expect("in both new and old"),
-			})
-			.collect()
-	}
-	pub fn dropped_tables(&self) -> Vec<SchemaTable<'_>> {
-		let old_tables = self.old.db_tables();
-		let new_tables = self.new.db_tables();
-
-		let mut out = Vec::new();
-		for table in old_tables {
-			if !new_tables.contains(&table) {
-				out.push(table);
-			}
-		}
-		out.into_iter()
-			.map(|name| self.old.table(&name).expect("from old table list"))
-			.collect()
-	}
-	pub fn created_tables(&self) -> Vec<SchemaTable<'_>> {
-		let old_tables = self.old.db_tables();
-		let new_tables = self.new.db_tables();
-
-		let mut out = Vec::new();
-		for table in new_tables {
-			if !old_tables.contains(&table) {
-				out.push(table);
-			}
-		}
-		out.into_iter()
-			.map(|name| self.new.table(&name).expect("from new table list"))
-			.collect()
-	}
-	pub fn created_enums(&self) -> Vec<SchemaEnum<'_>> {
-		let old_enums = self.old.db_enums();
-		let new_enums = self.new.db_enums();
-
-		let mut out = Vec::new();
-		for r#enum in new_enums {
-			if !old_enums.contains(&r#enum) {
-				out.push(r#enum);
-			}
-		}
-		out.into_iter()
-			.map(|name| self.new.r#enum(&name).expect("from new enum list"))
-			.collect()
-	}
-	pub fn dropped_enums(&self) -> Vec<SchemaEnum<'_>> {
-		let old_enums = self.old.db_enums();
-		let new_enums = self.new.db_enums();
-
-		let mut out = Vec::new();
-		for r#enum in old_enums {
-			if !new_enums.contains(&r#enum) {
-				out.push(r#enum);
-			}
-		}
-		out.into_iter()
-			.map(|name| self.old.r#enum(&name).expect("from new enum list"))
-			.collect()
-	}
-	pub fn altered_enums(&self) -> Vec<EnumDiff<'_>> {
-		let old_enums = self.old.db_enums();
-		let new_enums = self.new.db_enums();
-
-		let mut out = Vec::new();
-		for r#enum in old_enums {
-			if new_enums.contains(&r#enum) {
-				out.push(r#enum);
-			}
-		}
-		out.into_iter()
-			.map(|name| EnumDiff {
-				old: self.old.r#enum(&name).expect("from both new and old"),
-				new: self.new.r#enum(&name).expect("from both new and old"),
-			})
-			.collect()
+		mk_change_list(rn, &old, &new)
 	}
 }

@@ -2,6 +2,7 @@
 name = "immigrant-generator-postgres"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
 
 [dependencies]
 itertools = "0.11.0"

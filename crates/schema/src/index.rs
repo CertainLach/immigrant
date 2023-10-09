@@ -3,7 +3,7 @@ use crate::{
 	db_name_impls,
 	ids::DbIdent,
 	names::{ColumnIdent, ConstraintKind, DbColumn, DbNativeType, IndexKind},
-	uid::{next_uid, Uid},
+	uid::{next_uid, RenameMap, Uid},
 	TableIndex,
 };
 
@@ -13,12 +13,12 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Check {
 	uid: Uid,
-	name: DbIdent<ConstraintKind>,
+	name: Option<DbIdent<ConstraintKind>>,
 	pub check: Sql,
 }
 db_name_impls!(Check, ConstraintKind);
 impl Check {
-	pub fn new(name: DbIdent<ConstraintKind>, check: Sql) -> Self {
+	pub fn new(name: Option<DbIdent<ConstraintKind>>, check: Sql) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
@@ -38,12 +38,12 @@ impl Check {
 #[derive(Debug, Clone)]
 pub struct UniqueConstraint {
 	uid: Uid,
-	name: DbIdent<ConstraintKind>,
+	name: Option<DbIdent<ConstraintKind>>,
 	pub columns: Vec<ColumnIdent>,
 }
 db_name_impls!(UniqueConstraint, ConstraintKind);
 impl UniqueConstraint {
-	pub fn new(name: DbIdent<ConstraintKind>, columns: Vec<ColumnIdent>) -> Self {
+	pub fn new(name: Option<DbIdent<ConstraintKind>>, columns: Vec<ColumnIdent>) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
@@ -64,12 +64,12 @@ impl UniqueConstraint {
 #[derive(Debug, Clone)]
 pub struct PrimaryKey {
 	uid: Uid,
-	name: DbIdent<ConstraintKind>,
+	name: Option<DbIdent<ConstraintKind>>,
 	pub columns: Vec<ColumnIdent>,
 }
 db_name_impls!(PrimaryKey, ConstraintKind);
 impl PrimaryKey {
-	pub fn new(name: DbIdent<ConstraintKind>, columns: Vec<ColumnIdent>) -> Self {
+	pub fn new(name: Option<DbIdent<ConstraintKind>>, columns: Vec<ColumnIdent>) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
@@ -89,13 +89,13 @@ impl PrimaryKey {
 #[derive(Debug, Clone)]
 pub struct Index {
 	uid: Uid,
-	name: DbIdent<IndexKind>,
+	name: Option<DbIdent<IndexKind>>,
 	pub unique: bool,
 	pub fields: Vec<ColumnIdent>,
 }
 db_name_impls!(Index, IndexKind);
 impl Index {
-	pub fn new(name: DbIdent<IndexKind>, unique: bool, fields: Vec<ColumnIdent>) -> Self {
+	pub fn new(name: Option<DbIdent<IndexKind>>, unique: bool, fields: Vec<ColumnIdent>) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
@@ -109,12 +109,12 @@ impl Index {
 	}
 }
 impl TableIndex<'_> {
-	pub fn db_columns(&self) -> impl Iterator<Item = DbColumn> + '_ {
-		self.fields.iter().map(|f| self.table.db_name(f))
+	pub fn db_columns<'i>(&'i self, rn: &'i RenameMap) -> impl Iterator<Item = DbColumn> + 'i {
+		self.fields.iter().map(|f| self.table.db_name(f, rn))
 	}
-	pub fn db_types(&self) -> impl Iterator<Item = DbNativeType> + '_ {
+	pub fn db_types<'i>(&'i self, rn: &'i RenameMap) -> impl Iterator<Item = DbNativeType> + 'i {
 		self.fields
 			.iter()
-			.map(|f| self.table.schema_column(*f).db_type())
+			.map(|f| self.table.schema_column(*f).db_type(rn))
 	}
 }

@@ -16,6 +16,7 @@ use crate::{
 	span::{register_source, SimpleSpan, SourceId},
 	sql::{Sql, SqlOp, SqlUnOp},
 	table::{ForeignKey, OnDelete, Table, TableAnnotation},
+	uid::RenameMap,
 };
 
 fn h<T>(v: T) -> Box<T> {
@@ -58,14 +59,14 @@ rule scalar(s:S) -> Scalar = attrlist:attribute_list() _ "scalar" _ name:def_nam
 rule table_field(s:S) -> Column =
 	docs:docs()
 	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:field_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
-	Column {
+	Column::new(
+		DefName::alloc(name),
 		docs,
-		nullable: n.is_some(),
-		ty: TypeIdent::alloc(t.unwrap_or((name.0, name.1))),
-		name: DefName::alloc(name),
+		n.is_none(),
+		TypeIdent::alloc(t.unwrap_or((name.0, name.1))),
 		annotations,
-		foreign_key,
-	}
+		foreign_key
+	)
 }
 
 rule attribute_list() -> AttributeList
@@ -116,13 +117,13 @@ rule foreign_key(s:S) -> ForeignKey
 rule partial_foreign_key(s:S) -> PartialForeignKey
 = name:db_ident()? _ "~" _ on_delete:("." _ a:on_delete() {a})? _ target:code_ident(s) _ target_fields:index_fields(s)? {
 	PartialForeignKey {
-		fk: ForeignKey {
-			name: name.map(|v| v.to_owned()),
-			source_fields: None,
-			on_delete: on_delete.unwrap_or(OnDelete::Noop),
-			target: TableIdent::alloc(target),
+		fk: ForeignKey::new(
+			name.map(DbIdent::new),
+			None,
+			TableIdent::alloc(target),
 			target_fields,
-		}
+			on_delete.unwrap_or(OnDelete::Noop),
+		)
 	}
 }
 rule on_delete() -> OnDelete
@@ -135,13 +136,13 @@ rule on_delete() -> OnDelete
 rule default(s:S) -> Sql
 = "@default" _ "(" _ s:sql(s) _ ")" {s}
 rule primary_key(s:S) -> PrimaryKey
-= "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey::new(name.map(DbIdent::new).unwrap_or_default(), columns.unwrap_or_default())}
+= "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey::new(name.map(DbIdent::new), columns.unwrap_or_default())}
 rule unique(s:S) -> UniqueConstraint
-= "@unique" _ name:db_ident()? _ columns:index_fields(s)? {UniqueConstraint::new(name.map(DbIdent::new).unwrap_or_default(), columns.unwrap_or_default())}
+= "@unique" _ name:db_ident()? _ columns:index_fields(s)? {UniqueConstraint::new(name.map(DbIdent::new), columns.unwrap_or_default())}
 rule check(s:S) -> Check
-= "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check::new(name.map(DbIdent::new).unwrap_or_default(), check)}
+= "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check::new(name.map(DbIdent::new), check)}
 rule index(s:S) -> Index
-= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new).unwrap_or_default(), unq.is_some(), f.unwrap_or_default())}
+= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default())}
 
 rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
@@ -201,10 +202,10 @@ pub enum ParsingError {
 }
 
 type Result<T> = result::Result<T, Vec<ParsingError>>;
-pub fn parse(v: &str, opts: &SchemaProcessOptions) -> Result<Schema> {
+pub fn parse(v: &str, opts: &SchemaProcessOptions, rn: &mut RenameMap) -> Result<Schema> {
 	let span = register_source(v.to_string());
 	let mut s =
 		in_allocator(|| schema_parser::root(v, span).map_err(|e| vec![ParsingError::from(e)]))?;
-	s.process(opts);
+	s.process(opts, rn);
 	Ok(s)
 }
