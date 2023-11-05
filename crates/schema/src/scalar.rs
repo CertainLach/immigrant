@@ -72,6 +72,8 @@ pub struct Scalar {
 	uid: Uid,
 	name: TypeDefName,
 	pub attrlist: AttributeList,
+	/// TODO: There is no support for making one scalar depend on other scalar/enum.
+	/// Should this support be implemented? Should there be dedicated syntax for SQL types?
 	native: DbNativeType,
 	pub annotations: Vec<ScalarAnnotation>,
 	inlined: bool,

@@ -2,10 +2,10 @@ use std::{fs, path::Path};
 
 use anyhow::anyhow;
 use ass_stroke::{SnippetBuilder, Text};
-use immigrant_schema::{parser, root::Schema};
+use immigrant_schema::{parser, root::{Schema, SchemaProcessOptions}};
 
 pub fn parse_schema(schema: &str) -> anyhow::Result<Schema> {
-	match parser::parse(schema) {
+	match parser::parse(schema, SchemaProcessOptions{generator_supports_domain: true, naming_convention: immigrant_schema::process::NamingConvention::Postgres}) {
 		Ok(s) => Ok(s),
 		Err(e) => {
 			let mut builder = SnippetBuilder::new(schema);
