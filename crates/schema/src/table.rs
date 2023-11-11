@@ -8,8 +8,8 @@ use crate::{
 	db_name_impls, def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{
-		ColumnIdent, ConstraintKind, DbColumn, DbConstraint, DbForeignKey, DbNativeType,
-		ForeignKeyKind, TableDefName, TableIdent, TableKind, TypeIdent,
+		ColumnIdent, DbColumn, DbForeignKey, DbNativeType, ForeignKeyKind, TableDefName,
+		TableIdent, TableKind, TypeIdent,
 	},
 	scalar::PropagatedScalarData,
 	uid::{next_uid, RenameExt, RenameMap, Uid},

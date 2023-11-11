@@ -11,8 +11,7 @@ use crate::{
 	process::{NamingConvention, Pgnc},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	EnumDiff, HasIdent, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
-	TableDiff,
+	HasIdent, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
 };
 
 // newty_enum!(

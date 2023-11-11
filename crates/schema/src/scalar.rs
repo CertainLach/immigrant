@@ -10,8 +10,7 @@ use crate::{
 	def_name_impls,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
-	uid::{next_uid, HasUid, RenameExt, RenameMap, Uid},
-	HasDefaultDbName,
+	uid::{next_uid, RenameExt, RenameMap, Uid},
 };
 
 #[derive(Debug)]

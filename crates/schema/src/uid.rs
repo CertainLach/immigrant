@@ -17,8 +17,18 @@ pub(crate) fn next_uid() -> Uid {
 	})
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RenameMap(HashMap<Uid, String>);
+impl RenameMap {
+	pub fn merge(&mut self, other: RenameMap) {
+		for (k, v) in other.0 {
+			assert!(
+				self.0.insert(k, v).is_none(),
+				"cannot merge RenameMap with conflicting entries"
+			)
+		}
+	}
+}
 
 pub(crate) trait HasUid {
 	fn uid(&self) -> Uid;

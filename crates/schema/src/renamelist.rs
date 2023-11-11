@@ -175,7 +175,7 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 				.map(|r| (r.source(rn), r.target()))
 				.collect::<Vec<_>>()
 		);
-		let temp = id.next();
+		let temp = id.next_temp();
 		let target = replace_with_or_abort_and_return(looped.first_mut().unwrap(), |v| match v {
 			RenameOp::Rename(v, t) => (t, RenameOp::Store(v, temp)),
 			_ => unreachable!(),
@@ -190,7 +190,7 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 #[derive(Default)]
 pub struct RenameTempAllocator(usize);
 impl RenameTempAllocator {
-	pub fn next(&mut self) -> RenameTemp {
+	pub fn next_temp(&mut self) -> RenameTemp {
 		self.0 += 1;
 		RenameTemp(self.0)
 	}

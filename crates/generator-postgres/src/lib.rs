@@ -8,7 +8,6 @@ use itertools::Itertools;
 use rand::distributions::DistString;
 use schema::{
 	index::Check,
-	mk_change_list,
 	names::{DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,

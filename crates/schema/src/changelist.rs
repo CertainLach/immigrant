@@ -1,7 +1,4 @@
-use std::{
-	collections::HashSet,
-	fmt::{self, Debug},
-};
+use std::{collections::HashSet, fmt::Debug};
 
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
@@ -102,7 +99,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 			continue;
 		}
 		let tmp = if occupancy.contains(&old.db(rn)) {
-			Some(allocator.next())
+			Some(allocator.next_temp())
 		} else {
 			None
 		};
@@ -117,7 +114,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 	{
 		out.created.push(recreated.new.clone());
 		out.dropped
-			.push((recreated.old.clone(), Some(allocator.next())));
+			.push((recreated.old.clone(), Some(allocator.next_temp())));
 	}
 	out.updated.retain(|diff| diff.old.is_compatible(&diff.new));
 
@@ -132,14 +129,14 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 
 	let mut to_rename = vec![];
 	for updated in out.updated.iter() {
-		to_rename.push((updated.old.clone(), updated.new.db(&rn)));
+		to_rename.push((updated.old.clone(), updated.new.db(rn)));
 	}
 	let mut moveaways = vec![];
 	for old_dropped in out.dropped.iter() {
 		if let Some(tmp) = old_dropped.1 {
 			moveaways.push((old_dropped.0.clone(), tmp));
 		} else if new.iter().any(|n| n.db(rn) == old_dropped.0.db(rn)) {
-			moveaways.push((old_dropped.0.clone(), allocator.next()));
+			moveaways.push((old_dropped.0.clone(), allocator.next_temp()));
 		}
 	}
 	out.renamed = reorder_renames(rn, to_rename, moveaways, &mut allocator);
@@ -151,31 +148,48 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 mod tests {
 	use crate::{
 		changelist::{mk_change_list, ChangeList, IsCompatible},
-		ids::{in_allocator, DbIdent},
+		ids::{in_allocator, DbIdent, Ident},
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
 		span::{register_source, SimpleSpan},
-		uid::RenameMap,
+		uid::{next_uid, HasUid, RenameMap, Uid},
+		HasDefaultDbName, HasIdent,
 	};
 	#[test]
 	fn changelist_conflict() {
 		tracing_subscriber::fmt().init();
 		in_allocator(|| {
 			#[derive(Clone, Debug, PartialEq)]
-			struct P(DefName<TypeKind>);
+			struct P(Uid, DefName<TypeKind>);
 			impl IsCompatible for P {
 				fn is_compatible(&self, _new: &Self) -> bool {
 					true
 				}
 			}
+			impl HasDefaultDbName for P {
+				type Kind = TypeKind;
+				fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+					self.1.default_db()
+				}
+			}
+			impl HasIdent for P {
+				type Kind = TypeKind;
+				fn id(&self) -> Ident<Self::Kind> {
+					self.1.id()
+				}
+			}
+			impl HasUid for P {
+				fn uid(&self) -> Uid {
+					self.0
+				}
+			}
 			fn p(a: &'static str, b: &'static str) -> P {
 				let s = a.to_string();
 				let s = register_source(s);
-				P(DefName::alloc((
-					SimpleSpan::new(s, 0, a.len() as u32),
-					a,
-					Some(b),
-				)))
+				P(
+					next_uid(),
+					DefName::alloc((SimpleSpan::new(s, 0, a.len() as u32), a, Some(b))),
+				)
 			}
 			fn i(n: &'static str) -> DbIdent<TypeKind> {
 				DbIdent::new(n)
@@ -186,7 +200,7 @@ mod tests {
 				};
 			}
 			let mut ren = RenameTempAllocator::default();
-			let ren1 = ren.next();
+			let ren1 = ren.next_temp();
 
 			assert_eq!(
 				mk_change_list(

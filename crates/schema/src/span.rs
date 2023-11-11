@@ -4,6 +4,7 @@ use std::cell::RefCell;
 pub(crate) struct SourceId(u32);
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct SimpleSpan {
 	source_id: SourceId,
 	start: u32,
@@ -32,6 +33,7 @@ pub(crate) fn register_source(text: String) -> SourceId {
 		id
 	})
 }
+#[allow(dead_code)]
 pub(crate) fn get_source(src: SourceId) -> String {
 	SPANS.with(|srcs| {
 		let srcs = srcs.borrow();

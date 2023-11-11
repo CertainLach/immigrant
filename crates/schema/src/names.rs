@@ -1,8 +1,9 @@
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
 
 use crate::{
 	ids::{DbIdent, Ident, Kind},
 	span::SimpleSpan,
+	HasDefaultDbName, HasIdent,
 };
 
 macro_rules! def_kind {
@@ -50,6 +51,18 @@ impl<K: Kind> DefName<K> {
 			code: Ident::unchecked_cast(v.code),
 			db: v.db.map(DbIdent::unchecked_from),
 		}
+	}
+}
+impl<K> HasIdent for DefName<K> {
+	type Kind = K;
+	fn id(&self) -> Ident<Self::Kind> {
+		self.code
+	}
+}
+impl<K> HasDefaultDbName for DefName<K> {
+	type Kind = K;
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		self.db.clone()
 	}
 }
 impl<K> Debug for DefName<K> {

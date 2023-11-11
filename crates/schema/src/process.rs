@@ -2,6 +2,7 @@ use std::{
 	collections::BTreeMap,
 	mem,
 	ops::{Deref, DerefMut},
+	str::FromStr,
 };
 
 use inflector::{cases::snakecase::to_snake_case, string::pluralize::to_plural};
@@ -18,8 +19,19 @@ use crate::{
 	w, HasIdent,
 };
 
+#[derive(Clone, Copy)]
 pub enum NamingConvention {
 	Postgres,
+}
+impl FromStr for NamingConvention {
+	type Err = &'static str;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"postgres" => Ok(Self::Postgres),
+			_ => Err("unknown naming convention"),
+		}
+	}
 }
 
 pub struct Pgnc<T>(pub T);
@@ -315,6 +327,9 @@ impl Pgnc<&mut Table> {
 				}
 				TableAnnotation::Check(c) if !c.db_assigned(rn) => {
 					c.set_db(rn, DbIdent::new(&name.unwrap()));
+				}
+				TableAnnotation::Unique(u) if !u.db_assigned(rn) => {
+					u.set_db(rn, DbIdent::new(&name.unwrap()));
 				}
 				_ => assert!(name.is_none(), "unexpected name for {ann:?}: {name:?}"),
 			}

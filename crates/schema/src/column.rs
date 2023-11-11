@@ -8,10 +8,11 @@ use super::{
 	table::{ForeignKey, TableAnnotation},
 };
 use crate::{
+	attribute::AttributeList,
 	def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
-	scalar::PropagatedScalarData,
+	scalar::{PropagatedScalarData, ScalarAnnotation},
 	uid::{next_uid, RenameMap, Uid},
 	HasIdent, SchemaEnum, SchemaScalar, TableColumn,
 };
@@ -53,6 +54,7 @@ pub struct Column {
 	uid: Uid,
 	name: ColumnDefName,
 	pub docs: Vec<String>,
+	pub attrs: AttributeList,
 	pub nullable: bool,
 	pub ty: TypeIdent,
 	pub annotations: Vec<ColumnAnnotation>,
@@ -63,6 +65,7 @@ impl Column {
 	pub fn new(
 		name: ColumnDefName,
 		docs: Vec<String>,
+		attrs: AttributeList,
 		nullable: bool,
 		ty: TypeIdent,
 		annotations: Vec<ColumnAnnotation>,
@@ -70,6 +73,7 @@ impl Column {
 	) -> Self {
 		Self {
 			uid: next_uid(),
+			attrs,
 			name,
 			docs,
 			nullable,
@@ -99,7 +103,7 @@ impl Column {
 	pub fn propagate_annotations(&mut self) -> Vec<TableAnnotation> {
 		let (annotations, retained) = mem::take(&mut self.annotations)
 			.into_iter()
-			.partition_map(|a| a.propagate_to_table(self.id().clone()));
+			.partition_map(|a| a.propagate_to_table(self.id()));
 		self.annotations = retained;
 		annotations
 	}
@@ -122,11 +126,29 @@ impl SchemaType<'_> {
 			SchemaType::Enum(e) => e.id(),
 		}
 	}
+	pub fn has_default(&self) -> bool {
+		match self {
+			SchemaType::Scalar(s) => s
+				.annotations
+				.iter()
+				.any(|a| matches!(a, ScalarAnnotation::Default(_))),
+			SchemaType::Enum(_) => false,
+		}
+	}
+	pub fn attrlist(&self) -> &AttributeList {
+		match self {
+			SchemaType::Scalar(s) => &s.attrlist,
+			SchemaType::Enum(e) => &e.attrlist,
+		}
+	}
 }
 
 impl TableColumn<'_> {
 	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
 		self.table.schema.native_type(&self.ty, rn)
+	}
+	pub fn ty(&self) -> SchemaType<'_> {
+		self.table.schema.schema_ty(self.ty)
 	}
 	pub fn default(&self) -> Option<&Sql> {
 		let res = self
@@ -143,10 +165,13 @@ impl TableColumn<'_> {
 		};
 		pk.columns.contains(&self.id())
 	}
+	pub fn has_default(&self) -> bool {
+		self.default().is_some() || self.ty().has_default()
+	}
 	pub fn is_pk_full(&self) -> bool {
 		let Some(pk) = self.table.pk() else {
 			return false;
 		};
-		pk.columns == [self.id().clone()]
+		pk.columns == [self.id()]
 	}
 }

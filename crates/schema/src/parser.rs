@@ -35,7 +35,7 @@ rule item(s:S) -> Item
 
 rule table(s:S) -> Table =
 	docs:docs()
-	attrlist:attribute_list() _
+	attrlist:attribute_list(s) _
 	"table" _ name:def_name(s) _ "{" _
 		fields:(f:table_field(s) _ ";" {f})++_ _
 		annotations:(a:table_annotation(s) _ ";" {a})**_ _
@@ -50,36 +50,38 @@ rule table(s:S) -> Table =
 		foreign_keys,
 	)
 }};
-rule enum(s:S) -> Enum = attrlist:attribute_list() _ "enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
+rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
 	Enum::new(attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
 };
-rule scalar(s:S) -> Scalar = attrlist:attribute_list() _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
+rule scalar(s:S) -> Scalar = attrlist:attribute_list(s) _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
 	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
 rule table_field(s:S) -> Column =
 	docs:docs()
+	attrlist:attribute_list(s) _
 	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:field_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
 	Column::new(
 		DefName::alloc(name),
 		docs,
-		n.is_none(),
+		attrlist,
+		n.is_some(),
 		TypeIdent::alloc(t.unwrap_or((name.0, name.1))),
 		annotations,
 		foreign_key
 	)
 }
 
-rule attribute_list() -> AttributeList
-= list:attribute() ** _ {AttributeList(list)}
-rule attribute() -> Attribute
-= "#" _ name:db_ident() fields:(_ "(" _ f:(f:attribute_field()++comma() trailing_comma() {f}) _ ")" {f})? {
+rule attribute_list(s:S) -> AttributeList
+= list:attribute(s) ** _ {AttributeList(list)}
+rule attribute(s:S) -> Attribute
+= "#" _ name:code_ident(s) fields:(_ "(" _ f:(f:attribute_field(s)++comma() trailing_comma() {f}) _ ")" {f})? {
 	Attribute {
-		name: name.to_owned(),
+		name: name.1.to_owned(),
 		fields: fields.unwrap_or_default(),
 	}
 }
-rule attribute_field() -> AttributeField
-= key:db_ident() v:(_ "=" _ value:attribute_value() {value})? {AttributeField {key: key.to_owned(), value: v.unwrap_or(AttributeValue::Set)}}
+rule attribute_field(s:S) -> AttributeField
+= key:code_ident(s) v:(_ "=" _ value:attribute_value() {value})? {AttributeField {key: key.1.to_owned(), value: v.unwrap_or(AttributeValue::Set)}}
 rule attribute_value() -> AttributeValue
 = s:str() {AttributeValue::String(s.to_owned())}
 
@@ -183,7 +185,7 @@ rule sql(s:S) -> Sql
 	"(" _ e:sql(s) _ ")" {Sql::Parened(h(e))}
 }
 rule sql_basic(s:S) -> Sql
-= i:db_ident() _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i), e)}
+= i:code_ident(s) _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i.1), e)}
 / s:str() {Sql::String(s.to_owned())}
 / n:$(['0'..='9']+) {Sql::Number(n.parse().unwrap())}
 / "_" {Sql::Placeholder}
