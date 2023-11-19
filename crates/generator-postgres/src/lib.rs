@@ -1,14 +1,16 @@
 use std::{
 	cmp::Reverse,
-	collections::HashMap,
+	collections::{HashMap, HashSet},
 	ops::{Deref, DerefMut},
 };
 
 use itertools::Itertools;
 use rand::distributions::DistString;
 use schema::{
+	ids::DbIdent,
 	index::Check,
-	names::{DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
+	mk_change_list,
+	names::{DbColumn, DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
@@ -57,6 +59,11 @@ impl Pg<TableColumn<'_>> {
 		let mut inl = String::new();
 		self.create_inline(&mut inl, rn);
 		out.push(format!("ADD COLUMN {inl}"))
+	}
+	pub fn rename_alter(&self, to: DbColumn, out: &mut Vec<String>, rn: &mut RenameMap) {
+		let name = self.db(rn);
+		out.push(format!("ALTER COLUMN {name} RENAME TO {to}"));
+		self.set_db(rn, to);
 	}
 }
 impl Pg<TableSql<'_>> {
@@ -231,6 +238,8 @@ impl Pg<TableDiff<'_>> {
 			// }
 		}
 		let mut alternations = Vec::new();
+
+		// Drop/rename PK
 		match (self.old.primary_key(), self.new.primary_key()) {
 			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations, rn),
 			(Some(old), Some(new)) => {
@@ -247,6 +256,34 @@ impl Pg<TableDiff<'_>> {
 		// 		Pg(old_constraint).drop_alter(&mut alternations);
 		// 	}
 		// }
+		//
+		let old_columns = self.old.columns().collect::<Vec<_>>();
+		let new_columns = self.new.columns().collect::<Vec<_>>();
+		let column_changes = mk_change_list(rn, &old_columns, &new_columns);
+		// Rename/moveaway columns
+		{
+			let mut updated = HashMap::new();
+			for ele in column_changes.renamed {
+				match ele {
+					RenameOp::Rename(i, r) => {
+						Pg(i).rename_alter(DbIdent::unchecked_from(r), &mut alternations, rn);
+					}
+					RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
+						Pg(i).rename_alter(t.db(), &mut alternations, rn);
+						updated.insert(t, i);
+					}
+					RenameOp::Restore(t, n) => {
+						let table = updated.remove(&t).expect("stored");
+						Pg(table).rename_alter(DbIdent::unchecked_from(n), &mut alternations, rn);
+					}
+				}
+			}
+		}
+
+		// Create new columns
+		for ele in column_changes.created {
+			Pg(ele).create_alter(&mut alternations, rn);
+		}
 		// for old_column in self.old.columns() {
 		// 	if let Some(new_column) = self.new.schema_column(&old_column.db(rn)) {
 		// 		Pg(ColumnDiff {
@@ -263,11 +300,23 @@ impl Pg<TableDiff<'_>> {
 		// 		Pg(new_column).create_alter(&mut alternations)
 		// 	}
 		// }
+
+		// Create/update pk
 		match (self.old.primary_key(), self.new.primary_key()) {
 			(None, Some(v)) => Pg(v).create_alter(&mut alternations, rn),
-			(Some(old), Some(new)) => Pg(Diff { old, new }).alter(&mut alternations, rn),
+			(Some(old), Some(new)) => {
+				Pg(Diff { old, new }).alter_column_list(&mut alternations, rn)
+			}
 			(Some(_) | None, None) => {}
 		};
+
+		// Create/update indexes
+		self.old.indexes().collect_vec();
+
+		// Drop old columns
+		for (column, _) in column_changes.dropped {
+			Pg(column).drop_alter(&mut alternations, rn);
+		}
 		// for new_constraint in self.new.constraints() {
 		// 	if Pg(self.old)
 		// 		.constraint_isomorphic_to(new_constraint)
@@ -406,45 +455,13 @@ impl Pg<TableIndex<'_>> {
 }
 impl Pg<SchemaDiff<'_>> {
 	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
-		let mut changelist = self.changelist(rn);
+		let changelist = self.changelist(rn);
 
-		#[derive(PartialOrd, Ord, PartialEq, Eq)]
-		enum SortOrder {
-			Type,
-			Table,
-		}
-		impl SortOrder {
-			fn get_for(i: &SchemaItem<'_>) -> Self {
-				match i {
-					SchemaItem::Table(_) => Self::Table,
-					_ => Self::Type,
-				}
-			}
-		}
-		changelist.created.sort_by_key(|c| SortOrder::get_for(c));
-
-		#[derive(PartialOrd, Ord, PartialEq, Eq)]
-		enum UpdateSortOrder {
-			// Update table first, because they may have defaults, which may require removed enum entries
-			Table,
-			// May refer enum
-			Scalar,
-			Enum,
-		}
-		changelist.updated.sort_by_key(|c| match (c.old, c.new) {
-			(SchemaItem::Table(_), SchemaItem::Table(_)) => UpdateSortOrder::Table,
-			(SchemaItem::Enum(_), SchemaItem::Enum(_)) => UpdateSortOrder::Scalar,
-			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => UpdateSortOrder::Enum,
-			(a, b) => unreachable!("invalid update: {a:?} => {b:?}"),
-		});
-
-		changelist
-			.dropped
-			.sort_by_key(|c| Reverse(SortOrder::get_for(&c.0)));
+		// Rename/moveaway everything
 		for ele in changelist.renamed {
 			let mut stored = HashMap::new();
 			match ele {
-				RenameOp::Store(i, t) => {
+				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
 					stored.insert(t, i);
 					Pg(i).rename(t.db(), out, rn)
 				}
@@ -455,49 +472,131 @@ impl Pg<SchemaDiff<'_>> {
 			}
 		}
 
-		for ele in changelist.created {
+		// Enums: print_renamed_added
+		for ele in changelist
+			.updated
+			.iter()
+			.filter(|i| matches!(i.old, SchemaItem::Enum(_)))
+		{
+			let old = ele.old.as_enum().expect("is enum");
+			let new = ele.new.as_enum().expect("is enum");
+			Pg(Diff { old, new }).print_renamed_added(out, rn);
+		}
+
+		// Create new enums/scalars
+		for ele in changelist.created.iter().filter_map(|i| i.as_enum()) {
+			Pg(ele).create(out, rn);
+		}
+		for ele in changelist.created.iter().filter_map(|i| i.as_scalar()) {
 			Pg(ele).create(out, rn);
 		}
 
-		let mut enum_changes = vec![];
-
-		for ele in changelist.updated.iter().copied() {
-			match (ele.old, ele.new) {
-				(SchemaItem::Enum(old), SchemaItem::Enum(new)) => {
-					let diff = Pg(Diff { old, new });
-					let removed = diff.print_renamed_added(out, rn);
-					// FIXME: Why did I tough removals should be deferred?..
-					enum_changes.push((diff, removed));
-				}
-				(SchemaItem::Scalar(_), SchemaItem::Scalar(_))
-				| (SchemaItem::Table(_), SchemaItem::Table(_)) => {
-					// Updated later
-				}
-				_ => unreachable!("will fail on sort"),
-			}
+		// Create new tables
+		for ele in changelist.created.iter().filter_map(|i| i.as_table()) {
+			Pg(ele).create(out, rn);
 		}
 
-		for ele in changelist.updated.iter().copied() {
-			match (ele.old, ele.new) {
-				(SchemaItem::Table(old), SchemaItem::Table(new)) => {
-					dbg!(old, new);
-					Pg(Diff { old, new }).print(out, rn)
-				}
-				(SchemaItem::Scalar(old), SchemaItem::Scalar(new)) => {
-					Pg(Diff { old, new }).print(out, rn)
-				}
-				(SchemaItem::Enum(_), SchemaItem::Enum(_)) => {}
-				_ => unreachable!("will fail on sort"),
-			}
+		// Update tables
+		for ele in changelist
+			.updated
+			.iter()
+			.filter(|d| matches!(d.old, SchemaItem::Table(_)))
+		{
+			let old = ele.old.as_table().expect("table");
+			let new = ele.new.as_table().expect("table");
+			Pg(Diff { old, new }).print(out, rn)
 		}
 
-		for (en, removed) in enum_changes {
-			en.print_removed(removed, out, rn);
+		// Drop old tables
+		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+			Pg(ele).drop(out, rn)
 		}
 
-		for (ele, _) in changelist.dropped {
-			Pg(ele).drop(out, rn);
+		// Drop old enums/scalars
+		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_enum()) {
+			Pg(ele).create(out, rn);
 		}
+		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_scalar()) {
+			Pg(ele).create(out, rn);
+		}
+
+		// #[derive(PartialOrd, Ord, PartialEq, Eq)]
+		// enum SortOrder {
+		// 	Type,
+		// 	Table,
+		// }
+		// impl SortOrder {
+		// 	fn get_for(i: &SchemaItem<'_>) -> Self {
+		// 		match i {
+		// 			SchemaItem::Table(_) => Self::Table,
+		// 			_ => Self::Type,
+		// 		}
+		// 	}
+		// }
+		// changelist.created.sort_by_key(|c| SortOrder::get_for(c));
+		//
+		// #[derive(PartialOrd, Ord, PartialEq, Eq)]
+		// enum UpdateSortOrder {
+		// 	// Update table first, because they may have defaults, which may require removed enum entries
+		// 	Table,
+		// 	// May refer enum
+		// 	Scalar,
+		// 	Enum,
+		// }
+		// changelist.updated.sort_by_key(|c| match (c.old, c.new) {
+		// 	(SchemaItem::Table(_), SchemaItem::Table(_)) => UpdateSortOrder::Table,
+		// 	(SchemaItem::Enum(_), SchemaItem::Enum(_)) => UpdateSortOrder::Scalar,
+		// 	(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => UpdateSortOrder::Enum,
+		// 	(a, b) => unreachable!("invalid update: {a:?} => {b:?}"),
+		// });
+		//
+		// changelist
+		// 	.dropped
+		// 	.sort_by_key(|c| Reverse(SortOrder::get_for(&c.0)));
+		//
+		// for ele in changelist.created {
+		// 	Pg(ele).create(out, rn);
+		// }
+		//
+		// let mut enum_changes = vec![];
+		//
+		// for ele in changelist.updated.iter().copied() {
+		// 	match (ele.old, ele.new) {
+		// 		(SchemaItem::Enum(old), SchemaItem::Enum(new)) => {
+		// 			let diff = Pg(Diff { old, new });
+		// 			let removed = diff.print_renamed_added(out, rn);
+		// 			// FIXME: Why did I tough removals should be deferred?..
+		// 			enum_changes.push((diff, removed));
+		// 		}
+		// 		(SchemaItem::Scalar(_), SchemaItem::Scalar(_))
+		// 		| (SchemaItem::Table(_), SchemaItem::Table(_)) => {
+		// 			// Updated later
+		// 		}
+		// 		_ => unreachable!("will fail on sort"),
+		// 	}
+		// }
+		//
+		// for ele in changelist.updated.iter().copied() {
+		// 	match (ele.old, ele.new) {
+		// 		(SchemaItem::Table(old), SchemaItem::Table(new)) => {
+		// 			dbg!(old, new);
+		// 			Pg(Diff { old, new }).print(out, rn)
+		// 		}
+		// 		(SchemaItem::Scalar(old), SchemaItem::Scalar(new)) => {
+		// 			Pg(Diff { old, new }).print(out, rn)
+		// 		}
+		// 		(SchemaItem::Enum(_), SchemaItem::Enum(_)) => {}
+		// 		_ => unreachable!("will fail on sort"),
+		// 	}
+		// }
+		//
+		// for (en, removed) in enum_changes {
+		// 	en.print_removed(removed, out, rn);
+		// }
+		//
+		// for (ele, _) in changelist.dropped {
+		// 	Pg(ele).drop(out, rn);
+		// }
 	}
 }
 impl Pg<&Schema> {
@@ -569,7 +668,7 @@ impl Pg<EnumDiff<'_>> {
 		for el in changelist.renamed.iter().cloned() {
 			let mut stored = HashMap::new();
 			match el {
-				RenameOp::Store(i, t) => {
+				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
 					stored.insert(t, i);
 					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
@@ -905,7 +1004,7 @@ impl Pg<TableCheck<'_>> {
 }
 
 impl Pg<Diff<TablePrimaryKey<'_>>> {
-	fn alter(&self, out: &mut Vec<String>, rn: &mut RenameMap) {
+	fn alter_column_list(&self, out: &mut Vec<String>, rn: &mut RenameMap) {
 		if self.old.db(rn) != self.new.db(rn) {
 			Pg(self.old).rename_alter(self.new.db(rn), out, rn);
 		}

@@ -1,3 +1,9 @@
+//! Given the old and new list of named items, classify differences between them as renames (see `crate::renamelist`),
+//! creates, drops, and updates.
+//!
+//! If values are not compatible by the decision of `IsCompatible` trait, then they will not be updated, and instead
+//! old version will be dropped, and the new version will be created.
+
 use std::{collections::HashSet, fmt::Debug};
 
 use crate::{
@@ -7,19 +13,21 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq)]
-pub struct ChangeList<T: RenameExt + HasIdent> {
+pub struct ChangeList<T: RenameExt> {
 	pub dropped: Vec<(T, Option<RenameTemp>)>,
 	pub renamed: Vec<RenameOp<T>>,
+	pub moved_away: Vec<(T, RenameTemp)>,
 	pub updated: Vec<Diff<T>>,
 	pub created: Vec<T>,
 }
-impl<T: RenameExt + HasIdent> ChangeList<T> {
+impl<T: RenameExt> ChangeList<T> {
 	fn new() -> Self {
 		Self {
 			renamed: vec![],
 			created: vec![],
 			updated: vec![],
 			dropped: vec![],
+			moved_away: vec![],
 		}
 	}
 }
@@ -28,26 +36,42 @@ pub trait IsCompatible {
 	fn is_compatible(&self, new: &Self) -> bool;
 }
 
-/// Given the old and new list of named items, classify differences between them as renames (see `crate::renamelist`),
-/// creates, drops, and updates.
-///
-/// If values are not compatible by the decision of `IsCompatible` trait, then they will not be updated, and instead
-/// old version will be dropped, and the new version will be created.
-pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
+pub trait IsIsomorph {
+	fn is_isomorph(&self, other: &Self) -> bool;
+}
+
+pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + HasIdent>(
 	rn: &RenameMap,
 	old: &[T],
 	new: &[T],
+) -> ChangeList<T> {
+	mk_change_list_inner(rn, old, new, |a, b| a.id().name() == b.id().name())
+}
+pub fn mk_change_list_by_isomorph<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
+	rn: &RenameMap,
+	old: &[T],
+	new: &[T],
+) -> ChangeList<T> {
+	mk_change_list_inner(rn, old, new, |a, b| a.is_isomorph(b))
+}
+
+fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
+	rn: &RenameMap,
+	old: &[T],
+	new: &[T],
+	is_identity: impl Fn(&T, &T) -> bool,
 ) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
 
 	let mut old_listed = HashSet::new();
 	let mut new_listed = HashSet::new();
 
+	// Final list of occupied items
 	let occupancy = new.iter().map(|n| n.db(rn)).collect::<HashSet<_>>();
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
-			!new_listed.contains(i) && f.id().name() == old.id().name() && f.db(rn) == old.db(rn)
+			!new_listed.contains(i) && is_identity(&f, &old) && f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
 			{
@@ -71,7 +95,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 			.iter()
 			.cloned()
 			.enumerate()
-			.filter(|(i, f)| f.id().name() == old.id().name() && !new_listed.contains(i));
+			.filter(|(i, f)| is_identity(&f, &old) && !new_listed.contains(i));
 		if let Some((nid, new)) = new_by_code.next() {
 			assert!(new_by_code.next().is_none());
 			old_listed.insert(oid);
@@ -139,7 +163,8 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + HasIdent + Debug>(
 			moveaways.push((old_dropped.0.clone(), allocator.next_temp()));
 		}
 	}
-	out.renamed = reorder_renames(rn, to_rename, moveaways, &mut allocator);
+	out.renamed = reorder_renames(rn, to_rename, moveaways.clone(), &mut allocator);
+	out.moved_away = moveaways;
 
 	out
 }
@@ -221,6 +246,7 @@ mod tests {
 
 					created: vec![],
 					dropped: vec![],
+					moved_away: vec![],
 				}
 			);
 			assert_eq!(
@@ -233,6 +259,7 @@ mod tests {
 					renamed: vec![RenameOp::Rename(p("A", "B"), i("C"))],
 					updated: vec![diff!(p("A", "B"), p("A", "C"))],
 					created: vec![p("D", "B")],
+					moved_away: vec![],
 
 					dropped: vec![],
 				}
@@ -250,6 +277,7 @@ mod tests {
 					],
 					updated: vec![diff!(p("A", "C"), p("A", "B")),],
 					dropped: vec![(p("D", "B"), Some(ren1))],
+					moved_away: vec![(p("D", "B"), ren1)],
 
 					created: vec![],
 				}

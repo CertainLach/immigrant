@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
 	attribute::AttributeList,
+	changelist::IsCompatible,
 	def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
@@ -81,6 +82,11 @@ impl Column {
 			annotations,
 			foreign_key,
 		}
+	}
+}
+impl IsCompatible for Column {
+	fn is_compatible(&self, new: &Self) -> bool {
+		true
 	}
 }
 

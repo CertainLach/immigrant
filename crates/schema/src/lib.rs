@@ -4,11 +4,11 @@ use derivative::Derivative;
 use ids::DbIdent;
 
 use self::{
-	changelist::IsCompatible,
+	changelist::{IsCompatible, IsIsomorph},
 	column::Column,
 	ids::Ident,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::ItemKind,
+	names::{ColumnKind, ItemKind},
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
@@ -34,7 +34,7 @@ pub mod attribute;
 mod changelist;
 pub mod renamelist;
 
-pub use changelist::{mk_change_list, ChangeList};
+pub use changelist::{mk_change_list, mk_change_list_by_isomorph, ChangeList};
 
 mod span;
 pub mod uid;
@@ -116,6 +116,43 @@ impl<I> Clone for TableItem<'_, I> {
 	}
 }
 impl<I> Copy for TableItem<'_, I> {}
+impl<T> IsCompatible for TableItem<'_, T>
+where
+	T: IsCompatible,
+{
+	fn is_compatible(&self, new: &Self) -> bool {
+		self.value.is_compatible(&new.value)
+	}
+}
+impl<T> HasUid for TableItem<'_, T>
+where
+	T: HasUid,
+{
+	fn uid(&self) -> uid::Uid {
+		self.value.uid()
+	}
+}
+impl<T> HasDefaultDbName for TableItem<'_, T>
+where
+	T: HasDefaultDbName,
+{
+	type Kind = T::Kind;
+
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		self.value.default_db()
+	}
+}
+impl<T> HasIdent for TableItem<'_, T>
+where
+	T: HasIdent,
+{
+	type Kind = T::Kind;
+
+	fn id(&self) -> Ident<Self::Kind> {
+		self.value.id()
+	}
+}
+
 pub type TableIndex<'a> = TableItem<'a, Index>;
 pub type TableColumn<'a> = TableItem<'a, Column>;
 pub type TableForeignKey<'a> = TableItem<'a, ForeignKey>;
@@ -165,6 +202,26 @@ pub enum SchemaItem<'a> {
 	Table(SchemaTable<'a>),
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
+}
+impl SchemaItem<'_> {
+	pub fn as_enum(&self) -> Option<SchemaEnum> {
+		match self {
+			Self::Enum(e) => Some(*e),
+			_ => None,
+		}
+	}
+	pub fn as_scalar(&self) -> Option<SchemaScalar> {
+		match self {
+			Self::Scalar(e) => Some(*e),
+			_ => None,
+		}
+	}
+	pub fn as_table(&self) -> Option<SchemaTable> {
+		match self {
+			Self::Table(e) => Some(*e),
+			_ => None,
+		}
+	}
 }
 impl HasUid for SchemaItem<'_> {
 	fn uid(&self) -> uid::Uid {
@@ -329,6 +386,30 @@ macro_rules! def_name_impls {
 		}
 	};
 }
+
+#[macro_export]
+macro_rules! delegate_name_impls {
+	($t:ty, $k:ident) => {
+		impl $crate::uid::HasUid for $t {
+			fn uid(&self) -> $crate::uid::Uid {
+				self.value.uid()
+			}
+		}
+		impl $crate::HasIdent for $t {
+			type Kind = $k;
+			fn id(&self) -> $crate::ids::Ident<Self::Kind> {
+				self.value.id()
+			}
+		}
+		impl $crate::HasDefaultDbName for $t {
+			type Kind = $k;
+			fn default_db(&self) -> Option<$crate::ids::DbIdent<Self::Kind>> {
+				self.value.default_db()
+			}
+		}
+	};
+}
+
 #[macro_export]
 macro_rules! db_name_impls {
 	($t:ty, $k:ident) => {

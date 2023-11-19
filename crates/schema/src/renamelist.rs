@@ -30,19 +30,21 @@ pub enum RenameOp<T: RenameExt> {
 	/// And then, after the target name is finally free, renamed from the temporary name to the normal.
 	/// (Always queued after corresponding `Self::Store`, you should keep track of stored items)
 	Restore(RenameTemp, DbIdent<T::Kind>),
+
+	Moveaway(T, RenameTemp),
 }
 impl<T: RenameExt + Clone> RenameOp<T> {
 	fn target(&self) -> NameOrTemp<T> {
 		match self {
 			RenameOp::Rename(_, v) => NameOrTemp::Name(v.clone()),
-			RenameOp::Store(_, v) => NameOrTemp::Temp(*v),
+			RenameOp::Store(_, v) | RenameOp::Moveaway(_, v) => NameOrTemp::Temp(*v),
 			RenameOp::Restore(_, v) => NameOrTemp::Name(v.clone()),
 		}
 	}
 	fn source(&self, rn: &RenameMap) -> NameOrTemp<T> {
 		match self {
 			RenameOp::Rename(v, _) => NameOrTemp::Name(v.db(rn)),
-			RenameOp::Store(v, _) => NameOrTemp::Name(v.db(rn)),
+			RenameOp::Store(v, _) | RenameOp::Moveaway(v, _) => NameOrTemp::Name(v.db(rn)),
 			RenameOp::Restore(v, _) => NameOrTemp::Temp(*v),
 		}
 	}
@@ -84,7 +86,7 @@ pub fn reorder_renames<T: RenameExt + Clone>(
 	let mut out = Vec::new();
 	let mut ops = Vec::new();
 	for (t, temp) in moveaways {
-		ops.push(RenameOp::Store(t, temp))
+		ops.push(RenameOp::Moveaway(t, temp))
 	}
 	ops.extend(renames.into_iter().map(|(a, b)| RenameOp::Rename(a, b)));
 	reorder_renames_inner(rn, ops, &mut out, allocator);
