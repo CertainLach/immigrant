@@ -564,10 +564,10 @@ impl Pg<SchemaDiff<'_>> {
 
 		// Drop old enums/scalars
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_enum()) {
-			Pg(ele).create(out, rn);
+			Pg(ele).drop(out, rn);
 		}
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_scalar()) {
-			Pg(ele).create(out, rn);
+			Pg(ele).drop(out, rn);
 		}
 
 		// #[derive(PartialOrd, Ord, PartialEq, Eq)]

@@ -40,4 +40,4 @@ CREATE INDEX as_field_idx ON as(
 ALTER INDEX as_field_idx RENAME TO custom_name;
 -- updated --
 DROP TABLE as;
-CREATE DOMAIN test AS TEXT;
+DROP DOMAIN test;
