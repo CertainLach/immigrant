@@ -16,10 +16,16 @@ scalar test = "TEXT";
 table A {
 	field: test @index;
 };
+!!!UPDATE
+scalar test = "TEXT";
+
+table A {
+	field: test @index "custom_name";
+};
 !!!RESULT
 CREATE DOMAIN test AS TEXT;
 CREATE TABLE as (
-	field test
+	field test NOT NULL
 );
 CREATE INDEX as_field_idx ON as(
 	field
