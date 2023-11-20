@@ -27,7 +27,11 @@ CREATE INDEX as_field_idx ON as(
 -- updated --
 DROP INDEX as_field_idx;
 -- updated --
-
+CREATE INDEX as_field_idx ON as(
+	field
+);
+-- updated --
+ALTER INDEX as_field_idx RENAME TO custom_name;
 -- updated --
 DROP TABLE as;
-DROP DOMAIN test;
+CREATE DOMAIN test AS TEXT;

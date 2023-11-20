@@ -33,11 +33,11 @@ impl<T: RenameExt> ChangeList<T> {
 }
 
 pub trait IsCompatible {
-	fn is_compatible(&self, new: &Self) -> bool;
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool;
 }
 
 pub trait IsIsomorph {
-	fn is_isomorph(&self, other: &Self) -> bool;
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool;
 }
 
 pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + HasIdent>(
@@ -52,7 +52,7 @@ pub fn mk_change_list_by_isomorph<T: RenameExt + Clone + IsCompatible + Debug + 
 	old: &[T],
 	new: &[T],
 ) -> ChangeList<T> {
-	mk_change_list_inner(rn, old, new, |a, b| a.is_isomorph(b))
+	mk_change_list_inner(rn, old, new, |a, b| a.is_isomorph(b, rn))
 }
 
 fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
@@ -133,14 +133,15 @@ fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
 	for recreated in out
 		.updated
 		.iter()
-		.filter(|diff| !diff.old.is_compatible(&diff.new))
+		.filter(|diff| !diff.old.is_compatible(&diff.new, rn))
 		.collect::<Vec<_>>()
 	{
 		out.created.push(recreated.new.clone());
 		out.dropped
 			.push((recreated.old.clone(), Some(allocator.next_temp())));
 	}
-	out.updated.retain(|diff| diff.old.is_compatible(&diff.new));
+	out.updated
+		.retain(|diff| diff.old.is_compatible(&diff.new, rn));
 
 	for (_, new) in new
 		.iter()

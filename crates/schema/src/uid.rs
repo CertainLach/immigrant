@@ -30,7 +30,7 @@ impl RenameMap {
 	}
 }
 
-pub(crate) trait HasUid {
+pub trait HasUid {
 	fn uid(&self) -> Uid;
 }
 impl<T> HasUid for &T

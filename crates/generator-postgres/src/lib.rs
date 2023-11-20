@@ -9,21 +9,23 @@ use rand::distributions::DistString;
 use schema::{
 	ids::DbIdent,
 	index::Check,
-	mk_change_list,
+	mk_change_list, mk_change_list_by_isomorph,
 	names::{DbColumn, DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	w, wl, ColumnDiff, Diff, EnumDiff, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey,
-	TableSql, TableUniqueConstraint,
+	w, wl, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasUid, IsCompatible, IsIsomorph,
+	SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableCheck,
+	TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey, TableSql,
+	TableUniqueConstraint,
 };
 
 mod process;
 // mod validate;
 
+#[derive(Clone, Debug)]
 pub struct Pg<T>(pub T);
 impl<T> Deref for Pg<T> {
 	type Target = T;
@@ -35,6 +37,24 @@ impl<T> Deref for Pg<T> {
 impl<T> DerefMut for Pg<T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.0
+	}
+}
+impl<T> HasUid for Pg<T>
+where
+	T: HasUid,
+{
+	fn uid(&self) -> schema::uid::Uid {
+		self.0.uid()
+	}
+}
+impl<T> HasDefaultDbName for Pg<T>
+where
+	T: HasDefaultDbName,
+{
+	type Kind = T::Kind;
+
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		self.0.default_db()
 	}
 }
 
@@ -230,13 +250,6 @@ impl Pg<TableDiff<'_>> {
 		Pg(self.new).print_alternations(&alternations, out, rn)
 	}
 	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
-		for old_idx in self.old.indexes() {
-			// if let Some(new_idx) = self.new.index_isomophic_to(old_idx) {
-			// 	Pg(old_idx).rename(new_idx.assigned_name(), out)
-			// } else {
-			Pg(old_idx).drop(out, rn)
-			// }
-		}
 		let mut alternations = Vec::new();
 
 		// Drop/rename PK
@@ -280,6 +293,14 @@ impl Pg<TableDiff<'_>> {
 			}
 		}
 
+		// Drop old indexes
+		let old_indexes = self.old.indexes().map(Pg).collect_vec();
+		let new_indexes = self.new.indexes().map(Pg).collect_vec();
+		let index_changes = mk_change_list_by_isomorph(rn, &old_indexes, &new_indexes);
+		for (index, _) in index_changes.dropped {
+			index.drop(out, rn);
+		}
+
 		// Create new columns
 		for ele in column_changes.created {
 			Pg(ele).create_alter(&mut alternations, rn);
@@ -310,13 +331,28 @@ impl Pg<TableDiff<'_>> {
 			(Some(_) | None, None) => {}
 		};
 
+		{
+			Pg(self.new).print_alternations(&alternations, out, rn);
+			alternations = vec![];
+		}
+
 		// Create/update indexes
-		self.old.indexes().collect_vec();
+		for added in index_changes.created {
+			added.create(out, rn)
+		}
+		for updated in index_changes.updated {
+			// There is nothing updateable in indexes except for names, `old` should be equal to `new`
+			// Indexes should be always dropped and recreated
+			let old_name = updated.old.db(rn);
+			let new_name = updated.new.db(rn);
+			updated.old.rename(new_name, out, rn)
+		}
 
 		// Drop old columns
 		for (column, _) in column_changes.dropped {
 			Pg(column).drop_alter(&mut alternations, rn);
 		}
+		Pg(self.new).print_alternations(&alternations, out, rn);
 		// for new_constraint in self.new.constraints() {
 		// 	if Pg(self.old)
 		// 		.constraint_isomorphic_to(new_constraint)
@@ -325,7 +361,6 @@ impl Pg<TableDiff<'_>> {
 		// 		Pg(new_constraint).create_alter(&mut alternations);
 		// 	}
 		// }
-		Pg(self.new).print_alternations(&alternations, out, rn);
 		// for new_idx in self.new.indexes() {
 		// 	if self.old.index_isomophic_to(new_idx).is_none() {
 		// 		Pg(new_idx).create(out)
@@ -423,6 +458,21 @@ impl Pg<TableForeignKey<'_>> {
 // 		out.push(format!("DROP CONSTRAINT {name}"))
 // 	}
 // }
+impl IsIsomorph for Pg<TableIndex<'_>> {
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+		let old_fields = self.db_columns(rn).collect_vec();
+		let new_fields = other.db_columns(rn).collect_vec();
+		// TODO: Is it allowed to change column types, if there is an active index exists?
+		// If not - then type equality should also be checked
+		old_fields == new_fields
+	}
+}
+impl IsCompatible for Pg<TableIndex<'_>> {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		// We can't update unique flag, so they are not compatible and need to be recreated
+		self.unique == new.unique
+	}
+}
 impl Pg<TableIndex<'_>> {
 	pub fn create(&self, out: &mut String, rn: &RenameMap) {
 		let name = self.db(rn);

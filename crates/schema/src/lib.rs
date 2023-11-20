@@ -4,7 +4,6 @@ use derivative::Derivative;
 use ids::DbIdent;
 
 use self::{
-	changelist::{IsCompatible, IsIsomorph},
 	column::Column,
 	ids::Ident,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
@@ -12,8 +11,7 @@ use self::{
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
-	table::{ForeignKey, Table, TableAnnotation},
-	uid::HasUid,
+	table::{ForeignKey, Table, TableAnnotation}, uid::RenameMap,
 };
 
 pub mod column;
@@ -34,10 +32,13 @@ pub mod attribute;
 mod changelist;
 pub mod renamelist;
 
-pub use changelist::{mk_change_list, mk_change_list_by_isomorph, ChangeList};
+pub use changelist::{
+	mk_change_list, mk_change_list_by_isomorph, ChangeList, IsCompatible, IsIsomorph,
+};
 
 mod span;
 pub mod uid;
+pub use uid::HasUid;
 
 #[macro_export]
 macro_rules! w {
@@ -120,8 +121,8 @@ impl<T> IsCompatible for TableItem<'_, T>
 where
 	T: IsCompatible,
 {
-	fn is_compatible(&self, new: &Self) -> bool {
-		self.value.is_compatible(&new.value)
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		self.value.is_compatible(&new.value, rn)
 	}
 }
 impl<T> HasUid for TableItem<'_, T>
@@ -233,7 +234,7 @@ impl HasUid for SchemaItem<'_> {
 	}
 }
 impl IsCompatible for SchemaItem<'_> {
-	fn is_compatible(&self, new: &Self) -> bool {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
 		matches!(
 			(self, new),
 			(Self::Table(_), Self::Table(_))

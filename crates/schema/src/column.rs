@@ -85,7 +85,7 @@ impl Column {
 	}
 }
 impl IsCompatible for Column {
-	fn is_compatible(&self, new: &Self) -> bool {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
 		true
 	}
 }

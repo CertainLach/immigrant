@@ -28,7 +28,7 @@ impl EnumItem {
 }
 def_name_impls!(EnumItem, EnumItemKind);
 impl IsCompatible for &EnumItem {
-	fn is_compatible(&self, _new: &Self) -> bool {
+	fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
 		true
 	}
 }
