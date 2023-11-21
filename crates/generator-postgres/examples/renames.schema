@@ -17,7 +17,7 @@ ALTER DOMAIN b
 	RENAME TO c
 ;
 CREATE TABLE a (
-	field c
+	field c NOT NULL
 );
 DROP DOMAIN tmp_1;
 -- updated --

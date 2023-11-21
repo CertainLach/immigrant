@@ -11,11 +11,11 @@ table B {
 !!!RESULT
 CREATE DOMAIN A AS TEXT;
 CREATE TABLE bs (
-	a A
+	a A NOT NULL
 );
 -- updated --
 ALTER TABLE bs
-	ADD CONSTRAINT bs_a_pkey PRIMARY KEY(a)
+	ADD CONSTRAINT bs_a_pkey CONSTRAINT bs_a_pkey PRIMARY KEY(a)
 ;
 -- updated --
 DROP TABLE bs;

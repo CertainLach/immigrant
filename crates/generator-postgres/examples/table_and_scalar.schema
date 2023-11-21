@@ -6,7 +6,7 @@ scalar b = "TEXT";
 !!!RESULT
 CREATE DOMAIN b AS TEXT;
 CREATE TABLE as (
-	field b
+	field b NOT NULL
 );
 -- updated --
 DROP TABLE as;

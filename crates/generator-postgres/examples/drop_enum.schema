@@ -1,0 +1,20 @@
+!!!TEST
+enum a {
+a;
+b;
+};
+!!!UPDATE
+scalar a = "TEXT";
+!!!RESULT
+CREATE TYPE a AS ENUM (
+	'a'
+,	'b'
+);
+-- updated --
+ALTER TYPE a
+	RENAME TO tmp_1
+;
+CREATE DOMAIN a AS TEXT;
+DROP TYPE tmp_1;
+-- updated --
+DROP DOMAIN a;

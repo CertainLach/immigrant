@@ -10,16 +10,19 @@ use schema::{
 	ids::DbIdent,
 	index::Check,
 	mk_change_list, mk_change_list_by_isomorph,
-	names::{DbColumn, DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable, DbType},
+	names::{
+		ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable,
+		DbType,
+	},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	w, wl, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasUid, IsCompatible, IsIsomorph,
-	SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable, TableCheck,
-	TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey, TableSql,
-	TableUniqueConstraint,
+	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
+	IsCompatible, IsIsomorph, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
+	SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey,
+	TableSql, TableUniqueConstraint,
 };
 
 mod process;
@@ -94,6 +97,19 @@ impl Pg<TableSql<'_>> {
 }
 
 impl Pg<SchemaTable<'_>> {
+	fn constraints(&self) -> Vec<PgTableConstraint> {
+		let mut out = vec![];
+		if let Some(pk) = self.primary_key() {
+			out.push(PgTableConstraint::PrimaryKey(pk))
+		}
+		for check in self.checks() {
+			out.push(PgTableConstraint::Check(check))
+		}
+		for unique in self.unique_constraints() {
+			out.push(PgTableConstraint::Unique(unique))
+		}
+		out
+	}
 	fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
 		let mut out = String::new();
 		Pg(self.sql(sql)).print(&mut out, rn);
@@ -157,13 +173,6 @@ impl Pg<SchemaTable<'_>> {
 		self.set_db(rn, to);
 	}
 
-	pub fn print_drop_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
-		let mut alternations = Vec::new();
-		for fk in self.foreign_keys() {
-			alternations.push(Pg(fk).drop_alter(rn));
-		}
-		self.print_alternations(&alternations, out, rn);
-	}
 	pub fn create_fks(&self, out: &mut String, rn: &RenameMap) {
 		let mut alternations = Vec::new();
 		for fk in self.foreign_keys() {
@@ -227,68 +236,84 @@ impl Pg<ColumnDiff<'_>> {
 	}
 }
 impl Pg<TableDiff<'_>> {
-	pub fn print_renamed_or_fropped_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
-		let mut alternations = Vec::new();
-		for old_fk in self.old.foreign_keys() {
-			// if let Some(new_fk) = Pg(self.new).foreign_key_isomophic_to(old_fk) {
-			// 	if let Some(ren) = Pg(old_fk).rename_alter(Pg(new_fk).db_name()) {
-			// 		alternations.push(ren);
-			// 	}
-			// } else {
-			alternations.push(Pg(old_fk).drop_alter(rn))
-			// }
-		}
-		Pg(self.new).print_alternations(&alternations, out, rn)
-	}
-	pub fn print_added_foreign_keys(&self, out: &mut String, rn: &RenameMap) {
-		let mut alternations = Vec::new();
-		for new_fk in self.new.foreign_keys() {
-			// if self.old.foreign_key_isomophic_to(new_fk).is_none() {
-			alternations.push(Pg(new_fk).create_alter(rn))
-			// }
-		}
-		Pg(self.new).print_alternations(&alternations, out, rn)
-	}
-	pub fn print(&self, out: &mut String, rn: &mut RenameMap) {
+	pub fn print_stage1(
+		&self,
+		out: &mut String,
+		rn: &mut RenameMap,
+	) -> ChangeList<TableColumn<'_>> {
 		let mut alternations = Vec::new();
 
-		// Drop/rename PK
-		match (self.old.primary_key(), self.new.primary_key()) {
-			(Some(pk), None) => Pg(pk).drop_alter(&mut alternations, rn),
-			(Some(old), Some(new)) => {
-				if old.db(rn) != new.db(rn) {
-					Pg(old).rename_alter(new.db(rn), &mut alternations, rn)
-				}
-			}
-			(None, None | Some(_)) => {}
-		}
-		// for old_constraint in self.old.constraints() {
-		// 	if let Some(new_constraint) = Pg(self.new).constraint_isomorphic_to(old_constraint) {
-		// 		Pg(old_constraint).rename_alter(new_constraint.assigned_name(), &mut alternations);
-		// 	} else {
-		// 		Pg(old_constraint).drop_alter(&mut alternations);
-		// 	}
-		// }
-		//
 		let old_columns = self.old.columns().collect::<Vec<_>>();
 		let new_columns = self.new.columns().collect::<Vec<_>>();
 		let column_changes = mk_change_list(rn, &old_columns, &new_columns);
 		// Rename/moveaway columns
 		{
 			let mut updated = HashMap::new();
-			for ele in column_changes.renamed {
+			for ele in column_changes.renamed.iter() {
 				match ele {
 					RenameOp::Rename(i, r) => {
-						Pg(i).rename_alter(DbIdent::unchecked_from(r), &mut alternations, rn);
+						Pg(*i).rename_alter(
+							DbIdent::unchecked_from(r.clone()),
+							&mut alternations,
+							rn,
+						);
 					}
 					RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
-						Pg(i).rename_alter(t.db(), &mut alternations, rn);
+						Pg(*i).rename_alter(t.db(), &mut alternations, rn);
 						updated.insert(t, i);
 					}
 					RenameOp::Restore(t, n) => {
 						let table = updated.remove(&t).expect("stored");
-						Pg(table).rename_alter(DbIdent::unchecked_from(n), &mut alternations, rn);
+						Pg(*table).rename_alter(
+							DbIdent::unchecked_from(n.clone()),
+							&mut alternations,
+							rn,
+						);
 					}
+				}
+			}
+		}
+
+		Pg(self.new).print_alternations(&alternations, out, rn);
+		column_changes
+	}
+
+	pub fn print_stage2(
+		&self,
+		out: &mut String,
+		rn: &mut RenameMap,
+		column_changes: ChangeList<TableColumn<'_>>,
+	) -> Vec<String> {
+		let mut alternations = Vec::new();
+
+		let oldpg = Pg(self.old);
+		let newpg = Pg(self.new);
+		let old_constraints = oldpg.constraints();
+		let new_constraints = newpg.constraints();
+		let constraint_changes = mk_change_list_by_isomorph(rn, &old_constraints, &new_constraints);
+
+		// Drop/rename constraints
+		for (constraint, _) in constraint_changes.dropped {
+			constraint.drop_alter(&mut alternations, rn);
+		}
+		for ele in constraint_changes.renamed {
+			let mut stored = HashMap::new();
+			match ele {
+				RenameOp::Rename(a, b) => {
+					a.rename_alter(b, &mut alternations, rn);
+				}
+				RenameOp::Store(a, b) => {
+					a.rename_alter(b.db(), &mut alternations, rn);
+					stored.insert(b, a);
+				}
+				RenameOp::Restore(r, t) => {
+					stored
+						.remove(&r)
+						.expect("stored")
+						.rename_alter(t, &mut alternations, rn);
+				}
+				RenameOp::Moveaway(_, _) => {
+					// All moveaways were dropped
 				}
 			}
 		}
@@ -305,31 +330,13 @@ impl Pg<TableDiff<'_>> {
 		for ele in column_changes.created {
 			Pg(ele).create_alter(&mut alternations, rn);
 		}
-		// for old_column in self.old.columns() {
-		// 	if let Some(new_column) = self.new.schema_column(&old_column.db(rn)) {
-		// 		Pg(ColumnDiff {
-		// 			old: old_column,
-		// 			new: new_column,
-		// 		})
-		// 		.print_alter(&mut alternations);
-		// 	} else {
-		// 		Pg(old_column).drop_alter(&mut alternations);
-		// 	}
-		// }
-		// for new_column in self.new.columns() {
-		// 	if self.old.column(&new_column.name.db()).is_none() {
-		// 		Pg(new_column).create_alter(&mut alternations)
-		// 	}
-		// }
 
-		// Create/update pk
-		match (self.old.primary_key(), self.new.primary_key()) {
-			(None, Some(v)) => Pg(v).create_alter(&mut alternations, rn),
-			(Some(old), Some(new)) => {
-				Pg(Diff { old, new }).alter_column_list(&mut alternations, rn)
-			}
-			(Some(_) | None, None) => {}
-		};
+		// Update/create constraints except for foreign keys
+		let mut fks = vec![];
+		for constraint in constraint_changes.created {
+			constraint.create_alter_non_fk(&mut alternations, rn);
+			constraint.create_alter_fk(&mut fks, rn);
+		}
 
 		{
 			Pg(self.new).print_alternations(&alternations, out, rn);
@@ -353,19 +360,8 @@ impl Pg<TableDiff<'_>> {
 			Pg(column).drop_alter(&mut alternations, rn);
 		}
 		Pg(self.new).print_alternations(&alternations, out, rn);
-		// for new_constraint in self.new.constraints() {
-		// 	if Pg(self.old)
-		// 		.constraint_isomorphic_to(new_constraint)
-		// 		.is_none()
-		// 	{
-		// 		Pg(new_constraint).create_alter(&mut alternations);
-		// 	}
-		// }
-		// for new_idx in self.new.indexes() {
-		// 	if self.old.index_isomophic_to(new_idx).is_none() {
-		// 		Pg(new_idx).create(out)
-		// 	}
-		// }
+
+		fks
 	}
 }
 
@@ -390,17 +386,6 @@ impl Pg<TableForeignKey<'_>> {
 		}
 
 		out
-	}
-	pub fn drop_alter(&self, rn: &RenameMap) -> String {
-		let name = self.db(rn);
-		format!("DROP CONSTRAINT {name}")
-	}
-	pub fn rename_alter(&self, new_name: DbForeignKey, rn: &RenameMap) -> Option<String> {
-		let name = self.db(rn);
-		if name == new_name {
-			return None;
-		}
-		Some(format!("RENAME CONSTRAINT {name} TO {new_name}"))
 	}
 }
 // impl Pg<TableConstraint<'_>> {
@@ -547,14 +532,30 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		// Update tables
-		for ele in changelist
+		let diffs = changelist
 			.updated
 			.iter()
 			.filter(|d| matches!(d.old, SchemaItem::Table(_)))
-		{
-			let old = ele.old.as_table().expect("table");
-			let new = ele.new.as_table().expect("table");
-			Pg(Diff { old, new }).print(out, rn)
+			.map(|ele| {
+				let old = ele.old.as_table().expect("table");
+				let new = ele.new.as_table().expect("table");
+				Pg(Diff { old, new })
+			})
+			.collect_vec();
+		let mut changes = vec![];
+		for diff in &diffs {
+			let changelist = diff.print_stage1(out, rn);
+			changes.push(changelist);
+		}
+		let mut fkss = vec![];
+		for (diff, column_changes) in diffs.iter().zip(changes.into_iter()) {
+			let fks = Pg(diff).print_stage2(out, rn, column_changes);
+			fkss.push(fks);
+		}
+
+		// Create new foreign keys
+		for (diff, fks) in diffs.iter().zip(fkss.into_iter()) {
+			Pg(diff.new).print_alternations(&fks, out, rn);
 		}
 
 		// Drop old tables
@@ -1010,11 +1011,163 @@ impl Pg<&Schema> {
 	}
 }
 
+#[derive(Clone, Copy, Debug)]
 enum PgTableConstraint<'s> {
 	PrimaryKey(TablePrimaryKey<'s>),
 	Unique(TableUniqueConstraint<'s>),
 	Check(TableCheck<'s>),
 	ForeignKey(TableForeignKey<'s>),
+}
+impl HasUid for PgTableConstraint<'_> {
+	fn uid(&self) -> schema::uid::Uid {
+		match self {
+			PgTableConstraint::PrimaryKey(p) => p.uid(),
+			PgTableConstraint::Unique(u) => u.uid(),
+			PgTableConstraint::Check(c) => c.uid(),
+			PgTableConstraint::ForeignKey(f) => f.uid(),
+		}
+	}
+}
+impl HasDefaultDbName for PgTableConstraint<'_> {
+	type Kind = ConstraintKind;
+
+	fn default_db(&self) -> Option<DbIdent<Self::Kind>> {
+		match self {
+			PgTableConstraint::PrimaryKey(p) => p.default_db(),
+			PgTableConstraint::Unique(u) => u.default_db(),
+			PgTableConstraint::Check(c) => c.default_db(),
+			PgTableConstraint::ForeignKey(f) => f.default_db().map(DbIdent::unchecked_from),
+		}
+	}
+}
+impl IsIsomorph for PgTableConstraint<'_> {
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+		match (self, other) {
+			(PgTableConstraint::PrimaryKey(a), PgTableConstraint::PrimaryKey(b)) => {
+				// There is only one pk per table, its just makes sense
+				a.db(rn) == b.db(rn)
+			}
+			(PgTableConstraint::Unique(a), PgTableConstraint::Unique(b)) => {
+				let mut a_columns = a.table.db_names(a.columns.clone(), rn);
+				a_columns.sort();
+				let mut b_columns = b.table.db_names(b.columns.clone(), rn);
+				b_columns.sort();
+				// It makes little sense to have multiple unique constraints with the same set of columns, except if it used as implicit index.
+				// Anyway, lets try to recreate/rename that.
+				a.db(rn) == b.db(rn) || a_columns == b_columns
+			}
+			(PgTableConstraint::Check(a), PgTableConstraint::Check(b)) => {
+				let mut sql_a = String::new();
+				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn);
+				let mut sql_b = String::new();
+				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn);
+				a.db(rn) == b.db(rn) || sql_a == sql_b
+			}
+			(PgTableConstraint::ForeignKey(a), PgTableConstraint::ForeignKey(b)) => {
+				if a.db(rn) == b.db(rn) {
+					return true;
+				}
+				if a.target_table().db(rn) != b.target_table().db(rn) {
+					return false;
+				}
+				let mut a_source_columns = a.source_db_columns(rn);
+				let mut a_target_columns = a.target_db_columns(rn);
+				let mut b_source_columns = b.source_db_columns(rn);
+				let mut b_target_columns = b.target_db_columns(rn);
+				let mut a_perm_by_source = permutation::sort(&a_source_columns);
+				a_perm_by_source.apply_slice_in_place(&mut a_source_columns);
+				a_perm_by_source.apply_slice_in_place(&mut a_target_columns);
+				let mut b_perm_by_source = permutation::sort(&b_source_columns);
+				b_perm_by_source.apply_slice_in_place(&mut b_source_columns);
+				b_perm_by_source.apply_slice_in_place(&mut b_target_columns);
+				if a_source_columns == b_source_columns && a_target_columns == b_target_columns {
+					return true;
+				}
+
+				let mut a_perm_by_target = permutation::sort(&a_target_columns);
+				a_perm_by_target.apply_slice_in_place(&mut a_source_columns);
+				a_perm_by_target.apply_slice_in_place(&mut a_target_columns);
+				let mut b_perm_by_target = permutation::sort(&b_target_columns);
+				b_perm_by_target.apply_slice_in_place(&mut b_source_columns);
+				b_perm_by_target.apply_slice_in_place(&mut b_target_columns);
+				if a_source_columns == b_source_columns && a_target_columns == b_target_columns {
+					return true;
+				}
+
+				false
+			}
+			_ => false,
+		}
+	}
+}
+// Constraints are not updateable, except for foreign keys... But they are kinda special.
+impl IsCompatible for PgTableConstraint<'_> {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		match (self, new) {
+			(PgTableConstraint::PrimaryKey(a), PgTableConstraint::PrimaryKey(b)) => {
+				let a_columns = a.table.db_names(a.columns.clone(), rn);
+				let b_columns = b.table.db_names(b.columns.clone(), rn);
+				a_columns == b_columns
+			}
+			(PgTableConstraint::Unique(a), PgTableConstraint::Unique(b)) => {
+				let a_columns = a.table.db_names(a.columns.clone(), rn);
+				let b_columns = b.table.db_names(b.columns.clone(), rn);
+				a_columns == b_columns
+			}
+			(PgTableConstraint::Check(a), PgTableConstraint::Check(b)) => {
+				let mut sql_a = String::new();
+				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn);
+				let mut sql_b = String::new();
+				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn);
+				sql_a == sql_b
+			}
+			(PgTableConstraint::ForeignKey(a), PgTableConstraint::ForeignKey(b)) => {
+				assert_eq!(
+					a.target_table().db(rn),
+					b.target_table().db(rn),
+					"rejected by isomorp test"
+				);
+				let a_source_columns = a.source_db_columns(rn);
+				let b_source_columns = b.source_db_columns(rn);
+				let a_target_columns = a.target_db_columns(rn);
+				let b_target_columns = b.target_db_columns(rn);
+				a_source_columns == b_source_columns && a_target_columns == b_target_columns
+			}
+			_ => unreachable!("non-isomorphs are rejected"),
+		}
+	}
+}
+impl PgTableConstraint<'_> {
+	fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		let name = self.db(rn);
+		out.push(format!("DROP CONSTRAINT {name}"));
+	}
+	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>, rn: &mut RenameMap) {
+		let name = self.db(rn);
+		if name == new_name {
+			return;
+		}
+		out.push(format!("RENAME CONSTRAINT {name} TO {new_name}"));
+		self.set_db(rn, new_name);
+	}
+	pub fn create_alter_non_fk(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		let mut text = String::new();
+		match self {
+			PgTableConstraint::PrimaryKey(p) => Pg(*p).create_inline(&mut text, rn),
+			PgTableConstraint::Unique(u) => Pg(*u).create_inline(&mut text, rn),
+			PgTableConstraint::Check(c) => Pg(*c).create_inline(&mut text, rn),
+			PgTableConstraint::ForeignKey(_) => return,
+		}
+		let name = self.db(rn);
+		out.push(format!("ADD CONSTRAINT {name} {text}"))
+	}
+	pub fn create_alter_fk(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		let alter = match self {
+			PgTableConstraint::ForeignKey(f) => Pg(*f).create_alter(rn),
+			_ => return,
+		};
+		out.push(alter)
+	}
 }
 
 impl Pg<TablePrimaryKey<'_>> {
@@ -1044,12 +1197,18 @@ impl Pg<TableUniqueConstraint<'_>> {
 			.print_column_list(out, self.columns.iter().cloned(), rn);
 		wl!(out, ")");
 	}
+	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		out.push(format!("DROP CONSTRAINT {}", self.db(rn)));
+	}
 }
 impl Pg<TableCheck<'_>> {
 	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
 		w!(out, "CONSTRAINT {} CHECK (", self.db(rn));
 		Pg(self.table.sql(&self.check)).print(out, rn);
 		w!(out, ")");
+	}
+	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
+		out.push(format!("DROP CONSTRAINT {}", self.db(rn)));
 	}
 }
 

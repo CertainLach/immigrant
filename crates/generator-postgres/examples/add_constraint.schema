@@ -20,15 +20,22 @@ table A {
 CREATE DOMAIN test AS TEXT;
 -- updated --
 CREATE TABLE as (
-	field test
+	field test NOT NULL
 ,	CONSTRAINT as_field_check CHECK (field <> 'hui')
 );
 -- updated --
-
+ALTER TABLE as
+	DROP CONSTRAINT as_field_check
+;
 -- updated --
-
+ALTER TABLE as
+	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'hui')
+;
 -- updated --
-
+ALTER TABLE as
+	DROP CONSTRAINT as_field_check
+,	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'pizda')
+;
 -- updated --
 DROP TABLE as;
 -- updated --

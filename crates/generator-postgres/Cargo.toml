@@ -6,6 +6,7 @@ build = "build.rs"
 
 [dependencies]
 itertools = "0.11.0"
+permutation = "0.4.1"
 rand = "0.8.5"
 schema.workspace = true
 tempfile = "3.7.1"

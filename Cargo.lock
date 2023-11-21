@@ -481,6 +481,7 @@ version = "0.1.0"
 dependencies = [
  "immigrant-schema",
  "itertools",
+ "permutation",
  "rand 0.8.5",
  "tempfile",
  "tracing",
@@ -849,6 +850,12 @@ name = "peg-runtime"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fa00462b37ead6d11a82c9d568b26682d78e0477dc02d1966c013af80969739"
+
+[[package]]
+name = "permutation"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df202b0b0f5b8e389955afd5f27b007b00fb948162953f1db9c70d2c7e3157d7"
 
 [[package]]
 name = "pin-project-lite"

@@ -19,13 +19,13 @@ table Test {
 !!!RESULT
 CREATE DOMAIN int AS INTEGER;
 CREATE TABLE tests (
-	test TEXT
-,	a int
-,	b int
-,	c int
-,	d int
-,	e int
-,	f int
+	test TEXT NOT NULL
+,	a int NOT NULL
+,	b int NOT NULL
+,	c int NOT NULL
+,	d int NOT NULL
+,	e int NOT NULL
+,	f int NOT NULL
 ,	CONSTRAINT hui PRIMARY KEY(a, b)
 ,	CONSTRAINT testcheck CHECK ((test <> '2') AND (test <> '1'))
 ,	CONSTRAINT tests_test_check CHECK ((test <> '3') AND (test <> '4'))
