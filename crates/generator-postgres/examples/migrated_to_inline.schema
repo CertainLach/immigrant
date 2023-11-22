@@ -26,6 +26,7 @@ CREATE TABLE examples (
 -- updated --
 ALTER TABLE examples
 	DROP CONSTRAINT examples_other_field_check
+,	ALTER COLUMN field TYPE TEXT
 ,	ADD CONSTRAINT examples_field_check CONSTRAINT examples_field_check CHECK (field <> 'good')
 ;
 ALTER TABLE examples
@@ -37,6 +38,7 @@ CREATE DOMAIN a AS TEXT
 	CONSTRAINT a_check CHECK (VALUE <> 'average');
 ALTER TABLE examples
 	DROP CONSTRAINT examples_field_check
+,	ALTER COLUMN field TYPE a
 ;
 -- updated --
 DROP TABLE examples;

@@ -20,14 +20,17 @@ CREATE TYPE myenumname AS ENUM (
 );
 
 CREATE TABLE tables (
-	a myenumname DEFAULT (('test')::myenumname)
+	a myenumname NOT NULL DEFAULT (('test')::myenumname)
 );
 -- updated --
 ALTER TYPE myenumname
 	ADD VALUE 'test2'
 ;
+ALTER TABLE tables
+	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
+;
 ALTER TYPE myenumname
-	RENAME VALUE 'test' TO 'test_removed_qhoL9'
+	RENAME VALUE 'test' TO 'test_removed_HDBES'
 ;
 -- updated --
 DROP TABLE tables;

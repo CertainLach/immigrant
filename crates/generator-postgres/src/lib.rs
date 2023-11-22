@@ -331,6 +331,11 @@ impl Pg<TableDiff<'_>> {
 			Pg(ele).create_alter(&mut alternations, rn);
 		}
 
+		// Update columns
+		for ele in column_changes.updated {
+			Pg(ele).print_alter(&mut alternations, rn);
+		}
+
 		// Update/create constraints except for foreign keys
 		let mut fks = vec![];
 		for constraint in constraint_changes.created {
@@ -508,14 +513,18 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		// Enums: print_renamed_added
+		let mut dropped_enum_entires = vec![];
 		for ele in changelist
 			.updated
 			.iter()
-			.filter(|i| matches!(i.old, SchemaItem::Enum(_)))
-		{
-			let old = ele.old.as_enum().expect("is enum");
-			let new = ele.new.as_enum().expect("is enum");
-			Pg(Diff { old, new }).print_renamed_added(out, rn);
+			.filter(|d| matches!(d.old, SchemaItem::Enum(_)))
+			.map(|ele| {
+				let old = ele.old.as_enum().expect("enum");
+				let new = ele.new.as_enum().expect("enum");
+				Diff { old, new }
+			}) {
+			let dropped = Pg(ele).print_renamed_added(out, rn);
+			dropped_enum_entires.push((ele, dropped));
 		}
 
 		// Create new enums/scalars
@@ -561,6 +570,11 @@ impl Pg<SchemaDiff<'_>> {
 		// Drop old tables
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
 			Pg(ele).drop(out, rn)
+		}
+
+		// Remove enum entries
+		for (en, dropped) in dropped_enum_entires {
+			Pg(en).print_removed(dropped, out, rn);
 		}
 
 		// Drop old enums/scalars
