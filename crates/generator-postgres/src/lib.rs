@@ -535,6 +535,18 @@ impl Pg<SchemaDiff<'_>> {
 			Pg(ele).create(out, rn);
 		}
 
+		for ele in changelist
+			.updated
+			.iter()
+			.filter(|d| matches!(d.old, SchemaItem::Scalar(_)))
+			.map(|ele| {
+				let old = ele.old.as_scalar().expect("scalar");
+				let new = ele.new.as_scalar().expect("scalar");
+				Pg(Diff { old, new })
+			}) {
+			Pg(ele).print(out, rn);
+		}
+
 		// Create new tables
 		for ele in changelist.created.iter().filter_map(|i| i.as_table()) {
 			Pg(ele).create(out, rn);
@@ -859,7 +871,6 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 			.iter()
 			.filter_map(ScalarAnnotation::as_check)
 			.collect::<Vec<_>>();
-		dbg!(&old, &new);
 		let mut alternations = Vec::new();
 		for ann in old.iter() {
 			let mut sql = String::new();

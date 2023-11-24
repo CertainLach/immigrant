@@ -31,7 +31,7 @@ ALTER TABLE tables
 	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
 ;
 ALTER TYPE myenumname
-	RENAME VALUE 'test' TO 'test_removed_vtIdr'
+	RENAME VALUE 'test' TO 'test_removed_sxFMC'
 ;
 -- updated: cleanup schema changes --
 DROP TABLE tables;

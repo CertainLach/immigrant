@@ -15,6 +15,9 @@ CREATE TABLE bs (
 	a A NOT NULL
 );
 -- updated: check was added to the scalar --
+ALTER DOMAIN A
+	ADD CONSTRAINT A_check CHECK (VALUE <> 'test')
+;
 ALTER TABLE bs
 	ADD CONSTRAINT bs_a_pkey CONSTRAINT bs_a_pkey PRIMARY KEY(a)
 ;
