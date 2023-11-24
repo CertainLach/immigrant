@@ -25,14 +25,17 @@ CREATE TABLE tables (
 );
 -- updated: enum entry is dropped, other entry is added instead, table default is rewritten to it --
 ALTER TYPE myenumname
-	ADD VALUE 'test2'
+	RENAME TO tmp_1
 ;
+CREATE TYPE myenumname AS ENUM (
+	'test2'
+);
+
 ALTER TABLE tables
-	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
+	ALTER COLUMN a TYPE myenumname
+,	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
 ;
-ALTER TYPE myenumname
-	RENAME VALUE 'test' TO 'test_removed_sxFMC'
-;
+DROP TYPE tmp_1;
 -- updated: cleanup schema changes --
 DROP TABLE tables;
 DROP TYPE myenumname;

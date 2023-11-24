@@ -13,7 +13,7 @@ use crate::{
 	uid::{next_uid, RenameExt, RenameMap, Uid},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumItem {
 	uid: Uid,
 	name: EnumItemDefName,
@@ -28,6 +28,11 @@ impl EnumItem {
 }
 def_name_impls!(EnumItem, EnumItemKind);
 impl IsCompatible for &EnumItem {
+	fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
+		true
+	}
+}
+impl IsCompatible for EnumItem {
 	fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
 		true
 	}

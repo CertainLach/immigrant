@@ -513,7 +513,6 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		// Enums: print_renamed_added
-		let mut dropped_enum_entires = vec![];
 		for ele in changelist
 			.updated
 			.iter()
@@ -523,8 +522,7 @@ impl Pg<SchemaDiff<'_>> {
 				let new = ele.new.as_enum().expect("enum");
 				Diff { old, new }
 			}) {
-			let dropped = Pg(ele).print_renamed_added(out, rn);
-			dropped_enum_entires.push((ele, dropped));
+			Pg(ele).print_renamed_added(out, rn);
 		}
 
 		// Create new enums/scalars
@@ -582,11 +580,6 @@ impl Pg<SchemaDiff<'_>> {
 		// Drop old tables
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
 			Pg(ele).drop(out, rn)
-		}
-
-		// Remove enum entries
-		for (en, dropped) in dropped_enum_entires {
-			Pg(en).print_removed(dropped, out, rn);
 		}
 
 		// Drop old enums/scalars
@@ -735,7 +728,7 @@ impl Pg<&EnumItem> {
 	}
 }
 impl Pg<EnumDiff<'_>> {
-	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) -> Vec<String> {
+	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) {
 		let changelist = schema::mk_change_list(
 			rn,
 			&self.0.old.items.iter().collect::<Vec<_>>(),
@@ -764,29 +757,10 @@ impl Pg<EnumDiff<'_>> {
 		}
 
 		Pg(self.old).print_alternations(&changes, out, rn);
-
-		let mut changes_post = vec![];
-		for (removed, _) in changelist.dropped.iter() {
-			// It is not possible to remove enum element in postgres in transaction, so it is being renamed to
-			// `name_removed_randomid` here, and resulting value may be removed later by non-transactional code
-			let name = rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
-			changes_post.push(format!(
-				"RENAME VALUE '{}' TO '{0}_removed_{name}'",
-				removed.db(rn)
-			))
-		}
-		changes_post
-	}
-	// pub fn print_added(&self, out: &mut String, rn:&RenameMap) {
-	// 	let added = self.added_items(rn);
-	// 	let db_name = &self.new.name();
-	// 	for added in added {
-	// 		wl!(out, "ALTER TYPE {db_name} ADD VALUE '{added}';");
-	// 	}
-	// }
-	//
-	pub fn print_removed(&self, removed: Vec<String>, out: &mut String, rn: &RenameMap) {
-		Pg(self.old).print_alternations(&removed, out, rn)
+		assert!(
+			changelist.dropped.is_empty(),
+			"enums with dropped elements are not compatible"
+		);
 	}
 }
 impl Pg<SchemaScalar<'_>> {
@@ -1319,7 +1293,7 @@ mod tests {
 		let examples = examples
 			.iter()
 			.map(|example| {
-				let mut schema = match parse(example.schema.as_str(), &default_options(), &mut rn) {
+				let schema = match parse(example.schema.as_str(), &default_options(), &mut rn) {
 					Ok(s) => s,
 					Err(e) => {
 						panic!("failed to parse schema:\n{}\n\n{e:#?}", example.schema);
@@ -1329,7 +1303,7 @@ mod tests {
 			})
 			.collect::<Vec<_>>();
 		let mut out = String::new();
-		for (i, ele) in examples.windows(2).enumerate() {
+		for ele in examples.windows(2) {
 			let description = &ele[1].0;
 			if description.is_empty() {
 				wl!(out, "\n-- updated --");

@@ -11,7 +11,8 @@ use self::{
 	root::Schema,
 	scalar::{Enum, Scalar},
 	sql::Sql,
-	table::{ForeignKey, Table, TableAnnotation}, uid::RenameMap,
+	table::{ForeignKey, Table, TableAnnotation},
+	uid::RenameMap,
 };
 
 pub mod column;
@@ -235,12 +236,21 @@ impl HasUid for SchemaItem<'_> {
 }
 impl IsCompatible for SchemaItem<'_> {
 	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
-		matches!(
-			(self, new),
-			(Self::Table(_), Self::Table(_))
-				| (Self::Enum(_), Self::Enum(_))
-				| (Self::Scalar(_), Self::Scalar(_))
-		)
+		match (self, new) {
+			(SchemaItem::Table(_), SchemaItem::Table(_)) => true,
+			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
+				// There is no DB engine, which supports removing enum variants
+				mk_change_list(rn, &a.items, &b.items).dropped.is_empty()
+			}
+			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
+			_ => false,
+		}
+		// matches!(
+		// 	(self, new),
+		// 	(Self::Table(_), Self::Table(_))
+		// 		| (Self::Enum(a), Self::Enum(_))
+		// 		| (Self::Scalar(_), Self::Scalar(_))
+		// )
 	}
 }
 impl HasIdent for SchemaItem<'_> {
