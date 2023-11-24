@@ -1,0 +1,44 @@
+!!!TEST plain scalar
+scalar a = "TEXT";
+!!!UPDATE check is added to the scalar
+scalar a = "TEXT" @check(_ == "a");
+!!!UPDATE check is now named
+scalar a = "TEXT" @check "explicit_name" (_ == "a");
+!!!UPDATE add another check
+scalar a = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d");
+!!!UPDATE scalar is renamed to b, and another check
+scalar a "b" = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d") @check "other" (_ != "dd") @check "third" (_ != "e");
+!!!UPDATE then they all are gone
+scalar a "b" = "TEXT";
+!!!RESULT
+-- updated: plain scalar --
+CREATE DOMAIN a AS TEXT;
+-- updated: check is added to the scalar --
+ALTER DOMAIN a
+	ADD CONSTRAINT a_check CHECK (VALUE = 'a')
+;
+-- updated: check is now named --
+ALTER DOMAIN a
+	ALTER CONSTRAINT a_check RENAME TO explicit_name
+;
+-- updated: add another check --
+ALTER DOMAIN a
+	ADD CONSTRAINT other CHECK (VALUE <> 'd')
+;
+-- updated: scalar is renamed to b, and another check --
+ALTER DOMAIN a
+	RENAME TO b
+;
+ALTER DOMAIN b
+	DROP CONSTRAINT other
+,	ADD CONSTRAINT other CHECK ((VALUE <> 'd') AND (VALUE <> 'dd'))
+,	ADD CONSTRAINT third CHECK (VALUE <> 'e')
+;
+-- updated: then they all are gone --
+ALTER DOMAIN b
+	DROP CONSTRAINT explicit_name
+,	DROP CONSTRAINT other
+,	DROP CONSTRAINT third
+;
+-- updated: cleanup schema changes --
+DROP DOMAIN b;

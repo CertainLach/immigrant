@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, env::current_dir};
+use std::{collections::BTreeSet, env::current_dir, mem};
 
 use clap::Parser;
 use cli::current_schema;
@@ -7,10 +7,14 @@ use inflector::{
 	cases::{pascalcase::to_pascal_case, snakecase::to_snake_case},
 	string::pluralize,
 };
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, TokenStreamExt};
+use rust_format::{Config, Edition, Formatter, PostProcess};
 use schema::{
-	column::SchemaType, names::EnumItemDefName, table::Cardinality, w, wl, SchemaEnum, SchemaTable,
-	TableColumn,
+	column::SchemaType, process::NamingConvention, scalar::EnumItem, table::Cardinality,
+	uid::RenameExt, HasIdent, SchemaEnum, SchemaTable, TableColumn,
 };
+use syn::{Ident, Path};
 
 #[derive(PartialEq, Clone, Copy)]
 enum TableKind {
@@ -19,32 +23,33 @@ enum TableKind {
 	Update,
 }
 
-fn table_mod_ident(t: &SchemaTable) -> String {
-	let ident = to_snake_case(&t.name.id().name());
-	pluralize::to_plural(&ident)
+fn table_mod_ident(t: &SchemaTable) -> Ident {
+	let ident = to_snake_case(&t.id().name());
+	format_ident!("{}", pluralize::to_plural(&ident))
 }
-fn fk_method_ident(t: &SchemaTable, plural: bool) -> String {
-	let ident = to_snake_case(&t.name.id().name());
-	if plural {
+fn fk_method_ident(t: &SchemaTable, plural: bool) -> Ident {
+	let ident = to_snake_case(&t.id().name());
+	let v = if plural {
 		pluralize::to_plural(&ident)
 	} else {
 		ident
-	}
+	};
+	format_ident!("{v}")
 }
-fn table_struct_ident(t: &SchemaTable) -> String {
-	t.name.id().name()
+fn table_struct_ident(t: &SchemaTable) -> Ident {
+	format_ident!("{}", &t.id().name())
 }
-fn column_ident(c: &TableColumn) -> String {
-	to_snake_case(&c.name.id().name())
+fn column_ident(c: &TableColumn) -> Ident {
+	format_ident!("{}", to_snake_case(&c.id().name()))
 }
-fn type_ident(c: &SchemaType) -> String {
-	to_pascal_case(&c.ident().name())
+fn type_ident(c: &SchemaType) -> Ident {
+	format_ident!("{}", to_pascal_case(&c.ident().name()))
 }
-fn enum_ident(c: &SchemaEnum) -> String {
-	to_pascal_case(&c.name.id().name())
+fn enum_ident(c: &SchemaEnum) -> Ident {
+	format_ident!("{}", to_pascal_case(&c.id().name()))
 }
-fn enum_item_ident(c: &EnumItemDefName) -> String {
-	to_pascal_case(&c.id().name())
+fn enum_item_ident(c: &EnumItem) -> Ident {
+	format_ident!("{}", to_pascal_case(&c.id().name()))
 }
 
 fn is_copy(t: &SchemaType) -> bool {
@@ -76,6 +81,9 @@ fn table_has_lifetime(k: TableKind, table: &SchemaTable) -> bool {
 			let mut has_reference = false;
 			for column in table.columns() {
 				let copy = is_copy(&column.ty());
+				if k == TableKind::New && column_only_default(&column) {
+					continue;
+				}
 				if is_jojo_reference(k, copy, &column) {
 					has_reference = true;
 					break;
@@ -86,6 +94,21 @@ fn table_has_lifetime(k: TableKind, table: &SchemaTable) -> bool {
 		TableKind::Load => false,
 	}
 }
+
+fn column_only_default(column: &TableColumn) -> bool {
+	column
+		.attrs
+		.try_get_single::<bool>("diesel", "only_default")
+		.expect("only default")
+		.unwrap_or_default()
+		|| column
+			.ty()
+			.attrlist()
+			.try_get_single::<bool>("diesel", "only_default")
+			.expect("only_default")
+			.unwrap_or_default()
+}
+
 // fn format_where(_out: &mut String) {
 // 	// w!(out, "\twhere C: diesel_async::AsyncConnection");
 // 	// if check_be {
@@ -93,10 +116,10 @@ fn table_has_lifetime(k: TableKind, table: &SchemaTable) -> bool {
 // 	// }
 // 	// wl!(out,);
 // }
-fn format_db_arg(out: &mut String) {
-	wl!(out, "crate::Sqlite<'_>");
+fn format_db_arg() -> TokenStream {
+	quote!(crate::Sqlite<'_>)
 }
-fn column_ty_name(jojo_reference: bool, ty: &SchemaType, out: &mut String) {
+fn column_ty_name(jojo_reference: bool, ty: &SchemaType) -> TokenStream {
 	let id = type_ident(ty);
 	match ty {
 		SchemaType::Scalar(s) => {
@@ -127,21 +150,23 @@ fn column_ty_name(jojo_reference: bool, ty: &SchemaType, out: &mut String) {
 			if let Some(s) = native {
 				match native_ref {
 					Some(native_ref) if jojo_reference => {
-						w!(out, "{native_ref}");
+						let v: Path = syn::parse_str(&native_ref).expect("invalid ty");
+						quote!(#v)
 					}
 					_ => {
-						w!(out, "{s}");
+						let v: Path = syn::parse_str(&s).expect("invalid ty");
+						quote!(#v)
 					}
 				}
 			} else if custom {
-				w!(out, "ut::{id}");
+				quote!(ut::#id)
 			} else {
 				panic!("either custom or native type is expected")
 			}
 		}
 		SchemaType::Enum(_) => {
 			// Always copy
-			w!(out, "ut::{id}")
+			quote!(ut::#id)
 		}
 	}
 }
@@ -154,13 +179,62 @@ enum Opts {
 	///
 	/// Unlike diesel print-schema, requires no database connection, and also generates
 	/// ORM-like structure definitions, enum values, supports view, etc.
-	PrintSchema,
+	PrintSchema {
+		#[clap(long)]
+		naming_convention: NamingConvention,
+	},
+}
+
+fn disjoint_unions<T: Ord + Clone>(input: &[(T, T)]) -> Vec<BTreeSet<T>> {
+	let mut out = Vec::new();
+	let mut seen = BTreeSet::new();
+	let mut current = BTreeSet::new();
+
+	loop {
+		loop {
+			let mut changed = false;
+			for (a, b) in input {
+				#[allow(clippy::collapsible_if)]
+				if (current.contains(a) || current.contains(b))
+					|| (current.is_empty() && !seen.contains(a) && !seen.contains(b))
+				{
+					if current.insert(a.clone()) || current.insert(b.clone()) {
+						changed = true;
+					}
+				}
+			}
+			if !changed {
+				break;
+			}
+		}
+
+		if !current.is_empty() {
+			seen.extend(current.iter().cloned());
+			out.push(mem::take(&mut current));
+		} else {
+			break;
+		}
+	}
+
+	out
+}
+
+#[test]
+fn disjoint_union_works() {
+	assert_eq!(
+		disjoint_unions(&[(1, 2), (2, 3), (3, 4), (5, 6), (7, 8), (4, 10)]),
+		vec![
+			[1, 2, 3, 4, 10].into_iter().collect(),
+			[5, 6].into_iter().collect(),
+			[7, 8].into_iter().collect(),
+		]
+	);
 }
 
 fn main() -> anyhow::Result<()> {
 	let opts = Opts::parse();
 	match opts {
-		Opts::PrintSchema => print_schema(),
+		Opts::PrintSchema { naming_convention } => print_schema(),
 	}
 }
 fn print_schema() -> anyhow::Result<()> {
@@ -169,26 +243,38 @@ fn print_schema() -> anyhow::Result<()> {
 	let mut config = root.clone();
 	config.push("immigrant-diesel.jsonnet");
 
-	let (_, schema) = current_schema(&root)?;
-	println!("pub mod user_types;");
-	println!("use user_types as ut;");
-	println!("use diesel::sql_types as dt;");
-	println!("pub mod sql_types {{");
-	println!("\tuse diesel::{{sql_types::SqlType, QueryId}};");
+	let (_, schema, rn) = current_schema(&root)?;
+	let rn = &rn;
+	let mut out = TokenStream::new();
+	out.append_all(quote! {
+		pub mod user_types;
+		use user_types as ut;
+		use diesel::sql_types as dt;
+	});
+
+	let mut types = TokenStream::new();
 	for en in schema.enums() {
 		let en = SchemaEnum {
 			schema: &schema,
 			en,
 		};
 		let id = enum_ident(&en);
-		let name = en.name.db();
-		println!("\t#[derive(SqlType, QueryId)]");
-		println!("\t#[diesel(postgres_type(name = {name:?}))]");
-		println!("\tpub struct {id};");
+		let name = en.db(rn).to_string();
+		types.append_all(quote! {
+			#[derive(SqlType, QueryId)]
+			#[diesel(postgres_type(name = #name))]
+			pub struct #id;
+		});
 	}
-	println!("}}");
-	println!("use sql_types as st;");
-	println!("pub mod enum_types {{");
+	out.append_all(quote! {
+		pub mod sql_types {
+			use diesel::{sql_types::SqlType, QueryId};
+			#types
+		}
+		use sql_types as st;
+	});
+
+	let mut enums = TokenStream::new();
 	for en in schema.enums() {
 		let en = SchemaEnum {
 			schema: &schema,
@@ -196,99 +282,115 @@ fn print_schema() -> anyhow::Result<()> {
 		};
 		let id = enum_ident(&en);
 
-		print!("\t#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq, Eq, Clone, Copy, Hash");
-		for derive in en
+		let derives = en
 			.attrlist
 			.get_multi::<String>("diesel", "derive")
 			.expect("diesel derive")
-		{
-			print!(", {derive}");
-		}
-		println!(")]");
+			.into_iter()
+			.map(|v| syn::parse_str::<Path>(&v).unwrap());
 
 		let name = format!("crate::schema::sql_types::{id}");
-		println!("\t#[ExistingTypePath = {name:?}]");
-		println!("\tpub enum {id} {{");
-		for item in &en.items {
-			let id = enum_item_ident(item);
-			let name = item.db();
-			println!("\t\t#[db_rename = {name:?}]");
-			println!("\t\t{id},");
-		}
-		println!("\t}}");
+		let items = en.items.iter().map(|i| {
+			let id = enum_item_ident(i);
+			let name = i.db(rn).to_string();
+			quote! {
+				#[db_rename = #name]
+				#id
+			}
+		});
+		enums.append_all(quote! {
+			#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq, Eq, Clone, Copy, Hash #(, #derives)*)]
+			#[ExistingTypePath = #name]
+			pub enum #id {
+				#(#items,)*
+			}
+		});
 	}
-	println!("}}");
+	out.append_all(quote! {
+		pub mod enum_types {
+			#enums
+		}
+	});
+
 	for table in schema.tables() {
-		println!();
 		let table = SchemaTable {
 			schema: &schema,
 			table,
 		};
-		println!("diesel::table! {{");
-		println!("\tuse super::sql_types::*;");
-		println!("\tuse super::{{dt,st}};");
-		println!();
-		for line in table.docs.iter() {
-			println!("\t///{line}");
-		}
-		let table_name = table.name.db().to_string();
+		let docs = table.docs.iter();
+		let table_name = table.db(rn).to_string();
 		let table_ident = table_mod_ident(&table);
-		{
-			if table_name != table_ident {
-				println!("\t#[sql_name = {table_name:?}]");
-			}
-		}
-		print!("\t{table_ident} (");
-		for (i, column) in table.columns().filter(TableColumn::is_pk_part).enumerate() {
-			if i != 0 {
-				print!(", ");
-			}
-			let ident = column_ident(&column);
-			print!("{ident}");
-		}
-		println!(") {{");
+		#[allow(clippy::cmp_owned)]
+		let sql_name_attr = if table_name != table_ident.to_string() {
+			quote! {#[sql_name = #table_name]}
+		} else {
+			quote!()
+		};
+
+		let pk_columns = table
+			.columns()
+			.filter(TableColumn::is_pk_part)
+			.map(|c| column_ident(&c));
+
+		let mut columns = Vec::new();
 		for column in table.columns() {
-			let name = column.name.db().to_string();
-			let db_ty = column.db_type();
-			{
-				for line in column.docs.iter() {
-					println!("\t\t///{line}");
-				}
-				if !column.docs.is_empty() {
-					println!("\t\t///");
-				}
-				println!("\t\t/// `{table_name}`.`{name}` column");
-				println!("\t\t/// The SQL type is `{db_ty}`");
-			}
+			let name = column.db(rn).to_string();
 
 			let ident = column_ident(&column);
-			if name != ident {
-				println!("\t\t#[sql_name = {name:?}]");
-			}
-			print!("\t\t{ident} -> ");
-			if column.nullable {
-				print!("dt::Nullable<");
-			}
-			match column.ty() {
+			#[allow(clippy::cmp_owned)]
+			let sql_name_attr = if name != ident.to_string() {
+				quote! {#[sql_name = #name]}
+			} else {
+				quote!()
+			};
+			let ty = match column.ty() {
 				SchemaType::Enum(en) => {
 					let ident = enum_ident(&en);
-					print!("st::{ident}");
+					quote!(st::#ident)
 				}
 				SchemaType::Scalar(s) => {
 					let v: String = s
 						.attrlist
 						.get_single("diesel", "type")
 						.expect("diesel type");
-					print!("{v}");
+					let v: Path = syn::parse_str(&v).expect("disesl path");
+					quote!(#v)
+				}
+			};
+			let ty = column
+				.nullable
+				.then(|| quote!(dt::Nullable<#ty>))
+				.unwrap_or(ty);
+			let docs = &column.docs;
+			let doc_sep = if !docs.is_empty() {
+				quote!(#[doc = ""])
+			} else {
+				quote!()
+			};
+			let db_ty = column.db_type(rn).to_string();
+			let column_doc = format!("`{table_name}`.`{name} column`");
+			let ty_doc = format!("The SQL type is \"{db_ty}\"`");
+			columns.push(quote! {
+				#(#[doc = #docs])*
+				#doc_sep
+				// #[doc = "`" #table_name "`.`" #name "` column"]
+				// #[doc = "The SQL type is `" #db_ty "`"]
+				#[doc = #column_doc]
+				#[doc = #ty_doc]
+				#sql_name_attr
+				#ident -> #ty
+			})
+		}
+		out.append_all(quote! {
+			diesel::table! {
+				use super::{sql_types::*, dt, st};
+				#(#[doc = #docs])*
+				#sql_name_attr
+				#table_ident(#(#pk_columns),*) {
+					#(#columns,)*
 				}
 			}
-			if column.nullable {
-				print!(">");
-			}
-			println!(",");
-		}
-		println!("\t}}");
-		println!("}}");
+		});
 	}
 	let mut allowed = BTreeSet::new();
 	for table in schema.tables() {
@@ -296,9 +398,9 @@ fn print_schema() -> anyhow::Result<()> {
 			schema: &schema,
 			table,
 		};
-		let this = table.name.id();
+		let this = table.id();
 		for fk in table.foreign_keys() {
-			let other = fk.target_table().name.id();
+			let other = fk.target_table().id();
 			let key = if this.name() < other.name() {
 				(this, other)
 			} else {
@@ -307,15 +409,22 @@ fn print_schema() -> anyhow::Result<()> {
 			allowed.insert(key);
 		}
 	}
+
 	let mut allowed: Vec<_> = allowed.into_iter().collect();
 	allowed.sort_by_key(|(_, b)| b.name());
 	allowed.sort_by_key(|(a, _)| a.name());
-	for (a, b) in allowed {
-		let a = schema.schema_table(&a).expect("a");
-		let b = schema.schema_table(&b).expect("b");
-		let a = table_mod_ident(&a);
-		let b = table_mod_ident(&b);
-		println!("diesel::prelude::allow_tables_to_appear_in_same_query!({a}, {b});");
+
+	{
+		let disjoint_input = allowed.to_vec();
+		for union in disjoint_unions(&disjoint_input) {
+			let tables = union.iter().map(|t| {
+				let t = schema.schema_table(t).expect("a");
+				table_mod_ident(&t)
+			});
+			out.append_all(quote!(
+				diesel::prelude::allow_tables_to_appear_in_same_query!(#(#tables),*);
+			));
+		}
 	}
 
 	for table in schema.tables() {
@@ -337,92 +446,51 @@ fn print_schema() -> anyhow::Result<()> {
 			}
 			let b = table_mod_ident(&target_table);
 			let column = column_ident(&target_column);
-			println!("diesel::prelude::joinable!({a} -> {b} ({column}));")
+			out.append_all(quote!(diesel::prelude::joinable!(#a -> #b (#column));));
 		}
 	}
 
-	println!();
-	println!("#[allow(unused_parens)]");
-	println!("pub mod orm {{");
-	println!("pub use std::future::Future;");
-	println!("use super::sql_types::*;");
-	println!("use diesel::{{Insertable, Identifiable, Queryable, Selectable, AsChangeset, sql_types as dt, QueryDsl, SelectableHelper, result::Error, ExpressionMethods}};");
-	println!("use diesel_async::RunQueryDsl;");
-	println!("use super::user_types as ut;");
-
+	let mut orm = TokenStream::new();
 	for table in schema.tables() {
-		println!();
-		let table = SchemaTable {
-			schema: &schema,
-			table,
-		};
-		let struct_ident = table_struct_ident(&table);
-		let table_ident = table_mod_ident(&table);
+		for kind in [TableKind::New, TableKind::Load, TableKind::Update] {
+			let table = SchemaTable {
+				schema: &schema,
+				table,
+			};
+			let struct_ident = table_struct_ident(&table);
+			let table_ident = table_mod_ident(&table);
 
-		let mut new_table = String::new();
-		let mut load_table = String::new();
-		let mut update_table = String::new();
-
-		let mut tables = [
-			(TableKind::New, &mut new_table),
-			(TableKind::Load, &mut load_table),
-			(TableKind::Update, &mut update_table),
-		];
-
-		for (k, t) in &mut tables {
-			match k {
+			let derive_attr = match kind {
 				TableKind::New => {
-					wl!(t, "#[derive(Insertable, Identifiable)]");
+					quote!(#[derive(Insertable, Identifiable)])
 				}
 				TableKind::Load => {
-					wl!(
-						t,
-						"#[derive(Queryable, Selectable, Identifiable, PartialEq)]"
-					);
+					quote!(#[derive(Queryable, Selectable, Identifiable, PartialEq)])
 				}
 				TableKind::Update => {
-					wl!(t, "#[derive(AsChangeset, Identifiable)]");
+					quote!(#[derive(AsChangeset, Identifiable)])
 				}
-			}
-		}
+			};
 
-		for (_k, t) in &mut tables {
-			w!(t, "#[diesel(table_name = super::{table_ident}");
-			// if check_be && *k == TableKind::Load {
-			// 	w!(t, ", check_for_backend(diesel::pg::Pg)");
-			// }
-			w!(t, ", primary_key(");
-			for (i, column) in table.columns().filter(TableColumn::is_pk_part).enumerate() {
-				if i != 0 {
-					w!(t, ", ");
-				}
-				let column_name = column_ident(&column);
-				w!(t, "{column_name}");
-			}
+			let pk = table
+				.columns()
+				.filter(TableColumn::is_pk_part)
+				.map(|c| column_ident(&c));
+			let diesel_attr =
+				quote!(#[diesel(table_name = super::#table_ident, primary_key(#(#pk),*))]);
 
-			wl!(t, "))]");
-		}
-
-		for (k, t) in &mut tables {
-			let k = *k;
-			w!(t, "pub struct ");
-			match k {
-				TableKind::New => w!(t, "New{struct_ident}"),
-				TableKind::Load => w!(t, "{struct_ident}"),
-				TableKind::Update => w!(t, "{struct_ident}Update"),
-			}
-			if table_has_lifetime(k, &table) {
-				w!(t, "<'a>")
-			}
-			wl!(t, " {{");
-		}
-		for (k, t) in &mut tables {
-			let k = *k;
+			let struct_ident = match kind {
+				TableKind::New => format_ident!("New{struct_ident}"),
+				TableKind::Load => format_ident!("{struct_ident}"),
+				TableKind::Update => format_ident!("{struct_ident}Update"),
+			};
+			let struct_lifetime = table_has_lifetime(kind, &table).then(|| quote!(<'a>));
+			let mut columns = Vec::new();
 			for column in table.columns() {
-				if k == TableKind::New && column.default().is_some() {
+				if kind == TableKind::New && column_only_default(&column) {
 					continue;
 				}
-				match column.ty() {
+				let diesel_attr = match column.ty() {
 					SchemaType::Scalar(s) => {
 						// TODO: disallow setting both at the same time
 						if let Some(s) = s
@@ -430,116 +498,90 @@ fn print_schema() -> anyhow::Result<()> {
 							.try_get_single::<String>("diesel", "serialize_as")
 							.expect("diesel serialize_as")
 						{
-							wl!(t, "\t#[diesel(serialize_as = {s})]");
+							quote!(#[diesel(serialize_as = #s)])
+						} else {
+							quote!()
 						}
 					}
-					SchemaType::Enum(_) => {}
-				}
-				w!(t, "\t");
+					SchemaType::Enum(_) => quote!(),
+				};
 
 				// Forbid updating pk
-				if k == TableKind::Update && column.is_pk_part() {
+				let vis = if kind == TableKind::Update && column.is_pk_part() {
 					// Pass
+					quote!()
 				} else {
-					w!(t, "pub ");
-				}
+					quote!(pub)
+				};
 
 				let field_name = column_ident(&column);
-				w!(t, "{field_name}: ");
-				if k == TableKind::Update && !column.is_pk_part() {
-					w!(t, "Option<");
-				}
-				if column.nullable {
-					w!(t, "Option<");
-				}
-				let jojo_reference = is_jojo_reference(k, is_copy(&column.ty()), &column);
-				if jojo_reference {
-					w!(t, "&'a ");
-				}
-				column_ty_name(jojo_reference, &column.ty(), t);
-				if column.nullable {
-					w!(t, ">");
-				}
-				if k == TableKind::Update && !column.is_pk_part() {
-					w!(t, ">");
-				}
-				wl!(t, ",");
+				let jojo_reference = is_jojo_reference(kind, is_copy(&column.ty()), &column);
+				let ty = column_ty_name(jojo_reference, &column.ty());
+				let ty = jojo_reference.then(|| quote!(&'a #ty)).unwrap_or(ty);
+				let ty = column.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
+				let ty = (kind == TableKind::Update && !column.is_pk_part()
+					|| kind == TableKind::New && column.has_default())
+				.then(|| quote!(Option<#ty>))
+				.unwrap_or(ty);
+				columns.push(quote! {
+					#diesel_attr
+					#vis #field_name: #ty
+				});
 			}
-		}
-		for (_k, t) in &mut tables {
-			wl!(t, "}}");
-		}
-		for (k, t) in &mut tables {
-			let k = *k;
-			w!(t, "impl<'a> ");
-			match k {
-				TableKind::New => w!(t, "New{struct_ident}"),
-				TableKind::Load => w!(t, "{struct_ident}"),
-				TableKind::Update => w!(t, "{struct_ident}Update"),
-			}
-			if table_has_lifetime(k, &table) {
-				w!(t, "<'a>")
-			}
-			wl!(t, " {{");
-		}
-		for (k, t) in &mut tables {
-			let k = *k;
-			if k == TableKind::New {
+			let mut methods = Vec::new();
+			if kind == TableKind::New {
 				let table_ident = table_mod_ident(&table);
-				w!(t, "\tpub async fn insert(self, db: &mut ");
-				format_db_arg(t);
-				wl!(t, ") -> Result<(), Error>");
+				let db = format_db_arg();
 				// format_where(t);
-				wl!(t, "\t{{");
-				wl!(t, "\t\tassert_send(diesel::insert_into(super::{table_ident}::table).values(self).execute(db)).await?;");
-				wl!(t, "\t\tOk(())");
-				wl!(t, "\t}}");
-				w!(t, "\tpub async fn delete(&self, db: &mut ");
-				format_db_arg(t);
-				wl!(t, ") -> Result<(), Error>");
-				// format_where(t);
-				wl!(t, "\t{{");
-				wl!(
-					t,
-					"\t\tassert_send(diesel::delete(self).execute(db)).await?;"
-				);
-				wl!(t, "\t\tOk(())");
-				wl!(t, "\t}}");
-			} else if k == TableKind::Load {
-				// TODO: find works with eq_all, and eq_all is working through eq instead of is_not_distinct_from
-				// Thus this method might work poorly with nullable pk fields
-				w!(t, "\tpub async fn get(");
-				for column in table.columns().filter(TableColumn::is_pk_part) {
-					let id = column_ident(&column);
-					w!(t, "{id}: ");
-					let is_reference = !is_copy(&column.ty());
-					if is_reference {
-						w!(t, "&");
+				methods.push(quote! {
+					pub async fn insert(self, db: &mut #db) -> Result<(), Error> {
+						assert_send(diesel::insert_into(super::#table_ident::table).values(self).execute(db)).await?;
+						Ok(())
 					}
-					column_ty_name(is_reference, &column.ty(), t);
-					w!(t, ", ");
-				}
-				w!(t, "db: &mut ");
-				format_db_arg(t);
-				wl!(t, ") -> Result<Self, Error>");
-				// format_where(t);
-				wl!(t, "\t{{");
-				w!(
-					t,
-					"\t\tassert_send(super::{table_ident}::table.select(Self::as_select()).find(("
-				);
-				for (i, column) in table.columns().filter(TableColumn::is_pk_part).enumerate() {
-					if i != 0 {
-						w!(t, ", ");
+				});
+				methods.push(quote! {
+					pub async fn delete(&self, db: &mut #db) -> Result<(), Error> {
+						assert_send(diesel::delete(self).execute(db)).await?;
+						Ok(())
 					}
-					let id = column_ident(&column);
-					w!(t, "{id}")
+				});
+			} else if kind == TableKind::Load {
+				{
+					// TODO: find works with eq_all, and eq_all is working through eq instead of is_not_distinct_from
+					// Thus this method might work poorly with nullable pk fields
+					let pk = table
+						.columns()
+						.filter(TableColumn::is_pk_part)
+						.map(|column| {
+							let id = column_ident(&column);
+							let is_reference = !is_copy(&column.ty());
+							let reference = is_reference.then(|| quote!(&)).unwrap_or_default();
+							let t = column_ty_name(is_reference, &column.ty());
+							quote!(#id: #reference #t)
+						});
+					// format_where(t);
+					let find_columns = table
+						.columns()
+						.filter(TableColumn::is_pk_part)
+						.map(|c| column_ident(&c))
+						.collect::<Vec<_>>();
+
+					let find_arg = if find_columns.len() == 1 {
+						quote!(#(#find_columns)*)
+					} else {
+						quote!((#(#find_columns),*))
+					};
+
+					let db = format_db_arg();
+					methods.push(quote! {
+						pub async fn get(#(#pk,)* db: &mut #db) -> Result<Self, Error> {
+							assert_send(super::#table_ident::table.select(Self::as_select()).find(#find_arg).get_result(db)).await
+						}
+					});
 				}
-				wl!(t, ")).get_result(db)).await");
-				wl!(t, "\t}}");
 
 				for source_table in schema.tables() {
-					if source_table.name.id() == table.name.id() {
+					if source_table.id() == table.id() {
 						continue;
 					}
 					let source_table = SchemaTable {
@@ -547,30 +589,14 @@ fn print_schema() -> anyhow::Result<()> {
 						table: source_table,
 					};
 					for fk in source_table.foreign_keys() {
-						if fk.target_table().name.id() != table.name.id() {
+						if fk.target_table().id() != table.id() {
 							continue;
 						}
 
-						w!(t, "\tpub async fn ");
 						let many = fk.cardinality().0 == Cardinality::Many;
-						w!(t, "{}", fk_method_ident(&source_table, many));
-						w!(t, "(&self, db: &mut ");
-						format_db_arg(t);
-						wl!(t, ") -> Result<");
-
-						if many {
-							w!(t, "Vec<");
-						}
-						w!(t, "{}", table_struct_ident(&source_table));
-						if many {
-							w!(t, ">");
-						}
-
-						wl!(t, ", Error>");
+						let method_name = fk_method_ident(&source_table, many);
 						// format_where(t);
-						wl!(t, "\t{{");
 						let table_name = table_mod_ident(&source_table);
-						wl!(t, "\t\tuse super::{table_name}::{{dsl, table}};");
 						// super::username_histories::table
 						// 	.select(UsernameHistory::as_select())
 						// 	.filter(
@@ -579,43 +605,84 @@ fn print_schema() -> anyhow::Result<()> {
 						// 	.load(db)
 						// 	.await;
 						let struct_ident = table_struct_ident(&source_table);
-						wl!(t, "\t\tassert_send(table");
-						wl!(t, "\t\t\t.select({struct_ident}::as_select())");
-						for (a, b) in fk
+						// for (a, b) in
+						let filters = fk
 							.source_columns()
 							.into_iter()
-							.zip(fk.target_columns().into_iter())
-						{
-							let a = fk.table.schema_column(a);
-							let b = table.schema_column(b);
-							let a = column_ident(&a);
-							let b = column_ident(&b);
-							wl!(t, "\t\t\t.filter(dsl::{a}.eq(&self.{b}))");
-						}
-						if many {
-							wl!(t, "\t\t\t.load(db)");
+							.zip(fk.target_columns())
+							.map(|(a, b)| {
+								let a = fk.table.schema_column(a);
+								let b = table.schema_column(b);
+								let a = column_ident(&a);
+								let b = column_ident(&b);
+								quote!(.filter(dsl::#a.eq(&self.#b)))
+							});
+						// }
+						let load = if many {
+							quote!(.load(db))
 						} else {
-							wl!(t, "\t\t\t.get_result(db)");
-						}
-						wl!(t, "\t\t\t).await");
-						wl!(t, "\t}}");
+							quote!(.get_result(db))
+						};
+
+						let db = format_db_arg();
+						let ret = table_struct_ident(&source_table);
+						let ret = many
+							.then(|| quote!(Vec<#ret>))
+							.unwrap_or_else(|| quote!(#ret));
+						methods.push(quote! {
+							pub async fn #method_name(&self, db: &mut #db) -> Result<#ret, Error> {
+								use super::#table_name::{dsl, table};
+								assert_send(
+									table
+										.select(#struct_ident::as_select())
+										#(#filters)*
+										#load
+								).await
+							}
+						})
 					}
 				}
 			}
-		}
 
-		for (_k, t) in &mut tables {
-			wl!(t, "}}");
-		}
+			let only_pk_columns = table.columns().all(|v| v.is_pk_part());
 
-		let only_pk_columns = table.columns().all(|v| v.is_pk_part());
-
-		println!("{new_table}");
-		println!("{load_table}");
-		if !only_pk_columns {
-			println!("{update_table}");
+			if kind == TableKind::Update && only_pk_columns {
+				// Pass, no updateable columns
+			} else {
+				orm.append_all(quote! {
+					#derive_attr
+					#diesel_attr
+					pub struct #struct_ident #struct_lifetime {
+						#(#columns,)*
+					}
+					impl #struct_lifetime #struct_ident #struct_lifetime {
+						#(#methods)*
+					}
+				});
+			}
 		}
 	}
-	println!("}}");
+	out.append_all(quote!{
+		#[allow(unused_parens)]
+		pub mod orm {
+			use std::future::Future;
+			use super::sql_types::*;
+			use diesel::{Insertable, Identifiable, Queryable, Selectable, AsChangeset, sql_types as dt, QueryDsl, SelectableHelper, result::Error, ExpressionMethods};
+			use diesel_async::RunQueryDsl;
+			use super::user_types as ut;
+			fn assert_send<'u, R>(fut: impl 'u + Send + Future<Output = R>) -> impl 'u + Send + Future<Output = R> { fut }
+
+			#orm
+		}
+	});
+	let mut fmt = out.to_string();
+	fmt.push('\n');
+	let config = Config::new_str()
+		.edition(Edition::Rust2021)
+		.post_proc(PostProcess::ReplaceMarkers);
+	let fmt = rust_format::RustFmt::from_config(config)
+		.format_str(fmt)
+		.expect("rustfmt");
+	println!("{fmt}");
 	Ok(())
 }

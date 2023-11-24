@@ -13,7 +13,7 @@ use clap::{CommandFactory, FromArgMatches, Parser};
 use cli::{current_schema, parse_schema};
 use file_diffs::{find_root, list, list_ids, Migration, MigrationId};
 use generator_postgres::Pg;
-use schema::root::Schema;
+use schema::{root::Schema, uid::RenameMap};
 
 #[derive(Parser)]
 #[clap(author, version, allow_external_subcommands = true)]
@@ -81,12 +81,13 @@ fn generate_sql(
 	migration: &Migration,
 	old_schema: &Schema,
 	new_schema: &Schema,
+	rn: &RenameMap,
 	out: &Path,
 ) -> anyhow::Result<()> {
 	let mut up = String::new();
 	let mut down = String::new();
-	Pg(new_schema).diff(&Pg(old_schema), &mut up);
-	Pg(old_schema).diff(&Pg(new_schema), &mut down);
+	Pg(new_schema).diff(&Pg(old_schema), &mut up, &mut rn.clone());
+	Pg(old_schema).diff(&Pg(new_schema), &mut down, &mut rn.clone());
 
 	decorate_automatically_generated(
 		&mut up,
@@ -112,13 +113,14 @@ fn generate_sql(
 	Ok(())
 }
 
-fn stored_schema(list: &[(MigrationId, Migration)]) -> anyhow::Result<(String, Schema)> {
+fn stored_schema(list: &[(MigrationId, Migration)]) -> anyhow::Result<(String, Schema, RenameMap)> {
 	let mut schema_str = String::new();
 	for (_, migration) in list {
 		schema_str = migration.apply_diff(schema_str)?;
 	}
-	let schema = parse_schema(&schema_str)?;
-	Ok((schema_str, schema))
+	let mut rn = RenameMap::default();
+	let schema = parse_schema(&schema_str, &mut rn)?;
+	Ok((schema_str, schema, rn))
 }
 
 fn external_cmds_from_dir(dir: &Path, prefix: &str, out: &mut BTreeMap<String, PathBuf>) {
@@ -250,11 +252,14 @@ fn main() -> anyhow::Result<()> {
 			let list = list(&root)?;
 			let id = list.last().map(|(id, _)| id.id + 1).unwrap_or_default();
 
-			let (original_str, original) =
+			let (original_str, original, orig_rn) =
 				stored_schema(&list).context("failed to load past migrations")?;
 
-			let (current_str, current) =
+			let (current_str, current, current_rn) =
 				current_schema(&root).context("failed to parse current schema")?;
+
+			let mut rn = orig_rn;
+			rn.merge(current_rn);
 
 			let should_use_editor = message.is_none();
 
@@ -316,7 +321,7 @@ fn main() -> anyhow::Result<()> {
 				fs::write(schema_update, migration.to_string()).context("writing db.update")?;
 			}
 
-			generate_sql(&migration, &original, &current, &dir)?;
+			generate_sql(&migration, &original, &current, &rn, &dir)?;
 		}
 		Opts::List => {
 			let root = find_root(&current_dir()?)?;
@@ -330,12 +335,15 @@ fn main() -> anyhow::Result<()> {
 			let list = list(&root)?;
 			let mut current_schema_str = String::new();
 			let mut current_schema = Schema::default();
+			let mut rn = RenameMap::default();
 			for (id, migration) in list {
 				current_schema_str = migration.apply_diff(current_schema_str)?;
-				let updated_schema = parse_schema(&current_schema_str)?;
+				let mut crn = RenameMap::default();
+				let updated_schema = parse_schema(&current_schema_str, &mut crn)?;
+				rn.merge(crn);
 
 				root.push(&id.dirname);
-				generate_sql(&migration, &current_schema, &updated_schema, &root)?;
+				generate_sql(&migration, &current_schema, &updated_schema, &rn, &root)?;
 				root.pop();
 
 				current_schema = updated_schema;

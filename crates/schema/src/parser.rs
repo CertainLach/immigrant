@@ -5,125 +5,127 @@ use peg::{error::ParseError, parser, str::LineCol};
 use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
-	ids::in_allocator,
-	index::{Constraint, ConstraintTy, Index},
+	ids::{in_allocator, DbIdent},
+	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
-		ColumnIdent, DbProcedure, DbType, DefName, EnumItemDefName, TableDefName, TableIdent,
-		TypeDefName, TypeIdent,
+		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
+		TypeIdent,
 	},
-	root::{Item, Schema},
-	scalar::{Enum, Scalar, ScalarAnnotation},
+	root::{Item, Schema, SchemaProcessOptions},
+	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
+	span::{register_source, SimpleSpan, SourceId},
 	sql::{Sql, SqlOp, SqlUnOp},
 	table::{ForeignKey, OnDelete, Table, TableAnnotation},
+	uid::RenameMap,
 };
 
 fn h<T>(v: T) -> Box<T> {
 	Box::new(v)
 }
+
+type S = SourceId;
 parser! {
 grammar schema_parser() for str {
-pub(super) rule root() -> Schema = _ t:item()**_ _ {Schema(t)}
+pub(super) rule root(s:S) -> Schema = _ t:item(s)**_ _ {Schema(t)}
 
-rule item() -> Item
-= t:table() {Item::Table(t)}
-/ t:enum() {Item::Enum(t)}
-/ t:scalar() {Item::Scalar(t)}
+rule item(s:S) -> Item
+= t:table(s) {Item::Table(t)}
+/ t:enum(s) {Item::Enum(t)}
+/ t:scalar(s) {Item::Scalar(t)}
 
-rule table() -> Table =
+rule table(s:S) -> Table =
 	docs:docs()
-	attrlist:attribute_list() _
-	"table" _ name:def_name() _ "{" _
-		fields:(f:table_field() _ ";" {f})++_ _
-		annotations:(a:table_annotation() _ ";" {a})**_ _
-		foreign_keys:(f:foreign_key() _ ";" {f})**_ _
+	attrlist:attribute_list(s) _
+	"table" _ name:def_name(s) _ "{" _
+		fields:(f:table_field(s) _ ";" {f})++_ _
+		annotations:(a:table_annotation(s) _ ";" {a})**_ _
+		foreign_keys:(f:foreign_key(s) _ ";" {f})**_ _
 	"}" _ ";" {{
-	Table {
+	Table::new(
 		docs,
 		attrlist,
-		name: TableDefName::alloc(name),
-		columns: fields,
+		TableDefName::alloc(name),
+		fields,
 		annotations,
 		foreign_keys,
-	}
+	)
 }};
-rule enum() -> Enum = attrlist:attribute_list() _ "enum" _ name:def_name() _ "{" _ items:def_name()++(_ ";" _) _ ";"? _ "}" _ ";" {
-	Enum {
-		attrlist,
-		name: TypeDefName::alloc(name),
-		items: items.into_iter().map(EnumItemDefName::alloc).collect(),
-	}
+rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
+	Enum::new(attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
 };
-rule scalar() -> Scalar = attrlist:attribute_list() _ "scalar" _ name:code_ident() _ native:str() _ annotations:scalar_annotation()**_ ";"{
-	Scalar {
-		attrlist,
-		name: TypeIdent::alloc(name),
-		native: DbType::new(native),
-		annotations,
-	}
+rule scalar(s:S) -> Scalar = attrlist:attribute_list(s) _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
+	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
-rule table_field() -> Column =
+rule table_field(s:S) -> Column =
 	docs:docs()
-	name:def_name() t:(_ ":" _ i:code_ident() {i})? n:(_ "?")? _ annotations:field_annotation()**_ foreign_key:partial_foreign_key()? {
-	Column {
+	attrlist:attribute_list(s) _
+	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:field_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
+	Column::new(
+		DefName::alloc(name),
 		docs,
-		nullable: n.is_some(),
-		ty: TypeIdent::alloc(t.unwrap_or_else(|| {
-			name.0.clone()
-		})),
-		name: DefName::alloc(name),
+		attrlist,
+		n.is_some(),
+		TypeIdent::alloc(t.unwrap_or((name.0, name.1))),
 		annotations,
-		foreign_key,
-	}
+		foreign_key
+	)
 }
 
-rule attribute_list() -> AttributeList
-= list:attribute() ** _ {AttributeList(list)}
-rule attribute() -> Attribute
-= "#" _ name:code_ident() fields:(_ "(" _ f:(f:attribute_field()++comma() trailing_comma() {f}) _ ")" {f})? {
+rule attribute_list(s:S) -> AttributeList
+= list:attribute(s) ** _ {AttributeList(list)}
+rule attribute(s:S) -> Attribute
+= "#" _ name:code_ident(s) fields:(_ "(" _ f:(f:attribute_field(s)++comma() trailing_comma() {f}) _ ")" {f})? {
 	Attribute {
-		name: name.to_owned(),
+		name: name.1.to_owned(),
 		fields: fields.unwrap_or_default(),
 	}
 }
-rule attribute_field() -> AttributeField
-= key:code_ident() v:(_ "=" _ value:attribute_value() {value})? {AttributeField {key: key.to_owned(), value: v.unwrap_or(AttributeValue::Set)}}
+rule attribute_field(s:S) -> AttributeField
+= key:code_ident(s) v:(_ "=" _ value:attribute_value() {value})? {AttributeField {key: key.1.to_owned(), value: v.unwrap_or(AttributeValue::Set)}}
 rule attribute_value() -> AttributeValue
 = s:str() {AttributeValue::String(s.to_owned())}
 
-rule scalar_annotation() -> ScalarAnnotation
-= c:constraint() {ScalarAnnotation::Constraint(c)}
-/ d:default() {ScalarAnnotation::Default(d)}
-rule field_annotation() -> ColumnAnnotation
-= i:index() {ColumnAnnotation::Index(i)}
-/ c:constraint() {ColumnAnnotation::Constraint(c)}
-/ d:default() {ColumnAnnotation::Default(d)}
-rule table_annotation() -> TableAnnotation
-= c:constraint() {TableAnnotation::Constraint(c)}
-/ i:index() {TableAnnotation::Index(i)}
+rule scalar_annotation(s:S) -> ScalarAnnotation
+= c:check(s) {ScalarAnnotation::Check(c)}
+/ u:unique(s) {ScalarAnnotation::Unique(u)}
+/ pk:primary_key(s) {ScalarAnnotation::PrimaryKey(pk)}
+/ d:default(s) {ScalarAnnotation::Default(d)}
+/ "@inline" {ScalarAnnotation::Inline}
+rule field_annotation(s:S) -> ColumnAnnotation
+= i:index(s) {ColumnAnnotation::Index(i)}
+/ c:check(s) {ColumnAnnotation::Check(c)}
+/ u:unique(s) {ColumnAnnotation::Unique(u)}
+/ pk:primary_key(s) {ColumnAnnotation::PrimaryKey(pk)}
+/ d:default(s) {ColumnAnnotation::Default(d)}
+rule table_annotation(s:S) -> TableAnnotation
+= c:check(s) {TableAnnotation::Check(c)}
+/ u:unique(s) {TableAnnotation::Unique(u)}
+/ pk:primary_key(s) {TableAnnotation::PrimaryKey(pk)}
+/ i:index(s) {TableAnnotation::Index(i)}
 
-rule def_name() -> (&'input str, Option<&'input str>)
-= c:code_ident() d:(_ d:db_ident() {d})? {
-	(c, d)
+rule def_name(s:S) -> (SimpleSpan, &'input str, Option<&'input str>)
+= c:code_ident(s) d:(_ d:db_ident() {d})? {
+	(c.0, c.1, d)
 }
 
-rule foreign_key() -> ForeignKey
-= source_fields:index_fields()? _ pfk:partial_foreign_key() {
+rule foreign_key(s:S) -> ForeignKey
+= source_fields:index_fields(s)? _ pfk:partial_foreign_key(s) {
 	let mut fk = pfk.fk;
 	assert!(fk.source_fields.is_none());
 	fk.source_fields = source_fields;
 	fk
 }
 
-rule partial_foreign_key() -> PartialForeignKey
-= name:db_ident()? _ "~" _ on_delete:("." _ a:on_delete() {a})? _ target:code_ident() _ target_fields:index_fields()? {
+rule partial_foreign_key(s:S) -> PartialForeignKey
+= name:db_ident()? _ "~" _ on_delete:("." _ a:on_delete() {a})? _ target:code_ident(s) _ target_fields:index_fields(s)? {
 	PartialForeignKey {
-		fk: ForeignKey {
-			name: name.map(|v| v.to_owned()),
-			source_fields: None,
-			on_delete: on_delete.unwrap_or(OnDelete::Noop),
-			target: TableIdent::alloc(target),
+		fk: ForeignKey::new(
+			name.map(DbIdent::new),
+			None,
+			TableIdent::alloc(target),
 			target_fields,
-		}
+			on_delete.unwrap_or(OnDelete::Noop),
+		)
 	}
 }
 rule on_delete() -> OnDelete
@@ -133,24 +135,25 @@ rule on_delete() -> OnDelete
 / "noop" {OnDelete::Noop}
 / "cascade" {OnDelete::Cascade}
 
-rule default() -> Sql
-= "@default" _ "(" _ s:sql() _ ")" {s}
-rule constraint() -> Constraint
-= "@primary_key" _ name:name()? _ columns:index_fields()? {Constraint {kind: ConstraintTy::PrimaryKey(columns.unwrap_or_default()), name}}
-/ "@unique" _ name:name()? _ columns:index_fields()? {Constraint {kind: ConstraintTy::Unique{columns: columns.unwrap_or_default()}, name}}
-/ "@check" _ name:name()? _ "(" _ s:sql() _ ")" {Constraint {kind: ConstraintTy::Check {sql: s}, name}}
-rule index() -> Index
-= "@index" _ unq:("." _ "unique" _)? name:name()? _ f:index_fields()? {Index{name, unique:unq.is_some(), fields:f.unwrap_or_default()}}
+rule default(s:S) -> Sql
+= "@default" _ "(" _ s:sql(s) _ ")" {s}
+rule primary_key(s:S) -> PrimaryKey
+= "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey::new(name.map(DbIdent::new), columns.unwrap_or_default())}
+rule unique(s:S) -> UniqueConstraint
+= "@unique" _ name:db_ident()? _ columns:index_fields(s)? {UniqueConstraint::new(name.map(DbIdent::new), columns.unwrap_or_default())}
+rule check(s:S) -> Check
+= "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check::new(name.map(DbIdent::new), check)}
+rule index(s:S) -> Index
+= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default())}
 
-rule index_fields() -> Vec<ColumnIdent> = "(" _ i:code_ident()**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
+rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
-rule code_ident() -> &'input str = n: $(['a'..='z' | 'A'..='Z' | '_' | '0'..='9']+) {n};
+rule code_ident(s:S) -> (SimpleSpan, &'input str) = b:position!() n:$(['a'..='z' | 'A'..='Z' | '_' | '0'..='9']+) e:position!() {(SimpleSpan::new(s, b as u32, e as u32), n)};
 rule db_ident() -> &'input str = str()
 rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
-rule name() -> String = v:str() {v.to_owned()}
 
-rule sqlexpr() -> Sql = "(" s:sql() ")" {s};
-rule sql() -> Sql
+rule sqlexpr(s:S) -> Sql = "(" s:sql(s) ")" {s};
+rule sql(s:S) -> Sql
 = precedence! {
 	a:(@) _ "||" _ b:@ {Sql::BinOp(h(a), SqlOp::Or, h(b))}
 	--
@@ -176,13 +179,13 @@ rule sql() -> Sql
 	"+" _ b:@ {Sql::UnOp(SqlUnOp::Plus, h(b))}
 	"!" _ b:@ {Sql::UnOp(SqlUnOp::Not, h(b))}
 	--
-	a:(@) _ "::" _ ty:code_ident() {Sql::Cast(h(a), TypeIdent::alloc(ty))}
+	a:(@) _ "::" _ ty:code_ident(s) {Sql::Cast(h(a), TypeIdent::alloc(ty))}
 	--
-	e:sql_basic() {e}
-	"(" _ e:sql() _ ")" {Sql::Parened(h(e))}
+	e:sql_basic(s) {e}
+	"(" _ e:sql(s) _ ")" {Sql::Parened(h(e))}
 }
-rule sql_basic() -> Sql
-= i:code_ident() _ "(" _ e:sql()**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i), e)}
+rule sql_basic(s:S) -> Sql
+= i:code_ident(s) _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i.1), e)}
 / s:str() {Sql::String(s.to_owned())}
 / n:$(['0'..='9']+) {Sql::Number(n.parse().unwrap())}
 / "_" {Sql::Placeholder}
@@ -201,8 +204,10 @@ pub enum ParsingError {
 }
 
 type Result<T> = result::Result<T, Vec<ParsingError>>;
-pub fn parse(v: &str) -> Result<Schema> {
-	let mut s = in_allocator(|| schema_parser::root(v).map_err(|e| vec![ParsingError::from(e)]))?;
-	s.process();
+pub fn parse(v: &str, opts: &SchemaProcessOptions, rn: &mut RenameMap) -> Result<Schema> {
+	let span = register_source(v.to_string());
+	let mut s =
+		in_allocator(|| schema_parser::root(v, span).map_err(|e| vec![ParsingError::from(e)]))?;
+	s.process(opts, rn);
 	Ok(s)
 }

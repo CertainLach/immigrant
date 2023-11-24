@@ -1,0 +1,46 @@
+!!!TEST table with various constraints to ensure they are properly merged
+scalar test = "TEXT" @inline @check "testcheck" (_ != "1");
+scalar int = "INTEGER";
+
+table Test {
+	test @check "testcheck" (_ != "2") @check (_ != "3") @check (_ != "4");
+
+	a: int @primary_key;
+	b: int @primary_key;
+
+	c: int @index;
+	d: int @index;
+
+	e: int @index "testidx";
+	f: int @index "testidx";
+
+	@primary_key "hui";
+};
+!!!RESULT
+-- updated: table with various constraints to ensure they are properly merged --
+CREATE DOMAIN int AS INTEGER;
+CREATE TABLE tests (
+	test TEXT NOT NULL
+,	a int NOT NULL
+,	b int NOT NULL
+,	c int NOT NULL
+,	d int NOT NULL
+,	e int NOT NULL
+,	f int NOT NULL
+,	CONSTRAINT hui PRIMARY KEY(a, b)
+,	CONSTRAINT testcheck CHECK ((test <> '2') AND (test <> '1'))
+,	CONSTRAINT tests_test_check CHECK ((test <> '3') AND (test <> '4'))
+);
+CREATE INDEX testidx ON tests(
+	e
+,	f
+);
+CREATE INDEX tests_c_idx ON tests(
+	c
+);
+CREATE INDEX tests_d_idx ON tests(
+	d
+);
+-- updated: cleanup schema changes --
+DROP TABLE tests;
+DROP DOMAIN int;

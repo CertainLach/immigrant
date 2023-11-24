@@ -6,10 +6,16 @@
 "@primary_key"
 "@unique"
 "@index"
+"@inline"
+"!!!SETUP"
+"!!!TEST"
+"!!!UPDATE"
+"!!!RESULT"
 (on_update)] @keyword
 [";"
 ","
-"."] @punctuation.delimiter
+"."
+":"] @punctuation.delimiter
 ["{"
 "}"
 "("
@@ -20,6 +26,7 @@
 ["||"
 "&&"
 "=="
+"!="
 "::"
 "="
 "!"] @operator

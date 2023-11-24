@@ -7,6 +7,10 @@ use std::{
 	marker::PhantomData,
 };
 
+use derivative::Derivative;
+
+use crate::span::SimpleSpan;
+
 #[derive(Default)]
 pub struct CodeIdentAllocator {
 	ids: RefCell<HashMap<String, u16>>,
@@ -35,7 +39,7 @@ impl CodeIdentAllocator {
 		}
 		unreachable!()
 	}
-	fn ident<K: Kind>(&self, name: &str) -> Ident<K> {
+	fn ident<K: Kind>(&self, span: SimpleSpan, name: &str) -> Ident<K> {
 		let kind = K::id();
 		self.max_kind.set(self.max_kind.get().max(kind));
 		let kind = self
@@ -49,6 +53,7 @@ impl CodeIdentAllocator {
 				return Ident {
 					kind,
 					id: *v.get(),
+					span,
 					_marker: PhantomData,
 				}
 			}
@@ -59,6 +64,7 @@ impl CodeIdentAllocator {
 				Ident {
 					kind,
 					id,
+					span,
 					_marker: PhantomData,
 				}
 			}
@@ -90,26 +96,38 @@ pub fn in_allocator<T>(f: impl FnOnce() -> T) -> T {
 pub struct Ident<K> {
 	kind: u8,
 	id: u16,
+	span: SimpleSpan,
 	_marker: PhantomData<fn() -> K>,
 }
-impl<K: Kind> Ident<K> {
-	pub fn alloc(name: &str) -> Self {
-		ALLOCATOR.with(|a| {
-			assert!(a.0.get(), "should be in allocator");
-			a.1.ident(name)
-		})
-	}
+impl<K> Ident<K> {
 	pub fn name(&self) -> String {
 		ALLOCATOR.with(|a| a.1.name(self.id))
 	}
 }
-impl<K> Clone for Ident<K> {
-	fn clone(&self) -> Self {
-		Self {
-			kind: self.kind,
-			id: self.id,
+impl<K: Kind> Ident<K> {
+	pub fn alloc((span, name): (SimpleSpan, &str)) -> Self {
+		ALLOCATOR.with(|a| {
+			assert!(a.0.get(), "should be in allocator");
+			a.1.ident(span, name)
+		})
+	}
+	pub fn unchecked_cast<U: Kind>(v: Ident<U>) -> Self {
+		assert_eq!(
+			K::id(),
+			U::id(),
+			"types should be explicitly marked as compatible"
+		);
+		Ident {
+			kind: v.kind,
+			id: v.id,
+			span: v.span,
 			_marker: PhantomData,
 		}
+	}
+}
+impl<K> Clone for Ident<K> {
+	fn clone(&self) -> Self {
+		*self
 	}
 }
 impl<K> Copy for Ident<K> {}
@@ -149,30 +167,57 @@ impl<K> Debug for Ident<K> {
 	}
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""), Ord(bound = ""))]
 pub struct DbIdent<K> {
 	id: String,
 	_marker: PhantomData<K>,
 }
+impl<K> PartialOrd for DbIdent<K> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		Some(self.cmp(other))
+	}
+}
 impl<K> DbIdent<K> {
+	pub fn guard() -> Self {
+		Self::new("")
+	}
 	pub fn new(v: &str) -> Self {
 		Self {
-			id: v[..63.min(v.len())].to_owned(),
+			id: v.to_owned(),
 			_marker: PhantomData,
 		}
 	}
+	pub(crate) fn assert_not_guard(&self) {
+		assert!(self.assigned(), "db name was not assigned")
+	}
+	pub fn assigned(&self) -> bool {
+		!self.id.is_empty()
+	}
 }
-impl<K: Kind> PartialEq for DbIdent<K> {
+impl<K> PartialEq for DbIdent<K> {
 	fn eq(&self, other: &Self) -> bool {
+		self.assert_not_guard();
+		other.assert_not_guard();
 		self.id == other.id
+	}
+}
+impl<K> Eq for DbIdent<K> {}
+impl<K> Hash for DbIdent<K> {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.assert_not_guard();
+		self.id.hash(state);
 	}
 }
 impl<K> Display for DbIdent<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.assert_not_guard();
 		write!(f, "{}", self.id)
 	}
 }
 impl<K> Debug for DbIdent<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.assert_not_guard();
 		write!(f, "{:?}", self.id)
 	}
 }
@@ -180,6 +225,15 @@ impl<K> Clone for DbIdent<K> {
 	fn clone(&self) -> Self {
 		Self {
 			id: self.id.clone(),
+			_marker: PhantomData,
+		}
+	}
+}
+
+impl<T> DbIdent<T> {
+	pub fn unchecked_from<U>(t: DbIdent<U>) -> Self {
+		DbIdent {
+			id: t.id,
 			_marker: PhantomData,
 		}
 	}

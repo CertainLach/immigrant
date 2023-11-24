@@ -65,6 +65,7 @@ pub enum Sql {
 	UnOp(SqlUnOp, Box<Sql>),
 	BinOp(Box<Sql>, SqlOp, Box<Sql>),
 	Parened(Box<Sql>),
+	Boolean(bool),
 	Placeholder,
 	Null,
 }
@@ -122,8 +123,17 @@ impl Sql {
 			}
 			Sql::Parened(s) => s.visit(v),
 			Sql::Placeholder => v.handle_placeholder(self),
+			Sql::Boolean(_) => {}
 			Sql::Null => {}
 		}
+	}
+	pub fn all(s: impl IntoIterator<Item = Self>) -> Self {
+		let mut s = s.into_iter();
+		let mut v = s.next().unwrap_or(Self::Boolean(true));
+		for i in s {
+			v = Sql::BinOp(Box::new(v), SqlOp::And, Box::new(i))
+		}
+		v
 	}
 }
 #[allow(unused_variables)]

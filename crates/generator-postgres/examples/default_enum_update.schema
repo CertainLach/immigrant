@@ -1,0 +1,41 @@
+!!!TEST enum and a table, which defined enum field with the default value
+table Table {
+	a: myenum @default("test"::myenum);
+};
+
+enum myenum "myenumname"{
+	test "test";
+};
+!!!UPDATE enum entry is dropped, other entry is added instead, table default is rewritten to it
+table Table {
+	a: myenum @default("test2"::myenum);
+};
+
+enum myenum "myenumname"{
+	test2 "test2";
+};
+!!!RESULT
+-- updated: enum and a table, which defined enum field with the default value --
+CREATE TYPE myenumname AS ENUM (
+	'test'
+);
+
+CREATE TABLE tables (
+	a myenumname NOT NULL DEFAULT (('test')::myenumname)
+);
+-- updated: enum entry is dropped, other entry is added instead, table default is rewritten to it --
+ALTER TYPE myenumname
+	RENAME TO tmp_1
+;
+CREATE TYPE myenumname AS ENUM (
+	'test2'
+);
+
+ALTER TABLE tables
+	ALTER COLUMN a TYPE myenumname
+,	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
+;
+DROP TYPE tmp_1;
+-- updated: cleanup schema changes --
+DROP TABLE tables;
+DROP TYPE myenumname;

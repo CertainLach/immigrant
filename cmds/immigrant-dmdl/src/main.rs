@@ -3,7 +3,7 @@ use std::env::current_dir;
 use clap::Parser;
 use cli::current_schema;
 use file_diffs::find_root;
-use schema::{index::ConstraintTy, root::Item, table::Cardinality, SchemaTable};
+use schema::{root::Item, table::Cardinality, HasIdent, SchemaTable};
 
 /// Generate db structure in dmdl format
 #[derive(Parser)]
@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
 	let _opts = Opts::parse();
 
 	let root = find_root(&current_dir()?)?;
-	let (_, schema) = current_schema(&root)?;
+	let (_, schema, rn) = current_schema(&root)?;
 	for item in &schema.0 {
 		match item {
 			Item::Table(t) => {
@@ -35,16 +35,14 @@ fn main() -> anyhow::Result<()> {
 					schema: &schema,
 					table: t,
 				};
-				println!("Table {} {{", t.name);
+				println!("Table {} {{", t.id().name());
 				for column in &t.columns {
-					print!("\t{} {:?}", column.name, column.ty);
+					print!("\t{} {:?}", column.id().name(), column.ty);
 					let mut is_pk = false;
-					for ele in t.constraints() {
-						if let ConstraintTy::PrimaryKey(columns) = &ele.kind {
-							if columns.contains(&column.name.id()) {
-								is_pk = true;
-								break;
-							}
+					if let Some(pk) = t.pk() {
+						if pk.columns.contains(&column.id()) {
+							is_pk = true;
+							break;
 						}
 					}
 					if is_pk || !column.docs.is_empty() {
@@ -87,10 +85,10 @@ fn main() -> anyhow::Result<()> {
 				}
 				println!("}}");
 				for fk in t.foreign_keys() {
-					print!("Ref: {}.(", t.name);
+					print!("Ref: {}.(", t.id().name());
 					{
 						let mut out = String::new();
-						t.print_column_list(&mut out, fk.source_columns().iter().copied());
+						t.print_column_list(&mut out, fk.source_columns().iter().copied(), &rn);
 						print!("{out}");
 					}
 					print!(") ");
@@ -100,10 +98,10 @@ fn main() -> anyhow::Result<()> {
 						(Cardinality::Many, Cardinality::One) => print!(">"),
 						(Cardinality::Many, Cardinality::Many) => print!("<>"),
 					}
-					print!(" {}.(", fk.target_table().name);
+					print!(" {}.(", fk.target_table().id().name());
 					{
 						let mut out = String::new();
-						t.print_column_list(&mut out, fk.target_columns().iter().copied());
+						t.print_column_list(&mut out, fk.target_columns().iter().copied(), &rn);
 						print!("{out}");
 					}
 					println!(")");
