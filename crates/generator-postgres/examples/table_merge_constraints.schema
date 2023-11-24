@@ -1,4 +1,4 @@
-!!!TEST
+!!!TEST table with various constraints to ensure they are properly merged
 scalar test = "TEXT" @inline @check "testcheck" (_ != "1");
 scalar int = "INTEGER";
 
@@ -17,6 +17,7 @@ table Test {
 	@primary_key "hui";
 };
 !!!RESULT
+-- updated: table with various constraints to ensure they are properly merged --
 CREATE DOMAIN int AS INTEGER;
 CREATE TABLE tests (
 	test TEXT NOT NULL
@@ -40,6 +41,6 @@ CREATE INDEX tests_c_idx ON tests(
 CREATE INDEX tests_d_idx ON tests(
 	d
 );
--- updated --
+-- updated: cleanup schema changes --
 DROP TABLE tests;
 DROP DOMAIN int;

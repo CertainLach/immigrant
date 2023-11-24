@@ -1,4 +1,4 @@
-!!!TEST
+!!!TEST enum and a table, which defined enum field with the default value
 table Table {
 	a: myenum @default("test"::myenum);
 };
@@ -6,7 +6,7 @@ table Table {
 enum myenum "myenumname"{
 	test "test";
 };
-!!!UPDATE
+!!!UPDATE enum entry is dropped, other entry is added instead, table default is rewritten to it
 table Table {
 	a: myenum @default("test2"::myenum);
 };
@@ -15,6 +15,7 @@ enum myenum "myenumname"{
 	test2 "test2";
 };
 !!!RESULT
+-- updated: enum and a table, which defined enum field with the default value --
 CREATE TYPE myenumname AS ENUM (
 	'test'
 );
@@ -22,7 +23,7 @@ CREATE TYPE myenumname AS ENUM (
 CREATE TABLE tables (
 	a myenumname NOT NULL DEFAULT (('test')::myenumname)
 );
--- updated --
+-- updated: enum entry is dropped, other entry is added instead, table default is rewritten to it --
 ALTER TYPE myenumname
 	ADD VALUE 'test2'
 ;
@@ -30,8 +31,8 @@ ALTER TABLE tables
 	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
 ;
 ALTER TYPE myenumname
-	RENAME VALUE 'test' TO 'test_removed_HDBES'
+	RENAME VALUE 'test' TO 'test_removed_vtIdr'
 ;
--- updated --
+-- updated: cleanup schema changes --
 DROP TABLE tables;
 DROP TYPE myenumname;

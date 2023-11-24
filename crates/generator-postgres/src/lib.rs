@@ -1248,52 +1248,87 @@ mod tests {
 		let mut data = fs::read_to_string(name).expect("example read");
 		let result_offset = data.find("\n!!!RESULT\n").unwrap_or(data.len());
 		data.truncate(result_offset);
-		let (defaults, parts) = data.split_once("!!!TEST\n").unwrap_or(("", &data));
+		let (defaults, parts) = data.split_once("!!!TEST").unwrap_or(("", &data));
 
 		let defaults = defaults.strip_prefix("!!!SETUP\n").unwrap_or(defaults);
 
+		#[derive(Debug)]
+		struct Update {
+			description: String,
+			schema: String,
+		}
+
 		let mut examples = parts
-			.split("\n!!!UPDATE\n")
-			.map(|s| s.to_owned())
+			.split("\n!!!UPDATE")
+			.map(|s| {
+				let (description, text) = s.split_once('\n').unwrap_or((s, ""));
+				Update {
+					description: description.trim().to_string(),
+					schema: text.to_string(),
+				}
+			})
 			.collect::<Vec<_>>();
-		examples.push(String::new());
+		examples.push(Update {
+			description: "cleanup schema changes".to_owned(),
+			schema: "".to_owned(),
+		});
 		if !defaults.is_empty() {
 			for example in examples.iter_mut() {
-				if !example.is_empty() {
-					example.insert(0, '\n');
+				if !example.schema.is_empty() {
+					example.schema.insert(0, '\n');
 				}
-				example.insert_str(0, defaults);
+				example.schema.insert_str(0, defaults);
 			}
-			examples.insert(0, defaults.to_owned());
+			examples.insert(
+				0,
+				Update {
+					description: "setup".to_owned(),
+					schema: defaults.to_owned(),
+				},
+			);
 		}
 		// Init defaults
-		examples.insert(0, String::new());
+		examples.insert(
+			0,
+			Update {
+				description: "in the beginning there was nothing (doesn't exist in output)"
+					.to_owned(),
+				schema: "".to_owned(),
+			},
+		);
 		// Drop defaults
 		if !defaults.is_empty() {
-			examples.push(String::new());
+			examples.push(Update {
+				description: "cleanup setup".to_owned(),
+				schema: "".to_owned(),
+			});
 		}
+		dbg!(&examples);
 		let mut rn = RenameMap::default();
 		let examples = examples
 			.iter()
 			.map(|example| {
-				let mut schema = match parse(example.as_str(), &default_options(), &mut rn) {
+				let mut schema = match parse(example.schema.as_str(), &default_options(), &mut rn) {
 					Ok(s) => s,
 					Err(e) => {
-						panic!("failed to parse schema:\n{example}\n\n{e:#?}");
+						panic!("failed to parse schema:\n{}\n\n{e:#?}", example.schema);
 					}
 				};
-				schema
+				(example.description.to_owned(), schema)
 			})
 			.collect::<Vec<_>>();
 		let mut out = String::new();
 		for (i, ele) in examples.windows(2).enumerate() {
-			if i != 0 {
+			let description = &ele[1].0;
+			if description.is_empty() {
 				wl!(out, "\n-- updated --");
+			} else {
+				wl!(out, "\n-- updated: {description} --");
 			}
 			let mut out_tmp = String::new();
 			Pg(Diff {
-				old: &ele[0],
-				new: &ele[1],
+				old: &ele[0].1,
+				new: &ele[1].1,
 			})
 			.print(&mut out_tmp, &mut rn);
 			out.push_str(out_tmp.trim());

@@ -188,7 +188,7 @@ mod tests {
 			#[derive(Clone, Debug, PartialEq)]
 			struct P(Uid, DefName<TypeKind>);
 			impl IsCompatible for P {
-				fn is_compatible(&self, _new: &Self) -> bool {
+				fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
 					true
 				}
 			}

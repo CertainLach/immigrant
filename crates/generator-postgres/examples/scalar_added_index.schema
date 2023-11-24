@@ -1,22 +1,23 @@
-!!!TEST
+!!!TEST a table and the scalar
 scalar A = "TEXT";
 table B {
 	a: A;
 };
-!!!UPDATE
-scalar A = "TEXT" @primary_key;
+!!!UPDATE check was added to the scalar
+scalar A = "TEXT" @primary_key @check (_ != "test");
 table B {
 	a: A;
 };
 !!!RESULT
+-- updated: a table and the scalar --
 CREATE DOMAIN A AS TEXT;
 CREATE TABLE bs (
 	a A NOT NULL
 );
--- updated --
+-- updated: check was added to the scalar --
 ALTER TABLE bs
 	ADD CONSTRAINT bs_a_pkey CONSTRAINT bs_a_pkey PRIMARY KEY(a)
 ;
--- updated --
+-- updated: cleanup schema changes --
 DROP TABLE bs;
 DROP DOMAIN A;

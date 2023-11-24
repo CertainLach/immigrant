@@ -1,15 +1,16 @@
-!!!TEST
+!!!TEST "two scalars: a and b"
 scalar b "b" = "TEXT";
 scalar a "a" = "TEXT";
-!!!UPDATE
+!!!UPDATE scalar b is renamed to c, scalar a is dropped, and table is created in its place
 scalar b "c" = "TEXT";
 table A "a" {
 	field: b;
 };
 !!!RESULT
+-- updated: "two scalars: a and b" --
 CREATE DOMAIN b AS TEXT;
 CREATE DOMAIN a AS TEXT;
--- updated --
+-- updated: scalar b is renamed to c, scalar a is dropped, and table is created in its place --
 ALTER DOMAIN a
 	RENAME TO tmp_1
 ;
@@ -20,6 +21,6 @@ CREATE TABLE a (
 	field c NOT NULL
 );
 DROP DOMAIN tmp_1;
--- updated --
+-- updated: cleanup schema changes --
 DROP TABLE a;
 DROP DOMAIN c;

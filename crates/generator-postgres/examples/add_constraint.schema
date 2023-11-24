@@ -1,42 +1,43 @@
 !!!SETUP
 scalar test = "TEXT";
-!!!TEST
+!!!TEST table with a column check
 table A {
-	field: test @check(_ != "hui");
+	field: test @check(_ != "foo");
 };
-!!!UPDATE
+!!!UPDATE drop check from the column
 table A {
 	field: test;
 };
-!!!UPDATE
+!!!UPDATE return check back
 table A {
-	field: test @check(_ != "hui");
+	field: test @check(_ != "foo");
 };
-!!!UPDATE
+!!!UPDATE update the check
 table A {
-	field: test @check(_ != "pizda");
+	field: test @check(_ != "bar");
 };
 !!!RESULT
+-- updated: setup --
 CREATE DOMAIN test AS TEXT;
--- updated --
+-- updated: table with a column check --
 CREATE TABLE as (
 	field test NOT NULL
-,	CONSTRAINT as_field_check CHECK (field <> 'hui')
+,	CONSTRAINT as_field_check CHECK (field <> 'foo')
 );
--- updated --
+-- updated: drop check from the column --
 ALTER TABLE as
 	DROP CONSTRAINT as_field_check
 ;
--- updated --
+-- updated: return check back --
 ALTER TABLE as
-	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'hui')
+	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'foo')
 ;
--- updated --
+-- updated: update the check --
 ALTER TABLE as
 	DROP CONSTRAINT as_field_check
-,	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'pizda')
+,	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'bar')
 ;
--- updated --
+-- updated: cleanup schema changes --
 DROP TABLE as;
--- updated --
+-- updated: cleanup setup --
 DROP DOMAIN test;
