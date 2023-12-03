@@ -576,6 +576,9 @@ impl Pg<SchemaDiff<'_>> {
 		for (diff, fks) in diffs.iter().zip(fkss.into_iter()) {
 			Pg(diff.new).print_alternations(&fks, out, rn);
 		}
+		for ele in changelist.created.iter().filter_map(|i| i.as_table()) {
+			Pg(ele).create_fks(out, rn)
+		}
 
 		// Drop old tables
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
