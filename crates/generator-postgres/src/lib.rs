@@ -1171,18 +1171,13 @@ impl PgTableConstraint<'_> {
 
 impl Pg<TablePrimaryKey<'_>> {
 	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
-		w!(out, "CONSTRAINT {} PRIMARY KEY(", self.db(rn));
+		w!(out, "PRIMARY KEY(");
 		self.table
 			.print_column_list(out, self.columns.iter().cloned(), rn);
 		w!(out, ")");
 	}
 	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
 		out.push(format!("DROP CONSTRAINT {}", self.db(rn)));
-	}
-	pub fn create_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
-		let mut inl = String::new();
-		self.create_inline(&mut inl, rn);
-		out.push(format!("ADD {inl}"));
 	}
 	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>, rn: &mut RenameMap) {
 		out.push(format!("RENAME CONSTRAINT {} TO {}", self.db(rn), new_name));
