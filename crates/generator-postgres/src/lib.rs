@@ -194,10 +194,6 @@ impl Pg<SchemaTable<'_>> {
 		}
 		wl!(out, ";");
 	}
-	// fn constraint_isomorphic_to(&self, other: TableConstraint<'_>) -> Option<TableConstraint<'_>> {
-	// 	self.constraints()
-	// 		.find(|i| Pg(*i).isomorphic_to(&Pg(other)))
-	// }
 }
 
 impl Pg<ColumnDiff<'_>> {
@@ -393,61 +389,6 @@ impl Pg<TableForeignKey<'_>> {
 		out
 	}
 }
-// impl Pg<TableConstraint<'_>> {
-// 	pub fn isomorphic_to(&self, other: &Self) -> bool {
-// 		match (&self.kind, &other.kind) {
-// 			(ConstraintTy::PrimaryKey(a), ConstraintTy::PrimaryKey(b)) => {
-// 				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
-// 			}
-// 			(ConstraintTy::Unique { columns: a }, ConstraintTy::Unique { columns: b }) => {
-// 				self.table.db_names(a.iter().copied()) == other.table.db_names(b.iter().copied())
-// 			}
-// 			(ConstraintTy::Check { sql: a }, ConstraintTy::Check { sql: b }) => {
-// 				Pg(self.table).format_sql(a) == Pg(other.table).format_sql(b)
-// 			}
-// 			_ => false,
-// 		}
-// 	}
-// 	pub fn create_inline(&self, out: &mut String) {
-// 		use ConstraintTy::*;
-// 		let name = self.assigned_name();
-// 		w!(out, "CONSTRAINT {name} ");
-// 		match &self.kind {
-// 			PrimaryKey(columns) => {
-// 				w!(out, "PRIMARY KEY(");
-// 				self.table.print_column_list(out, columns.iter().copied());
-// 				w!(out, ")");
-// 			}
-// 			Unique { columns } => {
-// 				w!(out, "UNIQUE(");
-// 				self.table.print_column_list(out, columns.iter().copied());
-// 				w!(out, ")");
-// 			}
-// 			Check { sql } => {
-// 				w!(out, "CHECK(");
-// 				Pg(self.table.sql(sql)).print(out);
-// 				w!(out, ")");
-// 			}
-// 		}
-// 	}
-// 	pub fn create_alter(&self, out: &mut Vec<String>) {
-// 		let mut s = String::new();
-// 		w!(s, "ADD ");
-// 		self.create_inline(&mut s);
-// 		out.push(s);
-// 	}
-// 	pub fn rename_alter(&self, new_name: DbConstraint, out: &mut Vec<String>) {
-// 		let name = self.assigned_name();
-// 		if name == new_name {
-// 			return;
-// 		}
-// 		out.push(format!("RENAME CONSTRAINT {name} TO {new_name}"))
-// 	}
-// 	pub fn drop_alter(&self, out: &mut Vec<String>) {
-// 		let name = self.name.as_ref().expect("assigned");
-// 		out.push(format!("DROP CONSTRAINT {name}"))
-// 	}
-// }
 impl IsIsomorph for Pg<TableIndex<'_>> {
 	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
 		let old_fields = self.db_columns(rn).collect_vec();
@@ -592,84 +533,6 @@ impl Pg<SchemaDiff<'_>> {
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_scalar()) {
 			Pg(ele).drop(out, rn);
 		}
-
-		// #[derive(PartialOrd, Ord, PartialEq, Eq)]
-		// enum SortOrder {
-		// 	Type,
-		// 	Table,
-		// }
-		// impl SortOrder {
-		// 	fn get_for(i: &SchemaItem<'_>) -> Self {
-		// 		match i {
-		// 			SchemaItem::Table(_) => Self::Table,
-		// 			_ => Self::Type,
-		// 		}
-		// 	}
-		// }
-		// changelist.created.sort_by_key(|c| SortOrder::get_for(c));
-		//
-		// #[derive(PartialOrd, Ord, PartialEq, Eq)]
-		// enum UpdateSortOrder {
-		// 	// Update table first, because they may have defaults, which may require removed enum entries
-		// 	Table,
-		// 	// May refer enum
-		// 	Scalar,
-		// 	Enum,
-		// }
-		// changelist.updated.sort_by_key(|c| match (c.old, c.new) {
-		// 	(SchemaItem::Table(_), SchemaItem::Table(_)) => UpdateSortOrder::Table,
-		// 	(SchemaItem::Enum(_), SchemaItem::Enum(_)) => UpdateSortOrder::Scalar,
-		// 	(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => UpdateSortOrder::Enum,
-		// 	(a, b) => unreachable!("invalid update: {a:?} => {b:?}"),
-		// });
-		//
-		// changelist
-		// 	.dropped
-		// 	.sort_by_key(|c| Reverse(SortOrder::get_for(&c.0)));
-		//
-		// for ele in changelist.created {
-		// 	Pg(ele).create(out, rn);
-		// }
-		//
-		// let mut enum_changes = vec![];
-		//
-		// for ele in changelist.updated.iter().copied() {
-		// 	match (ele.old, ele.new) {
-		// 		(SchemaItem::Enum(old), SchemaItem::Enum(new)) => {
-		// 			let diff = Pg(Diff { old, new });
-		// 			let removed = diff.print_renamed_added(out, rn);
-		// 			// FIXME: Why did I tough removals should be deferred?..
-		// 			enum_changes.push((diff, removed));
-		// 		}
-		// 		(SchemaItem::Scalar(_), SchemaItem::Scalar(_))
-		// 		| (SchemaItem::Table(_), SchemaItem::Table(_)) => {
-		// 			// Updated later
-		// 		}
-		// 		_ => unreachable!("will fail on sort"),
-		// 	}
-		// }
-		//
-		// for ele in changelist.updated.iter().copied() {
-		// 	match (ele.old, ele.new) {
-		// 		(SchemaItem::Table(old), SchemaItem::Table(new)) => {
-		// 			dbg!(old, new);
-		// 			Pg(Diff { old, new }).print(out, rn)
-		// 		}
-		// 		(SchemaItem::Scalar(old), SchemaItem::Scalar(new)) => {
-		// 			Pg(Diff { old, new }).print(out, rn)
-		// 		}
-		// 		(SchemaItem::Enum(_), SchemaItem::Enum(_)) => {}
-		// 		_ => unreachable!("will fail on sort"),
-		// 	}
-		// }
-		//
-		// for (en, removed) in enum_changes {
-		// 	en.print_removed(removed, out, rn);
-		// }
-		//
-		// for (ele, _) in changelist.dropped {
-		// 	Pg(ele).drop(out, rn);
-		// }
 	}
 }
 impl Pg<&Schema> {

@@ -102,7 +102,6 @@ impl Pgnc<&mut Scalar> {
 	}
 	/// All checks with the same name are merged using AND
 	pub fn merge_checks(&mut self, rn: &RenameMap) {
-		// let mut merged = <BTreeMap<String, Vec<_>>>::new();
 		let (checks, mut annotations): (Vec<_>, Vec<_>) = mem::take(&mut self.annotations)
 			.into_iter()
 			.partition_map(|a| match a {
@@ -248,9 +247,6 @@ impl Pgnc<&mut Table> {
 		let (named_idxs, unnamed_idxs) = indexes
 			.into_iter()
 			.partition::<Vec<_>, _>(|i| i.db_assigned(rn));
-		// let (unique_idxs, normal_idxs) =
-		// 	named_idxs.into_iter().partition::<Vec<_>, _>(|i| i.unique);
-		// let unique_idxs = na
 		let named_idxs = named_idxs
 			.into_iter()
 			.map(|i| ((i.unique, i.db(rn)), i.fields))

@@ -109,13 +109,6 @@ fn column_only_default(column: &TableColumn) -> bool {
 			.unwrap_or_default()
 }
 
-// fn format_where(_out: &mut String) {
-// 	// w!(out, "\twhere C: diesel_async::AsyncConnection");
-// 	// if check_be {
-// 	// w!(out, "<Backend = diesel::pg::Pg>");
-// 	// }
-// 	// wl!(out,);
-// }
 fn format_db_arg() -> TokenStream {
 	quote!(crate::Sqlite<'_>)
 }
