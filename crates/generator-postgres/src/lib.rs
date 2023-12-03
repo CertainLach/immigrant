@@ -26,7 +26,7 @@ use schema::{
 };
 
 mod process;
-// mod validate;
+pub mod validate;
 
 #[derive(Clone, Debug)]
 pub struct Pg<T>(pub T);

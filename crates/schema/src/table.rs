@@ -170,7 +170,8 @@ impl Table {
 				return ele.db(rn);
 			}
 		}
-		unreachable!("unknown field: {column:?}");
+		let table = self.db(rn);
+		unreachable!("unknown field: {table}.{column:?}");
 	}
 	pub fn db_names(
 		&self,

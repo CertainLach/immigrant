@@ -48,6 +48,7 @@ impl<T> DerefMut for Pgnc<T> {
 }
 
 impl Pgnc<&mut Schema> {
+	// TODO: Split into merge and renaming phases, so that renames may work with `SchemaItem` instead of raw `Item`?
 	pub fn process_naming(&mut self, rn: &mut RenameMap) {
 		for item in self.0 .0.iter_mut() {
 			match item {
@@ -333,6 +334,20 @@ impl Pgnc<&mut Table> {
 				}
 				_ => assert!(name.is_none(), "unexpected name for {ann:?}: {name:?}"),
 			}
+		}
+		for fk in self.foreign_keys.iter() {
+			let mut out = self.db(rn).to_string();
+			w!(out, "_");
+			let fields = fk
+				.source_fields
+				.as_ref()
+				.or(fk.target_fields.as_ref())
+				.expect("source or target should be set");
+			for ele in self.db_names(fields.iter().cloned(), rn) {
+				w!(out, "{ele}_");
+			}
+			w!(out, "fk");
+			fk.set_db(rn, DbIdent::new(&out));
 		}
 	}
 }

@@ -46,5 +46,6 @@ pub fn current_schema(dir: &Path) -> anyhow::Result<(String, Schema, RenameMap)>
 	let schema_str = fs::read_to_string(&name)?;
 	let mut rn = RenameMap::default();
 	let schema = parse_schema(&schema_str, &mut rn)?;
+	generator_postgres::validate::validate(&schema_str, &schema, &rn);
 	Ok((schema_str, schema, rn))
 }

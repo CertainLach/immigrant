@@ -341,6 +341,7 @@ fn main() -> anyhow::Result<()> {
 				let mut crn = RenameMap::default();
 				let updated_schema = parse_schema(&current_schema_str, &mut crn)?;
 				rn.merge(crn);
+				generator_postgres::validate::validate(&current_schema_str, &updated_schema, &rn);
 
 				root.push(&id.dirname);
 				generate_sql(&migration, &current_schema, &updated_schema, &rn, &root)?;
