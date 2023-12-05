@@ -42,7 +42,6 @@ fn main() -> anyhow::Result<()> {
 					if let Some(pk) = t.pk() {
 						if pk.columns.contains(&column.id()) {
 							is_pk = true;
-							break;
 						}
 					}
 					if is_pk || !column.docs.is_empty() {
