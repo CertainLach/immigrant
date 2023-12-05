@@ -819,7 +819,6 @@ fn format_sql(
 			w!(out, "{op}({expr})");
 		}
 		Sql::BinOp(a, op, b) => {
-			dbg!(op);
 			let op = op.format();
 			let va = format_sql(a, schema, table, rn);
 			let vb = format_sql(b, schema, table, rn);
@@ -864,7 +863,7 @@ fn format_sql(
 
 impl Pg<SchemaSql<'_>> {
 	pub fn print(&self, out: &mut String, rn: &RenameMap) {
-		let o = format_sql(&*self.0, &self.schema, None, rn);
+		let o = format_sql(&self.0, self.schema, None, rn);
 		out.push_str(&o);
 	}
 }
@@ -1023,8 +1022,7 @@ impl PgTableConstraint<'_> {
 			PgTableConstraint::Check(c) => Pg(*c).create_inline(&mut text, rn),
 			PgTableConstraint::ForeignKey(_) => return,
 		}
-		let name = self.db(rn);
-		out.push(format!("ADD CONSTRAINT {name} {text}"))
+		out.push(format!("ADD {text}"))
 	}
 	pub fn create_alter_fk(&self, out: &mut Vec<String>, rn: &RenameMap) {
 		let alter = match self {
@@ -1037,7 +1035,7 @@ impl PgTableConstraint<'_> {
 
 impl Pg<TablePrimaryKey<'_>> {
 	pub fn create_inline(&self, out: &mut String, rn: &RenameMap) {
-		w!(out, "PRIMARY KEY(");
+		w!(out, "CONSTRAINT {} PRIMARY KEY(", self.db(rn));
 		self.table
 			.print_column_list(out, self.columns.iter().cloned(), rn);
 		w!(out, ")");
