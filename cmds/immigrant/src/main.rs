@@ -36,6 +36,8 @@ enum Opts {
 		#[clap(long)]
 		after_down_sql: Option<String>,
 	},
+	/// Show the difference between stored and uncommited schema.
+	Diff,
 	/// Regenerate up.sql/down.sql files.
 	///
 	/// Run it in case if you have altered the schema file for before/after sql injection.
@@ -322,6 +324,24 @@ fn main() -> anyhow::Result<()> {
 			}
 
 			generate_sql(&migration, &original, &current, &rn, &dir)?;
+		}
+		Opts::Diff => {
+			let root = find_root(&current_dir()?)?;
+			let list = list(&root)?;
+
+			let (_, original, orig_rn) =
+				stored_schema(&list).context("failed to load past migrations")?;
+
+			let (_, current, current_rn) =
+				current_schema(&root).context("failed to parse current schema")?;
+
+			let mut rn = orig_rn;
+			rn.merge(current_rn);
+
+			let mut up = String::new();
+
+			Pg(&current).diff(&Pg(&original), &mut up, &mut rn.clone());
+			println!("{up}")
 		}
 		Opts::List => {
 			let root = find_root(&current_dir()?)?;
