@@ -7,7 +7,7 @@ use itertools::Itertools;
 use schema::{
 	ids::DbIdent,
 	index::Check,
-	mk_change_list_by_isomorph,
+	mk_change_list,
 	names::{ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
@@ -236,7 +236,7 @@ impl Pg<TableDiff<'_>> {
 
 		let old_columns = self.old.columns().collect::<Vec<_>>();
 		let new_columns = self.new.columns().collect::<Vec<_>>();
-		let column_changes = mk_change_list_by_isomorph(rn, &old_columns, &new_columns);
+		let column_changes = mk_change_list(rn, &old_columns, &new_columns);
 		// Rename/moveaway columns
 		{
 			let mut updated = HashMap::new();
@@ -281,7 +281,7 @@ impl Pg<TableDiff<'_>> {
 		let newpg = Pg(self.new);
 		let old_constraints = oldpg.constraints();
 		let new_constraints = newpg.constraints();
-		let constraint_changes = mk_change_list_by_isomorph(rn, &old_constraints, &new_constraints);
+		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
 
 		// Drop/rename constraints
 		for (constraint, _) in constraint_changes.dropped {
@@ -312,7 +312,7 @@ impl Pg<TableDiff<'_>> {
 		// Drop old indexes
 		let old_indexes = self.old.indexes().map(Pg).collect_vec();
 		let new_indexes = self.new.indexes().map(Pg).collect_vec();
-		let index_changes = mk_change_list_by_isomorph(rn, &old_indexes, &new_indexes);
+		let index_changes = mk_change_list(rn, &old_indexes, &new_indexes);
 		for (index, _) in index_changes.dropped {
 			index.drop(out, rn);
 		}
@@ -394,7 +394,7 @@ impl IsIsomorph for Pg<TableIndex<'_>> {
 	}
 }
 impl IsCompatible for Pg<TableIndex<'_>> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(&self, new: &Self, _rn: &RenameMap) -> bool {
 		// We can't update unique flag, so they are not compatible and need to be recreated
 		self.unique == new.unique
 	}
@@ -503,13 +503,13 @@ impl Pg<SchemaDiff<'_>> {
 			changes.push(changelist);
 		}
 		let mut fkss = vec![];
-		for (diff, column_changes) in diffs.iter().zip(changes.into_iter()) {
+		for (diff, column_changes) in diffs.iter().zip(changes) {
 			let fks = Pg(diff).print_stage2(out, rn, column_changes);
 			fkss.push(fks);
 		}
 
 		// Create new foreign keys
-		for (diff, fks) in diffs.iter().zip(fkss.into_iter()) {
+		for (diff, fks) in diffs.iter().zip(fkss) {
 			Pg(diff.new).print_alternations(&fks, out, rn);
 		}
 		for ele in changelist.created.iter().filter_map(|i| i.as_table()) {
@@ -590,17 +590,17 @@ impl Pg<EnumItem> {
 }
 impl Pg<EnumDiff<'_>> {
 	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) {
-		let changelist = schema::mk_change_list_by_isomorph(
+		let changelist = schema::mk_change_list(
 			rn,
-			&self.0.old.items.iter().cloned().collect::<Vec<_>>(),
-			&self.0.new.items.iter().cloned().collect::<Vec<_>>(),
+			&self.0.old.items.to_vec(),
+			&self.0.new.items.to_vec(),
 		);
 		let mut changes = vec![];
 		for el in changelist.renamed.iter().cloned() {
 			let mut stored = HashMap::new();
 			match el {
 				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
-					stored.insert(t, i);
+					stored.insert(t, i.clone());
 					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
 				RenameOp::Rename(v, n) => {

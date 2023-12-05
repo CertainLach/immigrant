@@ -9,7 +9,7 @@ use std::{collections::HashSet, fmt::Debug};
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
 	uid::{RenameExt, RenameMap},
-	Diff, HasIdent,
+	Diff,
 };
 
 #[derive(Debug, PartialEq)]
@@ -51,27 +51,10 @@ macro_rules! derive_is_isomorph_by_id_name {
 	};
 }
 
-#[deprecated = "implement IsIsomorph based on id equality"]
-pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + HasIdent>(
+pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 	rn: &RenameMap,
 	old: &[T],
 	new: &[T],
-) -> ChangeList<T> {
-	mk_change_list_inner(rn, old, new, |a, b| a.id().name() == b.id().name())
-}
-pub fn mk_change_list_by_isomorph<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
-	rn: &RenameMap,
-	old: &[T],
-	new: &[T],
-) -> ChangeList<T> {
-	mk_change_list_inner(rn, old, new, |a, b| a.is_isomorph(b, rn))
-}
-
-fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
-	rn: &RenameMap,
-	old: &[T],
-	new: &[T],
-	is_identity: impl Fn(&T, &T) -> bool,
 ) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
 
@@ -83,7 +66,7 @@ fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
-			!new_listed.contains(i) && is_identity(f, &old) && f.db(rn) == old.db(rn)
+			!new_listed.contains(i) && f.is_isomorph(&old, rn) && f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
 			{
@@ -107,7 +90,7 @@ fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
 			.iter()
 			.cloned()
 			.enumerate()
-			.filter(|(i, f)| is_identity(&f, &old) && !new_listed.contains(i));
+			.filter(|(i, f)| f.is_isomorph(&old, rn) && !new_listed.contains(i));
 		if let Some((nid, new)) = new_by_code.next() {
 			assert!(new_by_code.next().is_none());
 			old_listed.insert(oid);
@@ -187,7 +170,7 @@ mod tests {
 	use crate::{
 		changelist::{ChangeList, IsCompatible},
 		ids::{in_allocator, DbIdent, Ident},
-		mk_change_list_by_isomorph,
+		mk_change_list,
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
 		span::{register_source, SimpleSpan},
@@ -243,7 +226,7 @@ mod tests {
 			let ren1 = ren.next_temp();
 
 			assert_eq!(
-				mk_change_list_by_isomorph(
+				mk_change_list(
 					&RenameMap::default(),
 					&[p("A", "D"), p("C", "B")],
 					&[p("C", "D"), p("A", "B")]
@@ -265,7 +248,7 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list_by_isomorph(
+				mk_change_list(
 					&RenameMap::default(),
 					&[p("A", "B")],
 					&[p("A", "C"), p("D", "B")]
@@ -280,7 +263,7 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list_by_isomorph(
+				mk_change_list(
 					&RenameMap::default(),
 					&[p("D", "B"), p("A", "C")],
 					&[p("A", "B")]

@@ -33,9 +33,7 @@ pub mod attribute;
 mod changelist;
 pub mod renamelist;
 
-pub use changelist::{
-	mk_change_list, mk_change_list_by_isomorph, ChangeList, IsCompatible, IsIsomorph,
-};
+pub use changelist::{mk_change_list, ChangeList, IsCompatible, IsIsomorph};
 
 mod span;
 pub mod uid;
@@ -251,7 +249,7 @@ impl IsCompatible for SchemaItem<'_> {
 			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
 				// There is no DB engine, which supports removing enum variants, so removals are incompatible, and the
 				// enum should be recreated.
-				mk_change_list_by_isomorph(rn, &a.items, &b.items)
+				mk_change_list(rn, &a.items, &b.items)
 					.dropped
 					.is_empty()
 			}
