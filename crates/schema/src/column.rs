@@ -10,7 +10,7 @@ use super::{
 use crate::{
 	attribute::AttributeList,
 	changelist::IsCompatible,
-	def_name_impls,
+	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
 	scalar::{PropagatedScalarData, ScalarAnnotation},
@@ -62,6 +62,7 @@ pub struct Column {
 	pub foreign_key: Option<PartialForeignKey>,
 }
 def_name_impls!(Column, ColumnKind);
+derive_is_isomorph_by_id_name!(Column);
 impl Column {
 	pub fn new(
 		name: ColumnDefName,

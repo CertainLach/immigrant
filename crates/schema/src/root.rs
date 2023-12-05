@@ -5,8 +5,9 @@ use super::{
 	table::Table,
 };
 use crate::{
-	changelist::{mk_change_list, ChangeList},
+	changelist::ChangeList,
 	column::SchemaType,
+	mk_change_list_by_isomorph,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
 	sql::Sql,
@@ -217,6 +218,6 @@ impl SchemaDiff<'_> {
 	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
 		let old = self.old.material_items();
 		let new = self.new.material_items();
-		mk_change_list(rn, &old, &new)
+		mk_change_list_by_isomorph(rn, &old, &new)
 	}
 }

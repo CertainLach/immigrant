@@ -7,7 +7,7 @@ use crate::{
 	attribute::AttributeList,
 	changelist::IsCompatible,
 	column::ColumnAnnotation,
-	def_name_impls,
+	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
 	uid::{next_uid, RenameExt, RenameMap, Uid},
@@ -27,13 +27,15 @@ impl EnumItem {
 	}
 }
 def_name_impls!(EnumItem, EnumItemKind);
+derive_is_isomorph_by_id_name!(EnumItem);
+
 impl IsCompatible for &EnumItem {
-	fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
 		true
 	}
 }
 impl IsCompatible for EnumItem {
-	fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
 		true
 	}
 }

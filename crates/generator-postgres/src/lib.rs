@@ -1,28 +1,23 @@
 use std::{
-	cmp::Reverse,
-	collections::{HashMap, HashSet},
+	collections::HashMap,
 	ops::{Deref, DerefMut},
 };
 
 use itertools::Itertools;
-use rand::distributions::DistString;
 use schema::{
 	ids::DbIdent,
 	index::Check,
-	mk_change_list, mk_change_list_by_isomorph,
-	names::{
-		ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbForeignKey, DbIndex, DbItem, DbTable,
-		DbType,
-	},
+	mk_change_list_by_isomorph,
+	names::{ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
-	IsCompatible, IsIsomorph, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey,
-	TableSql, TableUniqueConstraint,
+	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasUid, IsCompatible,
+	IsIsomorph, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
+	TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey, TableSql,
+	TableUniqueConstraint,
 };
 
 mod process;
@@ -241,7 +236,7 @@ impl Pg<TableDiff<'_>> {
 
 		let old_columns = self.old.columns().collect::<Vec<_>>();
 		let new_columns = self.new.columns().collect::<Vec<_>>();
-		let column_changes = mk_change_list(rn, &old_columns, &new_columns);
+		let column_changes = mk_change_list_by_isomorph(rn, &old_columns, &new_columns);
 		// Rename/moveaway columns
 		{
 			let mut updated = HashMap::new();
@@ -586,7 +581,7 @@ impl Pg<SchemaEnum<'_>> {
 		wl!(out, ";");
 	}
 }
-impl Pg<&EnumItem> {
+impl Pg<EnumItem> {
 	pub fn rename_alter(&self, to: DbEnumItem, rn: &mut RenameMap) -> String {
 		let out = format!("RENAME VALUE '{}' TO {to}", self.db(rn));
 		self.set_db(rn, to);
@@ -595,10 +590,10 @@ impl Pg<&EnumItem> {
 }
 impl Pg<EnumDiff<'_>> {
 	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) {
-		let changelist = schema::mk_change_list(
+		let changelist = schema::mk_change_list_by_isomorph(
 			rn,
-			&self.0.old.items.iter().collect::<Vec<_>>(),
-			&self.0.new.items.iter().collect::<Vec<_>>(),
+			&self.0.old.items.iter().cloned().collect::<Vec<_>>(),
+			&self.0.new.items.iter().cloned().collect::<Vec<_>>(),
 		);
 		let mut changes = vec![];
 		for el in changelist.renamed.iter().cloned() {

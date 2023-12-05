@@ -123,7 +123,15 @@ where
 	T: IsCompatible,
 {
 	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
-		self.value.is_compatible(&new.value, rn)
+		self.value.is_compatible(new.value, rn)
+	}
+}
+impl<T> IsIsomorph for TableItem<'_, T>
+where
+	T: IsIsomorph,
+{
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+		self.value.is_isomorph(other.value, rn)
 	}
 }
 impl<T> HasUid for TableItem<'_, T>
@@ -191,6 +199,7 @@ pub struct SchemaEnum<'a> {
 	pub schema: &'a Schema,
 	pub en: &'a Enum,
 }
+
 impl Deref for SchemaEnum<'_> {
 	type Target = Enum;
 
@@ -205,6 +214,7 @@ pub enum SchemaItem<'a> {
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
 }
+derive_is_isomorph_by_id_name!(SchemaItem<'_>);
 impl SchemaItem<'_> {
 	pub fn as_enum(&self) -> Option<SchemaEnum> {
 		match self {
@@ -239,8 +249,11 @@ impl IsCompatible for SchemaItem<'_> {
 		match (self, new) {
 			(SchemaItem::Table(_), SchemaItem::Table(_)) => true,
 			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
-				// There is no DB engine, which supports removing enum variants
-				mk_change_list(rn, &a.items, &b.items).dropped.is_empty()
+				// There is no DB engine, which supports removing enum variants, so removals are incompatible, and the
+				// enum should be recreated.
+				mk_change_list_by_isomorph(rn, &a.items, &b.items)
+					.dropped
+					.is_empty()
 			}
 			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
 			_ => false,

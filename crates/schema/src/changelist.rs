@@ -39,7 +39,19 @@ pub trait IsCompatible {
 pub trait IsIsomorph {
 	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool;
 }
+#[macro_export]
+macro_rules! derive_is_isomorph_by_id_name {
+	($t:ty) => {
+		impl $crate::IsIsomorph for $t {
+			fn is_isomorph(&self, other: &Self, _rn: &RenameMap) -> bool {
+				use $crate::HasIdent;
+				HasIdent::id(self).name() == HasIdent::id(other).name()
+			}
+		}
+	};
+}
 
+#[deprecated = "implement IsIsomorph based on id equality"]
 pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + HasIdent>(
 	rn: &RenameMap,
 	old: &[T],
@@ -71,7 +83,7 @@ fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
-			!new_listed.contains(i) && is_identity(&f, &old) && f.db(rn) == old.db(rn)
+			!new_listed.contains(i) && is_identity(f, &old) && f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
 			{
@@ -173,8 +185,9 @@ fn mk_change_list_inner<T: RenameExt + Clone + IsCompatible + Debug>(
 #[cfg(test)]
 mod tests {
 	use crate::{
-		changelist::{mk_change_list, ChangeList, IsCompatible},
+		changelist::{ChangeList, IsCompatible},
 		ids::{in_allocator, DbIdent, Ident},
+		mk_change_list_by_isomorph,
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
 		span::{register_source, SimpleSpan},
@@ -187,8 +200,9 @@ mod tests {
 		in_allocator(|| {
 			#[derive(Clone, Debug, PartialEq)]
 			struct P(Uid, DefName<TypeKind>);
+			derive_is_isomorph_by_id_name!(P);
 			impl IsCompatible for P {
-				fn is_compatible(&self, _new: &Self, rn: &RenameMap) -> bool {
+				fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
 					true
 				}
 			}
@@ -229,7 +243,7 @@ mod tests {
 			let ren1 = ren.next_temp();
 
 			assert_eq!(
-				mk_change_list(
+				mk_change_list_by_isomorph(
 					&RenameMap::default(),
 					&[p("A", "D"), p("C", "B")],
 					&[p("C", "D"), p("A", "B")]
@@ -251,7 +265,7 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list(
+				mk_change_list_by_isomorph(
 					&RenameMap::default(),
 					&[p("A", "B")],
 					&[p("A", "C"), p("D", "B")]
@@ -266,7 +280,7 @@ mod tests {
 				}
 			);
 			assert_eq!(
-				mk_change_list(
+				mk_change_list_by_isomorph(
 					&RenameMap::default(),
 					&[p("D", "B"), p("A", "C")],
 					&[p("A", "B")]
