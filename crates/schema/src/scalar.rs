@@ -29,11 +29,6 @@ impl EnumItem {
 def_name_impls!(EnumItem, EnumItemKind);
 derive_is_isomorph_by_id_name!(EnumItem);
 
-impl IsCompatible for &EnumItem {
-	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
-		true
-	}
-}
 impl IsCompatible for EnumItem {
 	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
 		true

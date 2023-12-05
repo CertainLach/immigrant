@@ -80,13 +80,13 @@ impl Pg<TableColumn<'_>> {
 	}
 	pub fn rename_alter(&self, to: DbColumn, out: &mut Vec<String>, rn: &mut RenameMap) {
 		let name = self.db(rn);
-		out.push(format!("ALTER COLUMN {name} RENAME TO {to}"));
+		out.push(format!("RENAME COLUMN {name} TO {to}"));
 		self.set_db(rn, to);
 	}
 }
 impl Pg<TableSql<'_>> {
 	pub fn print(&self, out: &mut String, rn: &RenameMap) {
-		let o = format_sql(&*self.0, &self.table.schema, Some(self.0.table), rn);
+		let o = format_sql(&self.0, self.table.schema, Some(self.0.table), rn);
 		out.push_str(&o);
 	}
 }
@@ -590,11 +590,8 @@ impl Pg<EnumItem> {
 }
 impl Pg<EnumDiff<'_>> {
 	pub fn print_renamed_added(&self, out: &mut String, rn: &mut RenameMap) {
-		let changelist = schema::mk_change_list(
-			rn,
-			&self.0.old.items.to_vec(),
-			&self.0.new.items.to_vec(),
-		);
+		let changelist =
+			schema::mk_change_list(rn, &self.0.old.items.to_vec(), &self.0.new.items.to_vec());
 		let mut changes = vec![];
 		for el in changelist.renamed.iter().cloned() {
 			let mut stored = HashMap::new();
