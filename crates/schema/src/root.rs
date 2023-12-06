@@ -221,7 +221,7 @@ impl Schema {
 			scalar: self
 				.scalars()
 				.find(|c| c.id() == scalar)
-				.expect("column not found"),
+				.expect("scalar not found: {scalar:?}"),
 		}
 	}
 

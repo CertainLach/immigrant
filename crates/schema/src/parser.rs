@@ -104,6 +104,7 @@ rule field_annotation(s:S) -> ColumnAnnotation
 / u:unique(s) {ColumnAnnotation::Unique(u)}
 / pk:primary_key(s) {ColumnAnnotation::PrimaryKey(pk)}
 / d:default(s) {ColumnAnnotation::Default(d)}
+/ d:initialize_as(s) {ColumnAnnotation::InitializeAs(d)}
 rule table_annotation(s:S) -> TableAnnotation
 = c:check(s) {TableAnnotation::Check(c)}
 / u:unique(s) {TableAnnotation::Unique(u)}
@@ -144,6 +145,8 @@ rule on_delete() -> OnDelete
 
 rule default(s:S) -> Sql
 = "@default" _ "(" _ s:sql(s) _ ")" {s}
+rule initialize_as(s:S) -> Sql
+= "@initialize_as" _ "(" _ s:sql(s) _ ")" {s}
 rule primary_key(s:S) -> PrimaryKey
 = "@primary_key" _ name:db_ident()? _ columns:index_fields(s)? {PrimaryKey::new(name.map(DbIdent::new), columns.unwrap_or_default())}
 rule unique(s:S) -> UniqueConstraint
@@ -155,7 +158,7 @@ rule index(s:S) -> Index
 
 rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
-rule code_ident(s:S) -> (SimpleSpan, &'input str) = b:position!() n:$(['a'..='z' | 'A'..='Z' | '_' | '0'..='9']+) e:position!() {(SimpleSpan::new(s, b as u32, e as u32), n)};
+rule code_ident(s:S) -> (SimpleSpan, &'input str) = b:position!() n:$(['a'..='z' | 'A'..='Z'] ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*) e:position!() {(SimpleSpan::new(s, b as u32, e as u32), n)};
 rule db_ident() -> &'input str = str()
 rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
 
@@ -166,6 +169,8 @@ rule sql(s:S) -> Sql
 	--
 	a:(@) _ "&&" _ b:@ {Sql::BinOp(h(a), SqlOp::And, h(b))}
 	--
+	a:(@) _ "===" _ b:@ {Sql::BinOp(h(a), SqlOp::SEq, h(b))}
+	a:(@) _ "!==" _ b:@ {Sql::BinOp(h(a), SqlOp::SNe, h(b))}
 	a:(@) _ "==" _ b:@ {Sql::BinOp(h(a), SqlOp::Eq, h(b))}
 	a:(@) _ "!=" _ b:@ {Sql::BinOp(h(a), SqlOp::Ne, h(b))}
 	a:(@) _ "~~" _ b:@ {Sql::BinOp(h(a), SqlOp::Like, h(b))}
@@ -190,13 +195,19 @@ rule sql(s:S) -> Sql
 	a:(@) _ "." _ f:code_ident(s) {Sql::GetField(h(a), FieldIdent::alloc(f))}
 	--
 	e:sql_basic(s) {e}
-	"(" _ e:sql(s) _ ")" {Sql::Parened(h(e))}
 }
 rule sql_basic(s:S) -> Sql
-= i:code_ident(s) _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i.1), e)}
+= "(" _ e:(e:sql(s) _ "," _ {e})*<2,> _ ")" {Sql::Tuple(e)}
+/ "(" _ e:sql(s) _ "," _ ")" {Sql::Tuple(vec![e])}
+/ "(" _ e:sql(s) _ ")" {Sql::Parened(h(e))}
+/ "(" _ ")" {Sql::Tuple(vec![])}
+/ "_" {Sql::Placeholder}
+/ "if" _ c:sql(s) _ "then" _ then:sql(s) _ "else" _ else_:sql(s) {Sql::If(h(c), h(then), h(else_))}
+/ "null" {Sql::Null}
+/ i:code_ident(s) _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i.1), e)}
+/ i:code_ident(s) {Sql::Ident(ColumnIdent::alloc(i))}
 / s:str() {Sql::String(s.to_owned())}
 / n:$(['0'..='9']+) {Sql::Number(n.parse().unwrap())}
-/ "_" {Sql::Placeholder}
 
 rule trailing_comma() = _ ","? _;
 rule comma() = _ "," _;

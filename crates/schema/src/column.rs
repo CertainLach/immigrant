@@ -29,11 +29,18 @@ pub enum ColumnAnnotation {
 	/// Moved to table.
 	Index(Index),
 	Default(Sql),
+	InitializeAs(Sql),
 }
 impl ColumnAnnotation {
 	fn as_default(&self) -> Option<&Sql> {
 		match self {
 			Self::Default(s) => Some(s),
+			_ => None,
+		}
+	}
+	fn as_initialize_as(&self) -> Option<&Sql> {
+		match self {
+			Self::InitializeAs(s) => Some(s),
 			_ => None,
 		}
 	}
@@ -129,13 +136,18 @@ impl<'a> TableColumn<'a> {
 		self.table.schema.schema_ty(self.ty)
 	}
 	pub fn default(&self) -> Option<&Sql> {
-		let res = self
-			.annotations
+		self.annotations
 			.iter()
 			.filter_map(|v| v.as_default())
-			.collect::<Vec<_>>();
-		assert!(res.len() <= 1, "only one default annotation may present");
-		res.into_iter().next()
+			.at_most_one()
+			.unwrap()
+	}
+	pub fn initialize_as(&self) -> Option<&Sql> {
+		self.annotations
+			.iter()
+			.filter_map(|v| v.as_initialize_as())
+			.at_most_one()
+			.unwrap()
 	}
 	pub fn is_pk_part(&self) -> bool {
 		let Some(pk) = self.table.pk() else {

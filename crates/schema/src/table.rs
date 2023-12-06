@@ -218,7 +218,7 @@ impl<'a> SchemaTable<'a> {
 	pub fn schema_column(&'a self, column: ColumnIdent) -> TableColumn<'a> {
 		self.columns()
 			.find(|c| c.id() == column)
-			.expect("column not found")
+			.unwrap_or_else(|| panic!("column not found: {column:?}"))
 	}
 	pub fn columns(&self) -> impl Iterator<Item = TableColumn<'_>> {
 		self.columns.iter().map(|i| self.item(i))

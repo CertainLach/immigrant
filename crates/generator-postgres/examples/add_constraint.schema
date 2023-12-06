@@ -25,13 +25,9 @@ CREATE TABLE as (
 ,	CONSTRAINT as_field_check CHECK (field <> 'foo')
 );
 -- updated: drop check from the column --
-ALTER TABLE as
-	DROP CONSTRAINT as_field_check
-;
+ALTER TABLE as DROP CONSTRAINT as_field_check;
 -- updated: return check back --
-ALTER TABLE as
-	ADD CONSTRAINT as_field_check CHECK (field <> 'foo')
-;
+ALTER TABLE as ADD CONSTRAINT as_field_check CHECK (field <> 'foo');
 -- updated: update the check --
 ALTER TABLE as
 	DROP CONSTRAINT as_field_check

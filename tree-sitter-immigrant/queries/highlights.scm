@@ -4,6 +4,7 @@
 "struct"
 "@default"
 "@check"
+"@initialize_as"
 "@primary_key"
 "@unique"
 "@index"
@@ -27,7 +28,9 @@
 ["||"
 "&&"
 "=="
+"==="
 "!="
+"!=="
 "::"
 "="
 "!"] @operator

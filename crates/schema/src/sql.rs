@@ -1,9 +1,8 @@
 use crate::{
 	ids::{DbIdent, Ident},
 	names::{ColumnIdent, DbProcedure, FieldIdent, FieldKind, TypeIdent, TypeKind},
-	root::Schema,
 	uid::{RenameExt, RenameMap},
-	HasIdent, SchemaItem, SchemaTable, SchemaType, TableItem,
+	HasIdent, SchemaItem, SchemaType,
 };
 
 #[derive(Debug, Clone)]
@@ -29,6 +28,8 @@ pub enum SqlOp {
 	Ge,
 	Eq,
 	Ne,
+	SEq,
+	SNe,
 
 	And,
 	Or,
@@ -50,6 +51,8 @@ impl SqlOp {
 			SqlOp::Ge => ">=",
 			SqlOp::Eq => "=",
 			SqlOp::Ne => "<>",
+			SqlOp::SEq => "IS NOT DISTINCT FROM",
+			SqlOp::SNe => "IS DISTINCT FROM",
 			SqlOp::And => "AND",
 			SqlOp::Or => "OR",
 			SqlOp::Plus => "+",
@@ -72,6 +75,8 @@ pub enum Sql {
 	BinOp(Box<Sql>, SqlOp, Box<Sql>),
 	GetField(Box<Sql>, FieldIdent),
 	Parened(Box<Sql>),
+	Tuple(Vec<Sql>),
+	If(Box<Sql>, Box<Sql>, Box<Sql>),
 	Boolean(bool),
 	Placeholder,
 	Null,
@@ -133,6 +138,16 @@ impl Sql {
 			Sql::Boolean(_) => {}
 			Sql::GetField(s, _) => s.visit(v),
 			Sql::Null => {}
+			Sql::Tuple(els) => {
+				for ele in els.iter_mut() {
+					ele.visit(v)
+				}
+			}
+			Sql::If(a, b, c) => {
+				a.visit(v);
+				b.visit(v);
+				c.visit(v);
+			}
 		}
 	}
 	pub fn all(s: impl IntoIterator<Item = Self>) -> Self {
@@ -155,7 +170,7 @@ impl Sql {
 			SchemaType::Enum(_) => {
 				panic!("nothing in enum... or should the enum variant be returned here?")
 			}
-			SchemaType::Scalar(_) => panic!("nothing in scalar"),
+			SchemaType::Scalar(_) => panic!("nothing in scalar: {ty:?}"),
 			SchemaType::Composite(c) => c.field(field).db(rn),
 		}
 	}
@@ -174,7 +189,7 @@ impl Sql {
 				DbIdent::unchecked_from(column.db(rn))
 			}
 			SchemaItem::Enum(_) => panic!("nothing in enum"),
-			SchemaItem::Scalar(_) => panic!("nothing in scalar"),
+			SchemaItem::Scalar(_) => panic!("nothing in scalar: {context:?}"),
 			SchemaItem::Composite(c) => {
 				let field = c.field(Ident::unchecked_cast(*f));
 				field.db(rn)
@@ -190,7 +205,9 @@ impl Sql {
 			| Sql::String(_)
 			| Sql::Number(_)
 			| Sql::Boolean(_)
-			| Sql::Null => {
+			| Sql::Null
+			| Sql::Tuple(_)
+			| Sql::If(_, _, _) => {
 				panic!("cannot determine call return type")
 			}
 			Sql::Ident(f) => match context {
@@ -199,7 +216,7 @@ impl Sql {
 					column.ty
 				}
 				SchemaItem::Enum(_) => panic!("nothing in enum"),
-				SchemaItem::Scalar(_) => panic!("nothing in scalar"),
+				SchemaItem::Scalar(_) => panic!("nothing in scalar: {self:?}"),
 				SchemaItem::Composite(c) => {
 					let field = c.field(Ident::unchecked_cast(*f));
 					field.ty
@@ -210,7 +227,7 @@ impl Sql {
 				let ty = context.schema().schema_ty(ty_id);
 				match ty {
 					SchemaType::Enum(_) => panic!("nothing in enum"),
-					SchemaType::Scalar(_) => panic!("nothing in scalar"),
+					SchemaType::Scalar(_) => panic!("nothing in scalar: {ty:?}"),
 					SchemaType::Composite(c) => {
 						let field = c.field(*t);
 						field.ty

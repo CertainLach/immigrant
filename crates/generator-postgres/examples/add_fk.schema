@@ -1,0 +1,32 @@
+!!!TEST two tables
+scalar idd = "INTEGER";
+table TestB {
+	idd;
+};
+table TestA {
+	idd;
+};
+!!!UPDATE add link from B to A
+scalar idd = "INTEGER";
+table TestA {
+	idd @primary_key;
+};
+table TestB {
+	idd ~ TestA;
+};
+!!!RESULT
+-- updated: two tables --
+CREATE DOMAIN idd AS INTEGER;
+CREATE TABLE test_bs (
+	idd idd NOT NULL
+);
+CREATE TABLE test_as (
+	idd idd NOT NULL
+);
+-- updated: add link from B to A --
+ALTER TABLE test_as ADD CONSTRAINT test_as_idd_pkey PRIMARY KEY(idd);
+ALTER TABLE test_bs ADD CONSTRAINT test_bs_idd_fk FOREIGN KEY(idd) REFERENCES test_as(idd);
+-- updated: cleanup schema changes --
+DROP TABLE test_as;
+DROP TABLE test_bs;
+DROP DOMAIN idd;

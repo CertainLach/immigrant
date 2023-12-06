@@ -30,9 +30,7 @@ ALTER TABLE examples
 ,	ALTER COLUMN field SET DATA TYPE TEXT
 ,	ADD CONSTRAINT examples_field_check CHECK (field <> 'good')
 ;
-ALTER TABLE examples
-	DROP COLUMN other_field
-;
+ALTER TABLE examples DROP COLUMN other_field;
 DROP DOMAIN a;
 -- updated: inline scalar was converted back to normal again --
 CREATE DOMAIN a AS TEXT

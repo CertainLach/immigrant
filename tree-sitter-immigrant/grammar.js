@@ -23,7 +23,7 @@ module.exports = grammar({
 		),
 		sql_block: $ => seq('!!!RESULT', repeat(/.+/)),
 
-		test_explaination: $ => /[^\n]+\n/,
+		test_explaination: $ => /[^\n]*\n/,
 
 		normal_schema: $ => repeat1($.declaration),
 		declaration: $ => choice(
@@ -153,7 +153,7 @@ module.exports = grammar({
 		),
 		on_update: $ => choice('set_null', 'set_default', 'restrict', 'noop', 'cascade'),
 		expr_annotation: $ => seq(
-			choice('@default', '@check'),
+			choice('@default', '@check', '@initialize_as'),
 			'(',
 			$.expression,
 			')',
@@ -192,7 +192,7 @@ module.exports = grammar({
 		binary_expression: $ => choice(
 			prec.left(1, seq($.expression, '||', $.expression)),
 			prec.left(2, seq($.expression, '&&', $.expression)),
-			prec.left(3, seq($.expression, choice('==', '!=', '~~'), $.expression)),
+			prec.left(3, seq($.expression, choice('==', '!=', '~~', "===", "!=="), $.expression)),
 			prec.left(4, seq($.expression, '::', $.type_identifier)),
 			prec.left(4, seq($.expression, '.', $.field_identifier)),
 			prec.left(5, seq($.expression, choice('<', '>', '<=', '>='), $.type_identifier)),

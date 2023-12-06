@@ -342,7 +342,7 @@ impl Deref for SchemaComposite<'_> {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SchemaType<'a> {
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),

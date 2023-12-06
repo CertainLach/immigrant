@@ -1,39 +1,69 @@
 !!!TEST struct created and used in table, this struct depends on other two structs to make sure toposort works
-table Table {
-	a: mystruct @check(_.field != 12);
+table Test {
+	a: mystruct;
 };
-
-scalar int = "INTEGER";
-struct mystruct2 {
-	field "renamed": int;
-};
-struct otherstruct {
-	field: mystruct;
-	field2: mystruct2;
-};
+scalar myint = "INTEGER";
 struct mystruct {
-	field "renamed": int;
+	field "renamed": myint;
+};
+!!!UPDATE create struct with added field, migrate table
+table Test {
+	a "olda": mystruct;
+	newa "a": newmystruct @initialize_as ((a.field, 2,)::newmystruct);
+};
+scalar myint = "INTEGER";
+struct mystruct "oldmystruct" {
+	field "renamed": myint;
+};
+struct newmystruct "mystruct" {
+	field "renamed": myint;
+	field2: myint;
+};
+!!!UPDATE remove old struct
+table Test {
+	newa "a": newmystruct;
+};
+scalar myint = "INTEGER";
+struct newmystruct "mystruct" {
+	field "renamed": myint;
+	field2: myint;
+};
+!!!UPDATE finalize
+table Test {
+	a: mystruct;
+};
+scalar myint = "INTEGER";
+struct mystruct {
+	field "renamed": myint;
+	field2: myint;
 };
 !!!RESULT
 -- updated: struct created and used in table, this struct depends on other two structs to make sure toposort works --
-CREATE DOMAIN int AS INTEGER;
-CREATE TYPE mystruct2 AS (
-	renamed int
-);
+CREATE DOMAIN myint AS INTEGER;
 CREATE TYPE mystruct AS (
-	renamed int
+	renamed myint
 );
-CREATE TYPE otherstruct AS (
-	field mystruct
-,	field2 mystruct2
-);
-CREATE TABLE tables (
+CREATE TABLE tests (
 	a mystruct NOT NULL
-,	CONSTRAINT tables_a_check CHECK ((a).renamed <> 12)
 );
+-- updated: create struct with added field, migrate table --
+ALTER TYPE mystruct
+	RENAME TO oldmystruct
+;
+CREATE TYPE mystruct AS (
+	renamed myint
+,	field2 myint
+);
+ALTER TABLE tests RENAME COLUMN a TO olda;
+ALTER TABLE tests ADD COLUMN a mystruct;
+ALTER TABLE tests ALTER COLUMN a SET DATA TYPE mystruct USING (ROW((olda).renamed, 2))::mystruct;
+ALTER TABLE tests ALTER COLUMN a SET NOT NULL;
+-- updated: remove old struct --
+ALTER TABLE tests DROP COLUMN olda;
+DROP TYPE oldmystruct;
+-- updated: finalize --
+
 -- updated: cleanup schema changes --
-DROP TABLE tables;
-DROP TYPE mystruct2;
+DROP TABLE tests;
 DROP TYPE mystruct;
-DROP TYPE otherstruct;
-DROP DOMAIN int;
+DROP DOMAIN myint;

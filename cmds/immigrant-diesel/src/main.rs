@@ -11,8 +11,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 use rust_format::{Config, Edition, Formatter, PostProcess};
 use schema::{
-	column::SchemaType, process::NamingConvention, scalar::EnumItem, table::Cardinality,
-	uid::RenameExt, HasIdent, SchemaEnum, SchemaTable, TableColumn,
+	process::NamingConvention, scalar::EnumItem, table::Cardinality, uid::RenameExt, HasIdent,
+	SchemaComposite, SchemaEnum, SchemaTable, SchemaType, TableColumn,
 };
 use syn::{Ident, Path};
 
@@ -51,6 +51,9 @@ fn enum_ident(c: &SchemaEnum) -> Ident {
 fn enum_item_ident(c: &EnumItem) -> Ident {
 	format_ident!("{}", to_pascal_case(&c.id().name()))
 }
+fn composite_ident(c: &SchemaComposite) -> Ident {
+	format_ident!("{}", to_pascal_case(&c.id().name()))
+}
 
 fn is_copy(t: &SchemaType) -> bool {
 	match t {
@@ -60,6 +63,14 @@ fn is_copy(t: &SchemaType) -> bool {
 			.expect("diesel copy"),
 		// Enums are always copy
 		SchemaType::Enum(_) => true,
+		SchemaType::Composite(c) => {
+			for ele in c.fields() {
+				if !is_copy(&c.schema.schema_ty(ele.ty)) {
+					return false;
+				}
+			}
+			true
+		}
 	}
 }
 // jojo in name was derived from join-join, but this function was later repurposed...
@@ -110,7 +121,7 @@ fn column_only_default(column: &TableColumn) -> bool {
 }
 
 fn format_db_arg() -> TokenStream {
-	quote!(crate::Sqlite<'_>)
+	quote!(crate::user_types::Db<'_>)
 }
 fn column_ty_name(jojo_reference: bool, ty: &SchemaType) -> TokenStream {
 	let id = type_ident(ty);
@@ -158,6 +169,10 @@ fn column_ty_name(jojo_reference: bool, ty: &SchemaType) -> TokenStream {
 			}
 		}
 		SchemaType::Enum(_) => {
+			// Always copy
+			quote!(ut::#id)
+		}
+		SchemaType::Composite(_) => {
 			// Always copy
 			quote!(ut::#id)
 		}
@@ -282,7 +297,7 @@ fn print_schema() -> anyhow::Result<()> {
 			.into_iter()
 			.map(|v| syn::parse_str::<Path>(&v).unwrap());
 
-		let name = format!("crate::schema::sql_types::{id}");
+		let name = format!("crate::sql_types::{id}");
 		let items = en.items.iter().map(|i| {
 			let id = enum_item_ident(i);
 			let name = i.db(rn).to_string();
@@ -348,6 +363,10 @@ fn print_schema() -> anyhow::Result<()> {
 						.expect("diesel type");
 					let v: Path = syn::parse_str(&v).expect("disesl path");
 					quote!(#v)
+				}
+				SchemaType::Composite(c) => {
+					let ident = composite_ident(&c);
+					quote!(st::#ident)
 				}
 			};
 			let ty = column
@@ -458,7 +477,13 @@ fn print_schema() -> anyhow::Result<()> {
 					quote!(#[derive(Insertable, Identifiable)])
 				}
 				TableKind::Load => {
-					quote!(#[derive(Queryable, Selectable, Identifiable, PartialEq)])
+					let derives = table
+						.attrlist
+						.get_multi::<String>("diesel", "derive")
+						.expect("diesel derive")
+						.into_iter()
+						.map(|v| syn::parse_str::<Path>(&v).unwrap());
+					quote!(#[derive(Queryable, Selectable, Identifiable, PartialEq #(, #derives)*)])
 				}
 				TableKind::Update => {
 					quote!(#[derive(AsChangeset, Identifiable)])
@@ -497,6 +522,7 @@ fn print_schema() -> anyhow::Result<()> {
 						}
 					}
 					SchemaType::Enum(_) => quote!(),
+					SchemaType::Composite(_) => quote! {},
 				};
 
 				// Forbid updating pk
