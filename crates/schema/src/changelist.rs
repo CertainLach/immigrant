@@ -6,6 +6,8 @@
 
 use std::{collections::HashSet, fmt::Debug};
 
+use itertools::Itertools;
+
 use crate::{
 	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
 	uid::{RenameExt, RenameMap},
@@ -14,7 +16,7 @@ use crate::{
 
 #[derive(Debug, PartialEq)]
 pub struct ChangeList<T: RenameExt> {
-	pub dropped: Vec<(T, Option<RenameTemp>)>,
+	pub dropped: Vec<T>,
 	pub renamed: Vec<RenameOp<T>>,
 	pub moved_away: Vec<(T, RenameTemp)>,
 	pub updated: Vec<Diff<T>>,
@@ -100,6 +102,8 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		}
 	}
 
+	let mut out_dropped = Vec::new();
+
 	let mut allocator = RenameTempAllocator::default();
 	for (oid, old) in old.iter().cloned().enumerate() {
 		if old_listed.contains(&oid) {
@@ -122,7 +126,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		} else {
 			None
 		};
-		out.dropped.push((old, tmp));
+		out_dropped.push((old, tmp));
 	}
 
 	for recreated in out
@@ -132,8 +136,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		.collect::<Vec<_>>()
 	{
 		out.created.push(recreated.new.clone());
-		out.dropped
-			.push((recreated.old.clone(), Some(allocator.next_temp())));
+		out_dropped.push((recreated.old.clone(), Some(allocator.next_temp())));
 	}
 	out.updated
 		.retain(|diff| diff.old.is_compatible(&diff.new, rn));
@@ -152,7 +155,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		to_rename.push((updated.old.clone(), updated.new.db(rn)));
 	}
 	let mut moveaways = vec![];
-	for old_dropped in out.dropped.iter() {
+	for old_dropped in out_dropped.iter() {
 		if let Some(tmp) = old_dropped.1 {
 			moveaways.push((old_dropped.0.clone(), tmp));
 		} else if new.iter().any(|n| n.db(rn) == old_dropped.0.db(rn)) {
@@ -161,6 +164,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 	}
 	out.renamed = reorder_renames(rn, to_rename, moveaways.clone(), &mut allocator);
 	out.moved_away = moveaways;
+	out.dropped = out_dropped.into_iter().map(|(v, _)| v).collect_vec();
 
 	out
 }

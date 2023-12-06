@@ -333,7 +333,7 @@ impl Pg<TableDiff<'_>> {
 		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
 
 		// Drop/rename constraints
-		for (constraint, _) in constraint_changes.dropped {
+		for constraint in constraint_changes.dropped {
 			constraint.drop_alter(&mut out, rn);
 		}
 		for ele in constraint_changes.renamed {
@@ -362,7 +362,7 @@ impl Pg<TableDiff<'_>> {
 		let old_indexes = self.old.indexes().map(Pg).collect_vec();
 		let new_indexes = self.new.indexes().map(Pg).collect_vec();
 		let index_changes = mk_change_list(rn, &old_indexes, &new_indexes);
-		for (index, _) in index_changes.dropped {
+		for index in index_changes.dropped {
 			index.drop(sql, rn);
 		}
 
@@ -402,7 +402,7 @@ impl Pg<TableDiff<'_>> {
 		}
 
 		// Drop old columns
-		for (column, _) in column_changes.dropped {
+		for column in column_changes.dropped {
 			Pg(column).drop_alter(&mut out, rn);
 		}
 		Pg(self.new).print_alternations(&out, sql, rn);
@@ -610,27 +610,27 @@ impl Pg<SchemaDiff<'_>> {
 			let ele = Pg(ele);
 			let constraints = ele.constraints();
 			for constraint in constraints {
-				constraint.create_alter_fk(&mut out, rn)
+				constraint.create_alter_fk(&mut out, rn);
 			}
-			ele.print_alternations(&out, sql, rn)
+			ele.print_alternations(&out, sql, rn);
 		}
 
 		// Drop foreign keys, both ends of which reference dropped tables
-		for a in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+		for a in changelist.dropped.iter().filter_map(SchemaItem::as_table) {
 			let mut out = Vec::new();
 			'fk: for fk in a.foreign_keys() {
-				for b in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+				for b in changelist.dropped.iter().filter_map(SchemaItem::as_table) {
 					if fk.target == b.id() {
 						Pg(PgTableConstraint::ForeignKey(fk)).drop_alter(&mut out, rn);
 						continue 'fk;
 					}
 				}
 			}
-			Pg(a).print_alternations(&out, sql, rn)
+			Pg(a).print_alternations(&out, sql, rn);
 		}
 
 		// Drop old tables
-		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_table) {
 			Pg(ele).drop(sql, rn);
 		}
 
@@ -639,7 +639,7 @@ impl Pg<SchemaDiff<'_>> {
 			let mut remaining_composites = changelist
 				.dropped
 				.iter()
-				.filter_map(|(i, _)| i.as_composite())
+				.filter_map(SchemaItem::as_composite)
 				.collect_vec();
 			if !remaining_composites.is_empty() {
 				let mut dependencies = remaining_composites
@@ -670,10 +670,10 @@ impl Pg<SchemaDiff<'_>> {
 		};
 
 		// Drop old enums/scalars
-		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_enum()) {
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_enum) {
 			Pg(ele).drop(sql, rn);
 		}
-		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_scalar()) {
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_scalar) {
 			Pg(ele).drop(sql, rn);
 		}
 	}
