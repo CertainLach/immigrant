@@ -5,11 +5,12 @@ use peg::{error::ParseError, parser, str::LineCol};
 use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
+	composite::{Composite, Field},
 	ids::{in_allocator, DbIdent},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
-		ColumnIdent, DbProcedure, DefName, EnumItemDefName, TableDefName, TableIdent, TypeDefName,
-		TypeIdent,
+		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, TableDefName, TableIdent,
+		TypeDefName, TypeIdent,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
 	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
@@ -32,6 +33,7 @@ rule item(s:S) -> Item
 = t:table(s) {Item::Table(t)}
 / t:enum(s) {Item::Enum(t)}
 / t:scalar(s) {Item::Scalar(t)}
+/ t:composite(s) {Item::Composite(t)}
 
 rule table(s:S) -> Table =
 	docs:docs()
@@ -56,6 +58,11 @@ rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) 
 rule scalar(s:S) -> Scalar = attrlist:attribute_list(s) _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
 	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
+rule composite(s:S) -> Composite = attrlist:attribute_list(s) _ "struct" _ name:def_name(s) _ "{" _ fields:field(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
+	Composite::new(attrlist, TypeDefName::alloc(name), fields)
+}
+rule field(s:S) -> Field = name:def_name(s) _ ":" _ ty:code_ident(s) {Field::new(DefName::alloc(name), TypeIdent::alloc(ty))}
+
 rule table_field(s:S) -> Column =
 	docs:docs()
 	attrlist:attribute_list(s) _
@@ -180,6 +187,7 @@ rule sql(s:S) -> Sql
 	"!" _ b:@ {Sql::UnOp(SqlUnOp::Not, h(b))}
 	--
 	a:(@) _ "::" _ ty:code_ident(s) {Sql::Cast(h(a), TypeIdent::alloc(ty))}
+	a:(@) _ "." _ f:code_ident(s) {Sql::GetField(h(a), FieldIdent::alloc(f))}
 	--
 	e:sql_basic(s) {e}
 	"(" _ e:sql(s) _ ")" {Sql::Parened(h(e))}

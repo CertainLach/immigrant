@@ -1,11 +1,11 @@
 use std::{
-	collections::HashMap,
+	collections::{HashMap, HashSet},
 	ops::{Deref, DerefMut},
 };
 
 use itertools::Itertools;
 use schema::{
-	ids::DbIdent,
+	ids::{DbIdent, Ident},
 	index::Check,
 	mk_change_list,
 	names::{ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType},
@@ -14,10 +14,10 @@ use schema::{
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasUid, IsCompatible,
-	IsIsomorph, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
-	TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex, TablePrimaryKey, TableSql,
-	TableUniqueConstraint,
+	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
+	IsCompatible, IsIsomorph, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
+	SchemaSql, SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex,
+	TablePrimaryKey, TableSql, TableUniqueConstraint,
 };
 
 mod process;
@@ -108,7 +108,12 @@ impl Pg<TableColumn<'_>> {
 }
 impl Pg<TableSql<'_>> {
 	pub fn print(&self, sql: &mut String, rn: &RenameMap) {
-		let o = format_sql(&self.0, self.table.schema, Some(self.0.table), rn);
+		let o = format_sql(
+			&self.0,
+			self.table.schema,
+			SchemaItem::Table(self.0.table),
+			rn,
+		);
 		sql.push_str(&o);
 	}
 }
@@ -484,11 +489,49 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		// Create new enums/scalars
+		let mut initialized_tys = HashSet::new();
 		for ele in changelist.created.iter().filter_map(|i| i.as_enum()) {
+			initialized_tys.insert(ele.id());
 			Pg(ele).create(sql, rn);
 		}
 		for ele in changelist.created.iter().filter_map(|i| i.as_scalar()) {
+			initialized_tys.insert(ele.id());
 			Pg(ele).create(sql, rn);
+		}
+		for ele in &changelist.updated {
+			initialized_tys.insert(Ident::unchecked_cast(ele.new.id()));
+		}
+
+		// Create new composites, in toposorted order
+		{
+			let mut remaining_composites = changelist
+				.created
+				.iter()
+				.filter_map(|i| i.as_composite())
+				.collect_vec();
+			if !remaining_composites.is_empty() {
+				loop {
+					let (ready, pending) = remaining_composites
+						.iter()
+						.partition::<Vec<SchemaComposite<'_>>, _>(|c| {
+							c.fields().all(|f| initialized_tys.contains(&f.ty))
+						});
+					if ready.is_empty() {
+						panic!(
+							"i'm stuck (circular composite dependency?) with {} left: {pending:?}",
+							pending.len()
+						);
+					}
+					for ele in ready {
+						Pg(ele).create(sql, rn);
+						initialized_tys.insert(ele.id());
+					}
+					if pending.is_empty() {
+						break;
+					}
+					remaining_composites = pending;
+				}
+			}
 		}
 
 		for ele in changelist
@@ -542,6 +585,42 @@ impl Pg<SchemaDiff<'_>> {
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
 			Pg(ele).drop(sql, rn)
 		}
+
+		// Drop old composites, in toposorted order
+		{
+			let mut remaining_composites = changelist
+				.dropped
+				.iter()
+				.filter_map(|(i, _)| i.as_composite())
+				.collect_vec();
+			if !remaining_composites.is_empty() {
+				let mut dependencies = remaining_composites
+					.iter()
+					.map(|c| c.id())
+					.collect::<HashSet<_>>();
+				loop {
+					let (ready, pending) = remaining_composites
+						.iter()
+						.partition::<Vec<SchemaComposite<'_>>, _>(|c| {
+							c.fields().all(|f| !dependencies.contains(&f.ty))
+						});
+					if ready.is_empty() {
+						panic!(
+							"i'm stuck (circular composite dependency?) with {} left: {pending:?}",
+							pending.len()
+						);
+					}
+					for ele in ready {
+						Pg(ele).drop(sql, rn);
+						dependencies.remove(&ele.id());
+					}
+					if pending.is_empty() {
+						break;
+					}
+					remaining_composites = pending;
+				}
+			}
+		};
 
 		// Drop old enums/scalars
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_enum()) {
@@ -643,6 +722,43 @@ impl Pg<EnumDiff<'_>> {
 		);
 	}
 }
+impl Pg<SchemaComposite<'_>> {
+	pub fn rename(&self, db: DbType, sql: &mut String, rn: &mut RenameMap) {
+		self.print_alternations(&[format!("RENAME TO {db}")], sql, rn);
+		self.set_db(rn, db)
+	}
+	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+		let db_name = &self.db(rn);
+		w!(sql, "CREATE TYPE {db_name} AS (\n");
+		for (i, v) in self.fields().enumerate() {
+			if i != 0 {
+				w!(sql, ",");
+			}
+			let db_name = v.db(rn);
+			let db_type = v.db_type(rn);
+			w!(sql, "\t{db_name} {db_type}\n");
+		}
+		wl!(sql, ");");
+	}
+	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
+		let db_name = &self.db(rn);
+		w!(sql, "DROP TYPE {db_name};\n");
+	}
+	pub fn print_alternations(&self, out: &[String], sql: &mut String, rn: &RenameMap) {
+		if out.is_empty() {
+			return;
+		}
+		let name = &self.db(rn);
+		w!(sql, "ALTER TYPE {name}\n");
+		for (i, alt) in out.iter().enumerate() {
+			if i != 0 {
+				w!(sql, ",");
+			}
+			wl!(sql, "\t{alt}");
+		}
+		wl!(sql, ";");
+	}
+}
 impl Pg<SchemaScalar<'_>> {
 	pub fn rename(&self, to: DbType, sql: &mut String, rn: &mut RenameMap) {
 		self.print_alternations(&[format!("RENAME TO {to}")], sql, rn);
@@ -670,13 +786,14 @@ impl Pg<SchemaScalar<'_>> {
 			match ele {
 				ScalarAnnotation::Default(d) => {
 					w!(sql, "\n\tDEFAULT ");
-					let formatted = Pg(self.schema).format_sql(d, rn);
+					let formatted = Pg(self.schema).format_sql(d, SchemaItem::Scalar(self.0), rn);
 					w!(sql, "{formatted}");
 				}
 				ScalarAnnotation::Check(check) => {
 					let name = check.db(rn);
 					w!(sql, "\n\tCONSTRAINT {name} CHECK (");
-					let formatted = Pg(self.schema).format_sql(&check.check, rn);
+					let formatted =
+						Pg(self.schema).format_sql(&check.check, SchemaItem::Scalar(self.0), rn);
 					w!(sql, "{formatted})")
 				}
 				ScalarAnnotation::Inline => {
@@ -715,7 +832,7 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 			.filter_map(ScalarAnnotation::as_check)
 			.map(|c| {
 				let mut sql = String::new();
-				Pg(self.new.schema.sql(&c.check)).print(&mut sql, rn);
+				Pg(self.new.schema.sql(&c.check)).print(&mut sql, SchemaItem::Scalar(self.new), rn);
 				(c, sql)
 			})
 			.collect::<Vec<_>>();
@@ -728,7 +845,7 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 		let mut out = Vec::new();
 		for ann in old.iter() {
 			let mut sql = String::new();
-			Pg(self.old.schema.sql(&ann.check)).print(&mut sql, rn);
+			Pg(self.old.schema.sql(&ann.check)).print(&mut sql, SchemaItem::Scalar(self.old), rn);
 
 			if let Some((i, (c, _))) = new.iter().find_position(|(_, nsql)| nsql == &sql) {
 				Pg(*ann).rename_alter(c.db(rn), &mut out, rn);
@@ -742,7 +859,7 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 		for (check, _) in new.iter() {
 			let db = check.db(rn);
 			let mut sql = format!("ADD CONSTRAINT {db} CHECK (");
-			Pg(self.new.schema.sql(&check.check)).print(&mut sql, rn);
+			Pg(self.new.schema.sql(&check.check)).print(&mut sql, SchemaItem::Scalar(self.new), rn);
 			w!(sql, ")");
 			out.push(sql)
 		}
@@ -757,6 +874,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Table(t) => Pg(t).rename(DbTable::unchecked_from(to), sql, rn),
 			SchemaItem::Enum(e) => Pg(e).rename(DbType::unchecked_from(to), sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), sql, rn),
+			SchemaItem::Composite(c) => Pg(c).rename(DbType::unchecked_from(to), sql, rn),
 		}
 	}
 	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
@@ -764,6 +882,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Table(t) => Pg(t).create(sql, rn),
 			SchemaItem::Enum(e) => Pg(e).create(sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).create(sql, rn),
+			SchemaItem::Composite(c) => Pg(c).create(sql, rn),
 		}
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
@@ -771,6 +890,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Table(t) => Pg(t).drop(sql, rn),
 			SchemaItem::Enum(e) => Pg(e).drop(sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).drop(sql, rn),
+			SchemaItem::Composite(c) => Pg(c).drop(sql, rn),
 		}
 	}
 }
@@ -784,22 +904,18 @@ fn sql_needs_parens(sql: &Sql) -> bool {
 		| Sql::Ident(_)
 		| Sql::Parened(_)
 		| Sql::Boolean(_)
+		| Sql::GetField(_, _)
 		| Sql::Placeholder
 		| Sql::Null => false,
 
 		Sql::UnOp(_, _) | Sql::BinOp(_, _, _) => true,
 	}
 }
-fn format_sql(
-	sql: &Sql,
-	schema: &Schema,
-	table: Option<SchemaTable<'_>>,
-	rn: &RenameMap,
-) -> String {
+fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMap) -> String {
 	let mut out = String::new();
 	match sql {
 		Sql::Cast(expr, ty) => {
-			let expr = format_sql(expr, schema, table, rn);
+			let expr = format_sql(expr, schema, context, rn);
 			let native_ty = schema.native_type(ty, rn);
 			w!(out, "({expr})::{native_ty}");
 		}
@@ -809,7 +925,7 @@ fn format_sql(
 				if i != 0 {
 					w!(out, ", ");
 				}
-				let arg = format_sql(arg, schema, table, rn);
+				let arg = format_sql(arg, schema, context, rn);
 				w!(out, "{arg}");
 			}
 			w!(out, ")");
@@ -821,21 +937,18 @@ fn format_sql(
 			w!(out, "{n}");
 		}
 		Sql::Ident(c) => {
-			let table = table
-				.as_ref()
-				.expect("only placeholder supported in schema sql");
-			let native_name = table.db_name(c, rn);
+			let native_name = sql.ident_name(&context, rn);
 			w!(out, "{native_name}");
 		}
 		Sql::UnOp(op, expr) => {
 			let op = op.format();
-			let expr = format_sql(expr, schema, table, rn);
+			let expr = format_sql(expr, schema, context, rn);
 			w!(out, "{op}({expr})");
 		}
 		Sql::BinOp(a, op, b) => {
 			let op = op.format();
-			let va = format_sql(a, schema, table, rn);
-			let vb = format_sql(b, schema, table, rn);
+			let va = format_sql(a, schema, context, rn);
+			let vb = format_sql(b, schema, context, rn);
 			if sql_needs_parens(a) {
 				w!(out, "({va})")
 			} else {
@@ -849,7 +962,7 @@ fn format_sql(
 			}
 		}
 		Sql::Parened(a) => {
-			let va = format_sql(a, schema, table, rn);
+			let va = format_sql(a, schema, context, rn);
 			if sql_needs_parens(a) {
 				w!(out, "({va})")
 			} else {
@@ -864,27 +977,33 @@ fn format_sql(
 			}
 		}
 		Sql::Placeholder => {
-			assert!(
-				table.is_none(),
-				"placeholder should be replaced on this point"
-			);
-			w!(out, "VALUE")
+			match context {
+				SchemaItem::Table(_) => panic!("placeholder should be replaced on this point"),
+				SchemaItem::Enum(_) => panic!("enums have no sql items"),
+				SchemaItem::Scalar(_) => w!(out, "VALUE"),
+				SchemaItem::Composite(_) => panic!("composite checks should be inlined"),
+			};
 		}
 		Sql::Null => w!(out, "NULL"),
+		Sql::GetField(f, c) => {
+			let va = format_sql(f, schema, context, rn);
+			let name = f.field_name(&context, *c, rn);
+			w!(out, "({va}).{name}")
+		}
 	}
 	out
 }
 
 impl Pg<SchemaSql<'_>> {
-	pub fn print(&self, sql: &mut String, rn: &RenameMap) {
-		let o = format_sql(&self.0, self.schema, None, rn);
+	pub fn print(&self, sql: &mut String, context: SchemaItem<'_>, rn: &RenameMap) {
+		let o = format_sql(&self.0, self.schema, context, rn);
 		sql.push_str(&o);
 	}
 }
 impl Pg<&Schema> {
-	pub fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
+	pub fn format_sql(&self, sql: &Sql, context: SchemaItem<'_>, rn: &RenameMap) -> String {
 		let mut out = String::new();
-		Pg(self.sql(sql)).print(&mut out, rn);
+		Pg(self.sql(sql)).print(&mut out, context, rn);
 		out
 	}
 }

@@ -30,12 +30,12 @@ ALTER TABLE as
 ;
 -- updated: return check back --
 ALTER TABLE as
-	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'foo')
+	ADD CONSTRAINT as_field_check CHECK (field <> 'foo')
 ;
 -- updated: update the check --
 ALTER TABLE as
 	DROP CONSTRAINT as_field_check
-,	ADD CONSTRAINT as_field_check CONSTRAINT as_field_check CHECK (field <> 'bar')
+,	ADD CONSTRAINT as_field_check CHECK (field <> 'bar')
 ;
 -- updated: cleanup schema changes --
 DROP TABLE as;

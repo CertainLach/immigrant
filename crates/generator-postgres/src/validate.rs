@@ -54,9 +54,14 @@ pub fn validate(code: &str, schema: &Schema, rn: &RenameMap) {
 						ScalarAnnotation::PrimaryKey(_)
 						| ScalarAnnotation::Unique(_)
 						| ScalarAnnotation::Index(_) => panic!("should be propagated"),
-						ScalarAnnotation::Default(d) => {}
+						ScalarAnnotation::Default(_) => {}
 						ScalarAnnotation::Inline => {}
 					}
+				}
+			}
+			schema::SchemaItem::Composite(c) => {
+				for ele in c.fields.iter() {
+					validate_db(ele, rn)
 				}
 			}
 		}

@@ -9,6 +9,7 @@ use inflector::{cases::snakecase::to_snake_case, string::pluralize::to_plural};
 use itertools::{Either, Itertools};
 
 use crate::{
+	composite::Composite,
 	ids::DbIdent,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	root::{Item, Schema},
@@ -69,6 +70,11 @@ impl Pgnc<&mut Schema> {
 					let e = Pgnc(e);
 					e.generate_name(rn);
 					e.generate_item_names(rn);
+				}
+				Item::Composite(c) => {
+					let c = Pgnc(c);
+					c.generate_name(rn);
+					c.generate_item_names(rn);
 				}
 			}
 		}
@@ -358,6 +364,25 @@ impl Pgnc<&mut Enum> {
 	}
 	fn generate_item_names(&self, rn: &mut RenameMap) {
 		for ele in self.items.iter() {
+			if ele.db_assigned(rn) {
+				continue;
+			}
+			let id = ele.id().name();
+			ele.set_db(rn, DbIdent::new(&id));
+		}
+	}
+}
+
+impl Pgnc<&mut Composite> {
+	fn generate_name(&self, rn: &mut RenameMap) {
+		if self.db_assigned(rn) {
+			return;
+		}
+		let id = self.id().name();
+		self.set_db(rn, DbIdent::new(&id));
+	}
+	fn generate_item_names(&self, rn: &mut RenameMap) {
+		for ele in self.fields.iter() {
 			if ele.db_assigned(rn) {
 				continue;
 			}

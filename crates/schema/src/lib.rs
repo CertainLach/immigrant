@@ -2,20 +2,24 @@ use std::ops::Deref;
 
 use derivative::Derivative;
 use ids::DbIdent;
+use itertools::Itertools;
 
 use self::{
+	attribute::AttributeList,
 	column::Column,
+	composite::Composite,
 	ids::Ident,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::{ColumnKind, ItemKind},
+	names::{ItemKind, TypeIdent},
 	root::Schema,
-	scalar::{Enum, Scalar},
+	scalar::{Enum, Scalar, ScalarAnnotation},
 	sql::Sql,
 	table::{ForeignKey, Table, TableAnnotation},
 	uid::RenameMap,
 };
 
 pub mod column;
+pub mod composite;
 pub mod index;
 pub mod process;
 pub mod root;
@@ -211,6 +215,7 @@ pub enum SchemaItem<'a> {
 	Table(SchemaTable<'a>),
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
+	Composite(SchemaComposite<'a>),
 }
 derive_is_isomorph_by_id_name!(SchemaItem<'_>);
 impl SchemaItem<'_> {
@@ -226,10 +231,24 @@ impl SchemaItem<'_> {
 			_ => None,
 		}
 	}
+	pub fn as_composite(&self) -> Option<SchemaComposite> {
+		match self {
+			Self::Composite(e) => Some(*e),
+			_ => None,
+		}
+	}
 	pub fn as_table(&self) -> Option<SchemaTable> {
 		match self {
 			Self::Table(e) => Some(*e),
 			_ => None,
+		}
+	}
+	pub fn schema(&self) -> &Schema {
+		match self {
+			SchemaItem::Table(t) => t.schema,
+			SchemaItem::Enum(e) => e.schema,
+			SchemaItem::Scalar(s) => s.schema,
+			SchemaItem::Composite(c) => c.schema,
 		}
 	}
 }
@@ -239,6 +258,7 @@ impl HasUid for SchemaItem<'_> {
 			SchemaItem::Table(t) => t.uid(),
 			SchemaItem::Enum(e) => e.uid(),
 			SchemaItem::Scalar(s) => s.uid(),
+			SchemaItem::Composite(s) => s.uid(),
 		}
 	}
 }
@@ -249,9 +269,12 @@ impl IsCompatible for SchemaItem<'_> {
 			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
 				// There is no DB engine, which supports removing enum variants, so removals are incompatible, and the
 				// enum should be recreated.
-				mk_change_list(rn, &a.items, &b.items)
-					.dropped
-					.is_empty()
+				mk_change_list(rn, &a.items, &b.items).dropped.is_empty()
+			}
+			(SchemaItem::Composite(a), SchemaItem::Composite(b)) => {
+				// There is no DB engine, which supports updating structs
+				let changes = mk_change_list(rn, &a.fields().collect_vec(), &b.fields().collect_vec());
+				changes.dropped.is_empty() && changes.created.is_empty()
 			}
 			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
 			_ => false,
@@ -272,6 +295,7 @@ impl HasIdent for SchemaItem<'_> {
 			SchemaItem::Table(t) => Ident::unchecked_cast(t.id()),
 			SchemaItem::Enum(e) => Ident::unchecked_cast(e.id()),
 			SchemaItem::Scalar(s) => Ident::unchecked_cast(s.id()),
+			SchemaItem::Composite(s) => Ident::unchecked_cast(s.id()),
 		}
 	}
 }
@@ -283,6 +307,7 @@ impl HasDefaultDbName for SchemaItem<'_> {
 			SchemaItem::Table(t) => t.default_db().map(DbIdent::unchecked_from),
 			SchemaItem::Enum(e) => e.default_db().map(DbIdent::unchecked_from),
 			SchemaItem::Scalar(s) => s.default_db().map(DbIdent::unchecked_from),
+			SchemaItem::Composite(s) => s.default_db().map(DbIdent::unchecked_from),
 		}
 	}
 }
@@ -302,10 +327,52 @@ impl Deref for SchemaScalar<'_> {
 	}
 }
 
+#[derive(Clone, Copy, Derivative)]
+#[derivative(Debug)]
+pub struct SchemaComposite<'a> {
+	#[derivative(Debug = "ignore")]
+	pub schema: &'a Schema,
+	pub composite: &'a Composite,
+}
+impl Deref for SchemaComposite<'_> {
+	type Target = Composite;
+
+	fn deref(&self) -> &Self::Target {
+		self.composite
+	}
+}
+
 #[derive(Clone, Copy)]
-pub enum SchemaEnumOrScalar<'a> {
+pub enum SchemaType<'a> {
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
+	Composite(SchemaComposite<'a>),
+}
+impl SchemaType<'_> {
+	pub fn ident(&self) -> TypeIdent {
+		match self {
+			SchemaType::Scalar(s) => s.id(),
+			SchemaType::Enum(e) => e.id(),
+			SchemaType::Composite(e) => e.id(),
+		}
+	}
+	pub fn has_default(&self) -> bool {
+		match self {
+			SchemaType::Scalar(s) => s
+				.annotations
+				.iter()
+				.any(|a| matches!(a, ScalarAnnotation::Default(_))),
+			SchemaType::Enum(_) => false,
+			SchemaType::Composite(_) => false,
+		}
+	}
+	pub fn attrlist(&self) -> &AttributeList {
+		match self {
+			SchemaType::Scalar(s) => &s.attrlist,
+			SchemaType::Enum(e) => &e.attrlist,
+			SchemaType::Composite(c) => &c.attrlist,
+		}
+	}
 }
 
 #[derive(Clone, Copy, Derivative)]

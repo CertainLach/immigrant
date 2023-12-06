@@ -27,8 +27,8 @@ CREATE TABLE examples (
 -- updated: inline scalar was dropped, and normal is converted to inline --
 ALTER TABLE examples
 	DROP CONSTRAINT examples_other_field_check
-,	ALTER COLUMN field TYPE TEXT
-,	ADD CONSTRAINT examples_field_check CONSTRAINT examples_field_check CHECK (field <> 'good')
+,	ALTER COLUMN field SET DATA TYPE TEXT
+,	ADD CONSTRAINT examples_field_check CHECK (field <> 'good')
 ;
 ALTER TABLE examples
 	DROP COLUMN other_field
@@ -39,7 +39,7 @@ CREATE DOMAIN a AS TEXT
 	CONSTRAINT a_check CHECK (VALUE <> 'average');
 ALTER TABLE examples
 	DROP CONSTRAINT examples_field_check
-,	ALTER COLUMN field TYPE a
+,	ALTER COLUMN field SET DATA TYPE a
 ;
 -- updated: cleanup schema changes --
 DROP TABLE examples;

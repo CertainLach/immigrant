@@ -19,7 +19,7 @@ ALTER DOMAIN A
 	ADD CONSTRAINT A_check CHECK (VALUE <> 'test')
 ;
 ALTER TABLE bs
-	ADD CONSTRAINT bs_a_pkey CONSTRAINT bs_a_pkey PRIMARY KEY(a)
+	ADD CONSTRAINT bs_a_pkey PRIMARY KEY(a)
 ;
 -- updated: cleanup schema changes --
 DROP TABLE bs;

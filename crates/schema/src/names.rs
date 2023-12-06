@@ -30,6 +30,7 @@ def_kind!(
 	ItemKind(9),
 	TableKind(9),
 	TypeKind(9),
+	FieldKind(10),
 );
 
 pub struct DefName<K> {
@@ -94,10 +95,12 @@ pub type TableDefName = DefName<TableKind>;
 pub type ColumnDefName = DefName<ColumnKind>;
 pub type TypeDefName = DefName<TypeKind>;
 pub type EnumItemDefName = DefName<EnumItemKind>;
+pub type CompositeItemDefName = DefName<FieldKind>;
 
 pub type TableIdent = Ident<TableKind>;
 pub type ColumnIdent = Ident<ColumnKind>;
 pub type TypeIdent = Ident<TypeKind>;
+pub type FieldIdent = Ident<FieldKind>;
 
 pub type DbTable = DbIdent<TableKind>;
 pub type DbColumn = DbIdent<ColumnKind>;

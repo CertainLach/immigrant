@@ -13,9 +13,9 @@ use crate::{
 	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
-	scalar::{PropagatedScalarData, ScalarAnnotation},
+	scalar::PropagatedScalarData,
 	uid::{next_uid, RenameMap, Uid},
-	HasIdent, SchemaEnum, SchemaScalar, TableColumn,
+	HasIdent, SchemaType, TableColumn,
 };
 
 #[derive(Debug, Clone)]
@@ -121,40 +121,11 @@ impl Column {
 	}
 }
 
-// FIXME: Move to Schema* defs
-pub enum SchemaType<'t> {
-	Scalar(SchemaScalar<'t>),
-	Enum(SchemaEnum<'t>),
-}
-impl SchemaType<'_> {
-	pub fn ident(&self) -> TypeIdent {
-		match self {
-			SchemaType::Scalar(s) => s.id(),
-			SchemaType::Enum(e) => e.id(),
-		}
-	}
-	pub fn has_default(&self) -> bool {
-		match self {
-			SchemaType::Scalar(s) => s
-				.annotations
-				.iter()
-				.any(|a| matches!(a, ScalarAnnotation::Default(_))),
-			SchemaType::Enum(_) => false,
-		}
-	}
-	pub fn attrlist(&self) -> &AttributeList {
-		match self {
-			SchemaType::Scalar(s) => &s.attrlist,
-			SchemaType::Enum(e) => &e.attrlist,
-		}
-	}
-}
-
-impl TableColumn<'_> {
+impl<'a> TableColumn<'a> {
 	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
 		self.table.schema.native_type(&self.ty, rn)
 	}
-	pub fn ty(&self) -> SchemaType<'_> {
+	pub fn ty(&'a self) -> SchemaType<'a> {
 		self.table.schema.schema_ty(self.ty)
 	}
 	pub fn default(&self) -> Option<&Sql> {

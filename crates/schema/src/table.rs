@@ -211,11 +211,11 @@ impl Table {
 		}
 	}
 }
-impl SchemaTable<'_> {
-	fn item<'a, I>(&'a self, value: &'a I) -> TableItem<'a, I> {
+impl<'a> SchemaTable<'a> {
+	fn item<I>(&self, value: &'a I) -> TableItem<'a, I> {
 		TableItem::unchecked_new(*self, value)
 	}
-	pub fn schema_column(&self, column: ColumnIdent) -> TableColumn<'_> {
+	pub fn schema_column(&'a self, column: ColumnIdent) -> TableColumn<'a> {
 		self.columns()
 			.find(|c| c.id() == column)
 			.expect("column not found")

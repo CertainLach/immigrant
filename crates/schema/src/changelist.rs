@@ -43,7 +43,7 @@ pub trait IsIsomorph {
 macro_rules! derive_is_isomorph_by_id_name {
 	($t:ty) => {
 		impl $crate::IsIsomorph for $t {
-			fn is_isomorph(&self, other: &Self, _rn: &RenameMap) -> bool {
+			fn is_isomorph(&self, other: &Self, _rn: &$crate::RenameMap) -> bool {
 				use $crate::HasIdent;
 				HasIdent::id(self).name() == HasIdent::id(other).name()
 			}

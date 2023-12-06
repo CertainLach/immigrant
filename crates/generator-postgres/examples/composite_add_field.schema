@@ -1,0 +1,39 @@
+!!!TEST struct created and used in table, this struct depends on other two structs to make sure toposort works
+table Table {
+	a: mystruct @check(_.field != 12);
+};
+
+scalar int = "INTEGER";
+struct mystruct2 {
+	field "renamed": int;
+};
+struct otherstruct {
+	field: mystruct;
+	field2: mystruct2;
+};
+struct mystruct {
+	field "renamed": int;
+};
+!!!RESULT
+-- updated: struct created and used in table, this struct depends on other two structs to make sure toposort works --
+CREATE DOMAIN int AS INTEGER;
+CREATE TYPE mystruct2 AS (
+	renamed int
+);
+CREATE TYPE mystruct AS (
+	renamed int
+);
+CREATE TYPE otherstruct AS (
+	field mystruct
+,	field2 mystruct2
+);
+CREATE TABLE tables (
+	a mystruct NOT NULL
+,	CONSTRAINT tables_a_check CHECK ((a).renamed <> 12)
+);
+-- updated: cleanup schema changes --
+DROP TABLE tables;
+DROP TYPE mystruct2;
+DROP TYPE mystruct;
+DROP TYPE otherstruct;
+DROP DOMAIN int;

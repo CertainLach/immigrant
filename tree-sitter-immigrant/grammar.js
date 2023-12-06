@@ -8,23 +8,29 @@ module.exports = grammar({
 		test_schema: $ => seq(
 			optional(field('setup', seq(
 				'!!!SETUP',
+				$.test_explaination,
 				$.normal_schema,
 			))),
 			'!!!TEST',
+			$.test_explaination,
 			field('first_example', $.normal_schema),
 			optional(field('examples', seq(
 				'!!!UPDATE',
+				$.test_explaination,
 				$.normal_schema,
 			))),
 			optional(field('result', $.sql_block)),
 		),
 		sql_block: $ => seq('!!!RESULT', repeat(/.+/)),
 
+		test_explaination: $ => /[^\n]+\n/,
+
 		normal_schema: $ => repeat1($.declaration),
 		declaration: $ => choice(
 			$.scalar_declaration,
 			$.table_declaration,
 			$.enum_declaration,
+			$.composite_declaration,
 		),
 		scalar_declaration: $ => seq(
 			repeat($.attribute),
@@ -53,9 +59,24 @@ module.exports = grammar({
 			'}',
 			';',
 		),
+		composite_declaration: $ => seq(
+			repeat($.attribute),
+			'struct',
+			field('name', $.type_db_name),
+			'{',
+			repeat($.composite_field),
+			'}',
+			';',
+		),
 
 		enum_field: $ => seq(
 			field('name', $.variant_db_name),
+			';'
+		),
+		composite_field: $ => seq(
+			field('name', $.field_identifier),
+				':',
+				$.type_identifier,
 			';'
 		),
 		table_field: $ => seq(
@@ -173,6 +194,7 @@ module.exports = grammar({
 			prec.left(2, seq($.expression, '&&', $.expression)),
 			prec.left(3, seq($.expression, choice('==', '!=', '~~'), $.expression)),
 			prec.left(4, seq($.expression, '::', $.type_identifier)),
+			prec.left(4, seq($.expression, '.', $.field_identifier)),
 			prec.left(5, seq($.expression, choice('<', '>', '<=', '>='), $.type_identifier)),
 		),
 		parened_expression: $ => seq(

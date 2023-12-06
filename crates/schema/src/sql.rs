@@ -1,4 +1,10 @@
-use crate::names::{ColumnIdent, DbProcedure, TypeIdent};
+use crate::{
+	ids::{DbIdent, Ident},
+	names::{ColumnIdent, DbProcedure, FieldIdent, FieldKind, TypeIdent, TypeKind},
+	root::Schema,
+	uid::{RenameExt, RenameMap},
+	HasIdent, SchemaItem, SchemaTable, SchemaType, TableItem,
+};
 
 #[derive(Debug, Clone)]
 pub enum SqlUnOp {
@@ -64,6 +70,7 @@ pub enum Sql {
 	Ident(ColumnIdent),
 	UnOp(SqlUnOp, Box<Sql>),
 	BinOp(Box<Sql>, SqlOp, Box<Sql>),
+	GetField(Box<Sql>, FieldIdent),
 	Parened(Box<Sql>),
 	Boolean(bool),
 	Placeholder,
@@ -124,6 +131,7 @@ impl Sql {
 			Sql::Parened(s) => s.visit(v),
 			Sql::Placeholder => v.handle_placeholder(self),
 			Sql::Boolean(_) => {}
+			Sql::GetField(s, _) => s.visit(v),
 			Sql::Null => {}
 		}
 	}
@@ -134,6 +142,89 @@ impl Sql {
 			v = Sql::BinOp(Box::new(v), SqlOp::And, Box::new(i))
 		}
 		v
+	}
+	pub fn field_name(
+		&self,
+		context: &SchemaItem<'_>,
+		field: Ident<FieldKind>,
+		rn: &RenameMap,
+	) -> DbIdent<FieldKind> {
+		let this = self.type_ident_of_expr(context);
+		let ty = context.schema().schema_ty(this);
+		match ty {
+			SchemaType::Enum(_) => {
+				panic!("nothing in enum... or should the enum variant be returned here?")
+			}
+			SchemaType::Scalar(_) => panic!("nothing in scalar"),
+			SchemaType::Composite(c) => c.field(field).db(rn),
+		}
+	}
+	/// If self == Sql::Ident(name), convert name to native
+	pub fn ident_name<'s>(
+		&self,
+		context: &'s SchemaItem<'s>,
+		rn: &RenameMap,
+	) -> DbIdent<FieldKind> {
+		let Sql::Ident(f) = self else {
+			panic!("not ident");
+		};
+		match context {
+			SchemaItem::Table(t) => {
+				let column = t.schema_column(*f);
+				DbIdent::unchecked_from(column.db(rn))
+			}
+			SchemaItem::Enum(_) => panic!("nothing in enum"),
+			SchemaItem::Scalar(_) => panic!("nothing in scalar"),
+			SchemaItem::Composite(c) => {
+				let field = c.field(Ident::unchecked_cast(*f));
+				field.db(rn)
+			}
+		}
+	}
+	fn type_ident_of_expr<'s>(&self, context: &'s SchemaItem<'s>) -> Ident<TypeKind> {
+		match self {
+			Sql::Cast(_, t) => *t,
+			Sql::UnOp(_, _)
+			| Sql::BinOp(_, _, _)
+			| Sql::Call(_, _)
+			| Sql::String(_)
+			| Sql::Number(_)
+			| Sql::Boolean(_)
+			| Sql::Null => {
+				panic!("cannot determine call return type")
+			}
+			Sql::Ident(f) => match context {
+				SchemaItem::Table(t) => {
+					let column = t.schema_column(*f);
+					column.ty
+				}
+				SchemaItem::Enum(_) => panic!("nothing in enum"),
+				SchemaItem::Scalar(_) => panic!("nothing in scalar"),
+				SchemaItem::Composite(c) => {
+					let field = c.field(Ident::unchecked_cast(*f));
+					field.ty
+				}
+			},
+			Sql::GetField(f, t) => {
+				let ty_id = f.type_ident_of_expr(context);
+				let ty = context.schema().schema_ty(ty_id);
+				match ty {
+					SchemaType::Enum(_) => panic!("nothing in enum"),
+					SchemaType::Scalar(_) => panic!("nothing in scalar"),
+					SchemaType::Composite(c) => {
+						let field = c.field(*t);
+						field.ty
+					}
+				}
+			}
+			Sql::Parened(v) => v.type_ident_of_expr(context),
+			Sql::Placeholder => match context {
+				SchemaItem::Table(_) => panic!("can't refer to table fields using this notation"),
+				SchemaItem::Enum(e) => e.id(),
+				SchemaItem::Scalar(s) => s.id(),
+				SchemaItem::Composite(c) => c.id(),
+			},
+		}
 	}
 }
 #[allow(unused_variables)]

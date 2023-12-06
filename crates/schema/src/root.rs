@@ -6,22 +6,16 @@ use super::{
 };
 use crate::{
 	changelist::ChangeList,
-	column::SchemaType,
+	composite::Composite,
 	mk_change_list,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
-	HasIdent, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
+	HasIdent, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
+	SchemaTable, SchemaType,
 };
 
-// newty_enum!(
-// pub enum Item {
-// 	Table = table,
-// 	Enum = enum,
-// 	Scalar = scalar,
-// }
-// );
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
 pub enum Item {
@@ -31,6 +25,8 @@ pub enum Item {
 	Enum(Enum),
 	#[derivative(Debug = "transparent")]
 	Scalar(Scalar),
+	#[derivative(Debug = "transparent")]
+	Composite(Composite),
 }
 impl Item {
 	pub fn is_table(&self) -> bool {
@@ -72,6 +68,12 @@ impl Item {
 			_ => None,
 		}
 	}
+	pub fn as_composite(&self) -> Option<&Composite> {
+		match self {
+			Self::Composite(value) => Some(value),
+			_ => None,
+		}
+	}
 	pub fn as_scalar_mut(&mut self) -> Option<&mut Scalar> {
 		match self {
 			Self::Scalar(value) => Some(value),
@@ -94,7 +96,8 @@ impl Schema {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
 			Item::Enum(_) => 0,
-			Item::Scalar(_) => 9999,
+			Item::Scalar(_) => 9998,
+			Item::Composite(_) => 9999,
 		});
 
 		let mut propagated_scalars = HashMap::new();
@@ -132,6 +135,10 @@ impl Schema {
 							scalar,
 						})
 					}
+					Item::Composite(composite) => SchemaItem::Composite(SchemaComposite {
+						schema: self,
+						composite,
+					}),
 					_ => return None,
 				})
 			})
@@ -150,6 +157,10 @@ impl Schema {
 					schema: self,
 					scalar,
 				}),
+				Item::Composite(composite) => SchemaItem::Composite(SchemaComposite {
+					schema: self,
+					composite,
+				}),
 			})
 			.collect()
 	}
@@ -163,17 +174,24 @@ impl Schema {
 		if let Some(en) = self.enums().find(|s| s.id() == name) {
 			return SchemaType::Enum(SchemaEnum { schema: self, en });
 		}
-		panic!("type not found: {name:?}")
+		if let Some(composite) = self.composites().find(|s| s.id() == name) {
+			return SchemaType::Composite(SchemaComposite {
+				schema: self,
+				composite,
+			});
+		}
+		panic!("schema type not found: {name:?}")
 	}
 	pub fn native_type(&self, name: &TypeIdent, rn: &RenameMap) -> DbNativeType {
 		for item in self.0.iter() {
 			match item {
 				Item::Enum(e) if &e.id() == name => return e.db_type(rn),
 				Item::Scalar(v) if &v.id() == name => return v.native(rn),
+				Item::Composite(c) if &c.id() == name => return c.db_type(rn),
 				_ => continue,
 			}
 		}
-		panic!("type not found: {name:?}")
+		panic!("native type not found: {name:?}")
 	}
 	pub fn tables(&self) -> impl Iterator<Item = &Table> {
 		self.0.iter().filter_map(Item::as_table)
@@ -183,6 +201,9 @@ impl Schema {
 	}
 	pub fn scalars(&self) -> impl Iterator<Item = &Scalar> {
 		self.0.iter().filter_map(Item::as_scalar)
+	}
+	pub fn composites(&self) -> impl Iterator<Item = &Composite> {
+		self.0.iter().filter_map(Item::as_composite)
 	}
 
 	pub fn schema_table(&self, name: &TableIdent) -> Option<SchemaTable<'_>> {

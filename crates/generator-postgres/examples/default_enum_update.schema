@@ -32,7 +32,7 @@ CREATE TYPE myenumname AS ENUM (
 );
 
 ALTER TABLE tables
-	ALTER COLUMN a TYPE myenumname
+	ALTER COLUMN a SET DATA TYPE myenumname
 ,	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
 ;
 DROP TYPE tmp_1;

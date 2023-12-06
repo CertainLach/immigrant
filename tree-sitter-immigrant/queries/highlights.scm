@@ -1,6 +1,7 @@
 ["scalar"
 "table"
 "enum"
+"struct"
 "@default"
 "@check"
 "@primary_key"
@@ -43,3 +44,4 @@
 (attribute_identifier) @keyword
 (attribute_field_identifier) @property
 (comment) @comment
+(test_explaination) @comment
