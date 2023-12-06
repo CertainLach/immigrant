@@ -434,6 +434,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ass-stroke",
+ "immigrant-generator-postgres",
  "immigrant-schema",
 ]
 
@@ -479,6 +480,7 @@ dependencies = [
 name = "immigrant-generator-postgres"
 version = "0.1.0"
 dependencies = [
+ "ass-stroke",
  "immigrant-schema",
  "itertools",
  "permutation",

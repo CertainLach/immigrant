@@ -615,6 +615,20 @@ impl Pg<SchemaDiff<'_>> {
 			ele.print_alternations(&out, sql, rn)
 		}
 
+		// Drop foreign keys, both ends of which reference dropped tables
+		for a in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+			let mut out = Vec::new();
+			'fk: for fk in a.foreign_keys() {
+				for b in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
+					if fk.target == b.id() {
+						Pg(PgTableConstraint::ForeignKey(fk)).drop_alter(&mut out, rn);
+						continue 'fk;
+					}
+				}
+			}
+			Pg(a).print_alternations(&out, sql, rn)
+		}
+
 		// Drop old tables
 		for ele in changelist.dropped.iter().filter_map(|(i, _)| i.as_table()) {
 			Pg(ele).drop(sql, rn);
