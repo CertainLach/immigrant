@@ -126,7 +126,7 @@ fn stored_schema(list: &[(MigrationId, Migration)]) -> anyhow::Result<(String, S
 }
 
 fn external_cmds_from_dir(dir: &Path, prefix: &str, out: &mut BTreeMap<String, PathBuf>) {
-	let Ok(read) = read_dir(&dir) else {
+	let Ok(read) = read_dir(dir) else {
 		return;
 	};
 	for entry in read {

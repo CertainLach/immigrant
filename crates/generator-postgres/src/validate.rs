@@ -16,7 +16,7 @@ fn validate_db<T: RenameExt>(v: &T, rn: &RenameMap) {
 	);
 }
 
-pub fn validate(code: &str, schema: &Schema, rn: &RenameMap) {
+pub fn validate(_code: &str, schema: &Schema, rn: &RenameMap) {
 	for ele in schema.items() {
 		validate_db(&ele, rn);
 		match ele {

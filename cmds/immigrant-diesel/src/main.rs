@@ -242,7 +242,10 @@ fn disjoint_union_works() {
 fn main() -> anyhow::Result<()> {
 	let opts = Opts::parse();
 	match opts {
-		Opts::PrintSchema { naming_convention } => print_schema(),
+		// FIXME: Use naming convention
+		Opts::PrintSchema {
+			naming_convention: _,
+		} => print_schema(),
 	}
 }
 fn print_schema() -> anyhow::Result<()> {

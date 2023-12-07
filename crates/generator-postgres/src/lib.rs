@@ -20,7 +20,6 @@ use schema::{
 	TablePrimaryKey, TableSql, TableUniqueConstraint,
 };
 
-mod process;
 pub mod validate;
 
 #[derive(Clone, Debug)]
@@ -220,13 +219,6 @@ impl Pg<SchemaTable<'_>> {
 		self.set_db(rn, to);
 	}
 
-	// pub fn create_fks(&self, sql: &mut String, rn: &RenameMap) {
-	// 	let mut out = Vec::new();
-	// 	for fk in self.foreign_keys() {
-	// 		Pg(fk).create_alter(&mut out, rn);
-	// 	}
-	// 	self.print_alternations(&out, sql, rn);
-	// }
 	pub fn print_alternations(&self, mut out: &[Alternation], sql: &mut String, rn: &RenameMap) {
 		fn print_group(name: &DbTable, list: &[Alternation], sql: &mut String) {
 			if list.len() > 1 {
@@ -403,7 +395,6 @@ impl Pg<TableDiff<'_>> {
 		let mut fks = vec![];
 		for constraint in constraint_changes.created {
 			constraint.create_alter_non_fk(&mut out, rn);
-			dbg!(constraint);
 			constraint.create_alter_fk(&mut fks, rn);
 		}
 
@@ -626,7 +617,6 @@ impl Pg<SchemaDiff<'_>> {
 		// Create new foreign keys
 		assert_eq!(diffs.len(), fkss.len());
 		for (diff, fks) in diffs.iter().zip(fkss) {
-			dbg!(&fks);
 			Pg(diff.new).print_alternations(&fks, sql, rn);
 		}
 		for ele in changelist.created.iter().filter_map(SchemaItem::as_table) {
@@ -1009,7 +999,6 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 			w!(out, "{n}");
 		}
 		Sql::Ident(_) => {
-			dbg!(sql);
 			let native_name = sql.ident_name(&context, rn);
 			w!(out, "{native_name}");
 		}
@@ -1313,11 +1302,21 @@ impl Pg<TableCheck<'_>> {
 mod tests {
 	use std::{fs, io::Write, path::PathBuf};
 
-	use schema::{parser::parse, uid::RenameMap, wl, Diff};
+	use schema::{
+		parser::parse, process::NamingConvention, root::SchemaProcessOptions, uid::RenameMap, wl,
+		Diff,
+	};
 	use tempfile::NamedTempFile;
 	use tracing_test::traced_test;
 
-	use crate::{process::default_options, Pg};
+	use crate::Pg;
+
+	pub fn default_options() -> SchemaProcessOptions {
+		SchemaProcessOptions {
+			generator_supports_domain: true,
+			naming_convention: NamingConvention::Postgres,
+		}
+	}
 
 	fn test_example(name: &str) {
 		#[derive(Debug)]
@@ -1378,7 +1377,6 @@ mod tests {
 				schema: String::new(),
 			});
 		}
-		dbg!(&examples);
 		let mut rn = RenameMap::default();
 		let examples = examples
 			.iter()
