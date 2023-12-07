@@ -58,13 +58,15 @@ where
 
 #[derive(Debug)]
 pub struct Alternation {
-	groupable: bool,
+	groupable_up: bool,
+	groupable_down: bool,
 	alt: String,
 }
 macro_rules! alt_group {
     ($($tt:tt)*) => {
         Alternation {
-				groupable: true,
+				groupable_up: true,
+				groupable_down: true,
 				alt: format!($($tt)*),
 		  }
     };
@@ -72,7 +74,17 @@ macro_rules! alt_group {
 macro_rules! alt_ungroup {
     ($($tt:tt)*) => {
         Alternation {
-				groupable: false,
+				groupable_up: false,
+				groupable_down: false,
+				alt: format!($($tt)*),
+		  }
+    };
+}
+macro_rules! alt_ungroup_up {
+    ($($tt:tt)*) => {
+        Alternation {
+				groupable_up: false,
+				groupable_down: true,
 				alt: format!($($tt)*),
 		  }
     };
@@ -115,10 +127,9 @@ impl Pg<TableColumn<'_>> {
 			);
 			// Technically groupable, yet postgres bails with error: column "column" of relation "tests" does not exist,
 			// if appears with the same statement ad ADD COLUMN.
-			out.push(alt_ungroup!(
+			out.push(alt_ungroup_up!(
 				"ALTER COLUMN {name} SET DATA TYPE {db_type} USING {sql}"
 			));
-			// Groupable with the previous, but since alt_ungroup is symmetrical... Both will be split.
 			if !self.nullable {
 				out.push(alt_group!("ALTER COLUMN {name} SET NOT NULL"));
 			}
@@ -216,13 +227,11 @@ impl Pg<SchemaTable<'_>> {
 	// 	}
 	// 	self.print_alternations(&out, sql, rn);
 	// }
-	pub fn print_alternations(&self, out: &[Alternation], sql: &mut String, rn: &RenameMap) {
-		for (groupable, group) in &out.iter().group_by(|a| a.groupable) {
-			let name = &self.db(rn);
-			let group = group.collect_vec();
-			if groupable && group.len() > 1 {
+	pub fn print_alternations(&self, mut out: &[Alternation], sql: &mut String, rn: &RenameMap) {
+		fn print_group(name: &DbTable, list: &[Alternation], sql: &mut String) {
+			if list.len() > 1 {
 				w!(sql, "ALTER TABLE {name}\n");
-				for (i, alt) in group.into_iter().enumerate() {
+				for (i, alt) in list.iter().enumerate() {
 					if i != 0 {
 						w!(sql, ",");
 					};
@@ -230,10 +239,24 @@ impl Pg<SchemaTable<'_>> {
 				}
 				wl!(sql, ";");
 			} else {
-				for alt in group {
-					wl!(sql, "ALTER TABLE {name} {};", alt.alt);
-				}
+				let alt = &list[0];
+				w!(sql, "ALTER TABLE {name} {};\n", alt.alt);
 			}
+		}
+		let name = &self.db(rn);
+		while !out.is_empty() {
+			let mut count = 1;
+			loop {
+				if !out[count - 1].groupable_down || out.len() == count {
+					break;
+				}
+				if !out[count].groupable_up {
+					break;
+				}
+				count += 1;
+			}
+			print_group(name, &out[..count], sql);
+			out = &out[count..];
 		}
 	}
 }
@@ -432,7 +455,8 @@ impl Pg<TableForeignKey<'_>> {
 		}
 
 		out.push(Alternation {
-			groupable: true,
+			groupable_up: true,
+			groupable_down: true,
 			alt,
 		});
 	}
