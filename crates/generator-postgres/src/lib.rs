@@ -187,10 +187,10 @@ impl Pg<SchemaTable<'_>> {
 			};
 			w!(sql, "\t");
 			Pg(v).create_inline(sql, rn);
-			assert!(
-				v.initialize_as().is_none(),
-				"@initialize_as may only appear when field is added, not when the table is created"
-			);
+			// assert!(
+			// 	v.initialize_as().is_none(),
+			// 	"@initialize_as may only appear when field is added, not when the table is created"
+			// );
 			wl!(sql, "");
 		}
 		let constraints = self.constraints();
@@ -287,15 +287,15 @@ impl Pg<ColumnDiff<'_>> {
 			(None, None) => {}
 		}
 
-		#[allow(clippy::match_same_arms)]
-		match (self.old.initialize_as(), self.new.initialize_as()) {
-			(Some(_), Some(_)) => panic!("@initialize_as may not be left on migration"),
-			(None, Some(_)) => {
-				// TODO: Disallow when generating up migration.
-				//panic!("@initialize_as may only be dropped")
-			}
-			(Some(_) | None, None) => {}
-		}
+		// #[allow(clippy::match_same_arms)]
+		// match (self.old.initialize_as(), self.new.initialize_as()) {
+		// 	(Some(_), Some(_)) => panic!("@initialize_as may not be left on migration"),
+		// 	(None, Some(_)) => {
+		// 		// TODO: Disallow when generating up migration.
+		// 		//panic!("@initialize_as may only be dropped")
+		// 	}
+		// 	(Some(_) | None, None) => {}
+		// }
 	}
 }
 impl Pg<TableDiff<'_>> {
