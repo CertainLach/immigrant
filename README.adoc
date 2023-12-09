@@ -1,6 +1,68 @@
 = immigrant
 
+++++
+<p align="center"><a href="https://github.com/CertainLach/immigrant"><img alt="immigrant temporary logo generated with midjourney" src="./docs/pjotr.webp" width="200px"></img></a></p>
+++++
+
 An database schema definition language.
+
+== Example
+
+Everyone loves examples, here it is (github doesn't support immigrant code hightlighting yet):
+[source,plaintext]
+----
+/// You can define scalars, which are translated to PgSQL DOMAIN:
+scalar u31 = "INTEGER" @check "u31_is_unsigned" (_ >= 0);
+/// Or you can create normal type aliases, which will be used in tables as-is,
+/// the same way as everyone writes SQL. This is more idiomatic in immigrant to use non-inlined scalars,
+/// as immigrant schemas in the wild are much more constrained than the normal SQL databases.
+scalar non_zero_int = "INTEGER" @check "non_zero_int_cant_be_zero" (_ != 0) @inline;
+
+/// You can also specify some of the column annotations on scalars.
+/// I.e if you want all of your data to be serchable by user, you can specify index on the user id type itself.
+scalar user_id = "INTEGER" @index;
+
+/// Or enums, which are less useful with better @checks, yet still have some useful features:
+enum user_group {
+	/// Almost everywhere you can specify both schema name, and the database name.
+	/// I.e if you had superuser group, and then decided to rename it to admin, you don't necessary
+	/// need to change it in the database, you can specify its code name in the schema.
+	/// You can also rename it btw, if you change the database name in the schema, immigrant will reconcile
+	/// it in the database.
+	admin "superuser";
+	normal;
+};
+
+/// You can also define structs, which are translated to PgSQL COMPOSITE TYPE:
+struct test_struct {
+	/// Even if used database engine doesn't support struct checks, immigrant generators should try
+	/// to support some set of common features as much as possible.
+	a: u31 @check "extra_checks" (_ != 99);
+	/// Checks with the same name are merged to ease ON CONFLICT ON CONSTRAINT creation.
+	b: non_zero_int @check "extra_checks" (_ != 99);
+	/// Immigrant includes some syntax sugar to specify constraints on per-item basis, same
+	/// as sql allows to specify CHECKs on the columns.
+	@check "if_a_then_b" (if _.a > 10 then _.b > 10 else true);
+};
+
+/// And of course, you can create tables too.
+/// Note the naming: In immigrant it is idiomatic to name things like in the code, and then either use
+/// naming convention preprocessor (i.e postgres naming convention will automatically name this table as "users"),
+/// or manually define table name, as any other database name in immigrant:
+table User "clients" {
+	/// In SQL you can omit some things, such as foreign key targets...
+	/// In immigrant you can omit the field type, and it will pick type with the same name as the column.
+	user_id @primary_key;
+	user_group;
+
+	test_struct;
+};
+
+table Post "news" {
+	id: u31 @primary_key;
+	user_id ~ User;
+};
+----
 
 == Goals
 

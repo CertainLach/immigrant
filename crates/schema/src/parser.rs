@@ -100,6 +100,7 @@ rule scalar_annotation(s:S) -> ScalarAnnotation
 / u:unique(s) {ScalarAnnotation::Unique(u)}
 / pk:primary_key(s) {ScalarAnnotation::PrimaryKey(pk)}
 / d:default(s) {ScalarAnnotation::Default(d)}
+/ i:index(s) {ScalarAnnotation::Index(i)}
 / "@inline" {ScalarAnnotation::Inline}
 rule column_annotation(s:S) -> ColumnAnnotation
 = i:index(s) {ColumnAnnotation::Index(i)}
@@ -211,6 +212,8 @@ rule sql_basic(s:S) -> Sql
 / "_" {Sql::Placeholder}
 / "if" _ c:sql(s) _ "then" _ then:sql(s) _ "else" _ else_:sql(s) {Sql::If(h(c), h(then), h(else_))}
 / "null" {Sql::Null}
+/ "true" {Sql::Boolean(true)}
+/ "false" {Sql::Boolean(false)}
 / i:code_ident(s) _ "(" _ e:sql(s)**comma() trailing_comma() ")" {Sql::Call(DbProcedure::new(i.1), e)}
 / i:code_ident(s) {Sql::Ident(ColumnIdent::alloc(i))}
 / s:str() {Sql::String(s.to_owned())}

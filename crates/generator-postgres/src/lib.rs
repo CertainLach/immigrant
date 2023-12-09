@@ -544,6 +544,17 @@ impl Pg<SchemaDiff<'_>> {
 			initialized_tys.insert(Ident::unchecked_cast(ele.new.id()));
 		}
 
+		// Inlined scalars are always initialized
+		for ele in self
+			.new
+			.items()
+			.iter()
+			.filter_map(SchemaItem::as_scalar)
+			.filter(|s| s.inlined())
+		{
+			initialized_tys.insert(Ident::unchecked_cast(ele.id()));
+		}
+
 		// Create new composites, in toposorted order
 		{
 			let mut remaining_composites = changelist
