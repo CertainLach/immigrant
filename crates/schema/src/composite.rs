@@ -1,54 +1,153 @@
-use std::ops::Deref;
+use std::{mem, ops::Deref};
+
+use itertools::{Either, Itertools};
 
 use crate::{
 	attribute::AttributeList,
+	column::ColumnAnnotation,
 	def_name_impls, derive_is_isomorph_by_id_name,
+	index::Check,
 	names::{
 		CompositeItemDefName, DbNativeType, FieldIdent, FieldKind, TypeDefName, TypeIdent, TypeKind,
 	},
+	scalar::PropagatedScalarData,
 	uid::{next_uid, RenameExt, RenameMap, Uid},
 	HasIdent, IsCompatible, SchemaComposite,
 };
+
+#[derive(Debug, Clone)]
+pub enum FieldAnnotation {
+	Check(Check),
+}
+impl FieldAnnotation {
+	fn propagate_to_composite(self, field: FieldIdent) -> Either<CompositeAnnotation, Self> {
+		Either::Left(match self {
+			FieldAnnotation::Check(c) => {
+				CompositeAnnotation::Check(c.propagate_to_composite(field))
+			}
+			#[allow(unreachable_patterns)]
+			_ => return Either::Right(self),
+		})
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct Field {
 	uid: Uid,
 	name: CompositeItemDefName,
 	pub ty: TypeIdent,
+	pub annotations: Vec<FieldAnnotation>,
 }
 def_name_impls!(Field, FieldKind);
 derive_is_isomorph_by_id_name!(Field);
 
 impl Field {
-	pub fn new(name: CompositeItemDefName, ty: TypeIdent) -> Self {
+	pub fn new(
+		name: CompositeItemDefName,
+		ty: TypeIdent,
+		annotations: Vec<FieldAnnotation>,
+	) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
 			ty,
+			annotations,
 		}
+	}
+	pub(crate) fn propagate_scalar_data(
+		&mut self,
+		scalar: TypeIdent,
+		propagated: &PropagatedScalarData,
+	) {
+		if self.ty == scalar {
+			self.annotations
+				.extend(propagated.field_annotations.iter().cloned());
+		}
+	}
+	pub fn propagate_annotations(&mut self) -> Vec<CompositeAnnotation> {
+		let (annotations, retained) = mem::take(&mut self.annotations)
+			.into_iter()
+			.partition_map(|a| a.propagate_to_composite(self.id()));
+		self.annotations = retained;
+		annotations
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum CompositeAnnotation {
+	Check(Check),
+}
+impl CompositeAnnotation {
+	fn propagate_to_field(&self) -> Option<FieldAnnotation> {
+		Some(match self {
+			CompositeAnnotation::Check(c) => FieldAnnotation::Check(c.clone()),
+		})
+	}
+	fn propagate_to_column(self) -> Either<ColumnAnnotation, Self> {
+		Either::Left(match self {
+			CompositeAnnotation::Check(c) => ColumnAnnotation::Check(c),
+		})
+	}
+}
+
+#[derive(Debug, Clone)]
 pub struct Composite {
 	uid: Uid,
 	name: TypeDefName,
 	pub attrlist: AttributeList,
 	pub fields: Vec<Field>,
+	pub annotations: Vec<CompositeAnnotation>,
 }
 def_name_impls!(Composite, TypeKind);
 
 impl Composite {
-	pub fn new(attrlist: AttributeList, name: TypeDefName, fields: Vec<Field>) -> Self {
+	pub fn new(
+		attrlist: AttributeList,
+		name: TypeDefName,
+		fields: Vec<Field>,
+		annotations: Vec<CompositeAnnotation>,
+	) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
 			attrlist,
 			fields,
+			annotations,
 		}
 	}
 	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
 		DbNativeType::unchecked_from(self.db(rn))
+	}
+	pub(crate) fn propagate_scalar_data(
+		&mut self,
+		scalar: TypeIdent,
+		propagated: &PropagatedScalarData,
+	) {
+		for col in self.fields.iter_mut() {
+			col.propagate_scalar_data(scalar, propagated)
+		}
+	}
+	pub fn process(&mut self) {
+		for column in self.fields.iter_mut() {
+			let propagated = column.propagate_annotations();
+			self.annotations.extend(propagated);
+		}
+	}
+
+	pub(crate) fn propagate(&mut self) -> PropagatedScalarData {
+		let annotations = mem::take(&mut self.annotations);
+		let field_annotations = annotations
+			.iter()
+			.flat_map(CompositeAnnotation::propagate_to_field)
+			.collect_vec();
+		let (annotations, retained) = annotations
+			.into_iter()
+			.partition_map(|a| a.propagate_to_column());
+		self.annotations = retained;
+		PropagatedScalarData {
+			annotations,
+			field_annotations,
+		}
 	}
 }
 

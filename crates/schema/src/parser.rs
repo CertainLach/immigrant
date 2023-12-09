@@ -5,7 +5,7 @@ use peg::{error::ParseError, parser, str::LineCol};
 use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
-	composite::{Composite, Field},
+	composite::{Composite, CompositeAnnotation, Field, FieldAnnotation},
 	ids::{in_allocator, DbIdent},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
@@ -58,15 +58,18 @@ rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) 
 rule scalar(s:S) -> Scalar = attrlist:attribute_list(s) _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
 	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
-rule composite(s:S) -> Composite = attrlist:attribute_list(s) _ "struct" _ name:def_name(s) _ "{" _ fields:field(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
-	Composite::new(attrlist, TypeDefName::alloc(name), fields)
+rule composite(s:S) -> Composite = attrlist:attribute_list(s) _ "struct" _ name:def_name(s) _ "{" _
+		fields:(f:field(s) _ ";" {f})++_ _
+		annotations:(a:composite_annotation(s) _ ";" {a})**_ _
+	"}" _ ";" {
+	Composite::new(attrlist, TypeDefName::alloc(name), fields, annotations)
 }
-rule field(s:S) -> Field = name:def_name(s) _ ":" _ ty:code_ident(s) {Field::new(DefName::alloc(name), TypeIdent::alloc(ty))}
+rule field(s:S) -> Field = name:def_name(s) _ ":" _ ty:code_ident(s) _ annotations:field_annotation(s)**_ {Field::new(DefName::alloc(name), TypeIdent::alloc(ty), annotations)}
 
 rule table_field(s:S) -> Column =
 	docs:docs()
 	attrlist:attribute_list(s) _
-	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:field_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
+	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:column_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
 	Column::new(
 		DefName::alloc(name),
 		docs,
@@ -98,7 +101,7 @@ rule scalar_annotation(s:S) -> ScalarAnnotation
 / pk:primary_key(s) {ScalarAnnotation::PrimaryKey(pk)}
 / d:default(s) {ScalarAnnotation::Default(d)}
 / "@inline" {ScalarAnnotation::Inline}
-rule field_annotation(s:S) -> ColumnAnnotation
+rule column_annotation(s:S) -> ColumnAnnotation
 = i:index(s) {ColumnAnnotation::Index(i)}
 / c:check(s) {ColumnAnnotation::Check(c)}
 / u:unique(s) {ColumnAnnotation::Unique(u)}
@@ -110,6 +113,10 @@ rule table_annotation(s:S) -> TableAnnotation
 / u:unique(s) {TableAnnotation::Unique(u)}
 / pk:primary_key(s) {TableAnnotation::PrimaryKey(pk)}
 / i:index(s) {TableAnnotation::Index(i)}
+rule composite_annotation(s:S) -> CompositeAnnotation
+= c:check(s) {CompositeAnnotation::Check(c)}
+rule field_annotation(s:S) -> FieldAnnotation
+= c:check(s) {FieldAnnotation::Check(c)}
 
 rule def_name(s:S) -> (SimpleSpan, &'input str, Option<&'input str>)
 = c:code_ident(s) d:(_ d:db_ident() {d})? {

@@ -82,16 +82,16 @@ pub enum Sql {
 	Null,
 }
 impl Sql {
-	pub fn replace_placeholder(&mut self, column: ColumnIdent) {
+	pub fn replace_placeholder(&mut self, to: Sql) {
 		struct ReplacePlaceholder {
-			to: ColumnIdent,
+			to: Sql,
 		}
 		impl SqlVisitor for ReplacePlaceholder {
 			fn handle_placeholder(&mut self, placeholder: &mut Sql) {
-				*placeholder = Sql::Ident(self.to)
+				*placeholder = self.to.clone()
 			}
 		}
-		self.visit(&mut ReplacePlaceholder { to: column })
+		self.visit(&mut ReplacePlaceholder { to })
 	}
 	pub fn affected_columns(&self) -> Vec<ColumnIdent> {
 		struct ColumnCollector {

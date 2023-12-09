@@ -10,6 +10,7 @@ use crate::{
 	mk_change_list,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
+	scalar::PropagatedScalarData,
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
 	HasIdent, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
@@ -74,6 +75,12 @@ impl Item {
 			_ => None,
 		}
 	}
+	pub fn as_composite_mut(&mut self) -> Option<&mut Composite> {
+		match self {
+			Self::Composite(value) => Some(value),
+			_ => None,
+		}
+	}
 	pub fn as_scalar_mut(&mut self) -> Option<&mut Scalar> {
 		match self {
 			Self::Scalar(value) => Some(value),
@@ -104,7 +111,49 @@ impl Schema {
 		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
 			let inline = s.is_always_inline() || !options.generator_supports_domain;
 			let data = s.propagate(inline);
-			propagated_scalars.insert(s.id(), data);
+			assert!(
+				propagated_scalars.insert(s.id(), data).is_none(),
+				"duplicate scalar?"
+			);
+		}
+
+		// Propagate scalar annotations to fields
+		for composite in self.0.iter_mut().filter_map(Item::as_composite_mut) {
+			for (id, data) in &propagated_scalars {
+				composite.propagate_scalar_data(*id, data);
+			}
+			composite.process();
+		}
+
+		// Propagate composite annotations to other composites
+		loop {
+			let mut extended_this_step = <HashMap<TypeIdent, PropagatedScalarData>>::new();
+			for s in self.0.iter_mut().filter_map(Item::as_composite_mut) {
+				s.process();
+				eprintln!("propagating from {s:?}");
+				let to_propagate = s.propagate();
+				let existing = extended_this_step.entry(s.id()).or_default();
+				existing.extend(to_propagate);
+			}
+
+			if extended_this_step.values().all(|v| v.is_empty()) {
+				eprintln!("nothing is propagated D:");
+				break;
+			}
+			eprintln!("propagated = {extended_this_step:?}");
+
+			// Propagate newly discovered propagations
+			for composite in self.0.iter_mut().filter_map(Item::as_composite_mut) {
+				for (id, data) in &extended_this_step {
+					composite.propagate_scalar_data(*id, data);
+				}
+				composite.process();
+			}
+
+			for (id, data) in extended_this_step {
+				let existing = propagated_scalars.entry(id).or_default();
+				existing.extend(data);
+			}
 		}
 
 		// Propagate scalar annotations to columns

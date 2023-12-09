@@ -29,13 +29,13 @@ impl TryFrom<AttributeValue> for String {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AttributeField {
 	pub key: String,
 	pub value: AttributeValue,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attribute {
 	pub name: String,
 	pub fields: Vec<AttributeField>,
@@ -48,7 +48,7 @@ impl From<DuplicateAttributeError> for &'static str {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AttributeList(pub Vec<Attribute>);
 impl AttributeList {
 	pub fn iter_fields(&self, attre: &str, fielde: &str, mut cb: impl FnMut(&AttributeValue)) {

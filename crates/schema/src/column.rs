@@ -28,7 +28,12 @@ pub enum ColumnAnnotation {
 	PrimaryKey(PrimaryKey),
 	/// Moved to table.
 	Index(Index),
+	/// Column default annotation.
 	Default(Sql),
+	/// If column is created, then this attribute is used to prefill it, treat it as one-time, much more powerful
+	/// DEFAULT value.
+	/// It can be implemented as an UPDATE statement, or with SET TYPE ... USING, but not as one-time DEFAULT, because
+	/// it can reference other columns.
 	InitializeAs(Sql),
 }
 impl ColumnAnnotation {

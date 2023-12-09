@@ -2,7 +2,7 @@ use super::sql::Sql;
 use crate::{
 	db_name_impls,
 	ids::DbIdent,
-	names::{ColumnIdent, ConstraintKind, DbColumn, DbNativeType, IndexKind},
+	names::{ColumnIdent, ConstraintKind, DbColumn, DbNativeType, FieldIdent, IndexKind},
 	uid::{next_uid, RenameMap, Uid},
 	TableIndex,
 };
@@ -26,7 +26,12 @@ impl Check {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.check.replace_placeholder(column);
+		self.check.replace_placeholder(Sql::Ident(column));
+		self
+	}
+	pub fn propagate_to_composite(mut self, field: FieldIdent) -> Self {
+		self.check
+			.replace_placeholder(Sql::GetField(Box::new(Sql::Placeholder), field));
 		self
 	}
 }

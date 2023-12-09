@@ -7,6 +7,7 @@ use crate::{
 	attribute::AttributeList,
 	changelist::IsCompatible,
 	column::ColumnAnnotation,
+	composite::FieldAnnotation,
 	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
@@ -60,9 +61,21 @@ impl Enum {
 }
 def_name_impls!(Enum, TypeKind);
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct PropagatedScalarData {
 	pub annotations: Vec<ColumnAnnotation>,
+	pub field_annotations: Vec<FieldAnnotation>,
+}
+impl PropagatedScalarData {
+	/// Returns true if extended
+	pub(crate) fn extend(&mut self, other: Self) {
+		self.annotations.extend(other.annotations.into_iter());
+		self.field_annotations
+			.extend(other.field_annotations.into_iter());
+	}
+	pub(crate) fn is_empty(&self) -> bool {
+		self.annotations.is_empty() && self.field_annotations.is_empty()
+	}
 }
 
 /// Even though CREATE DOMAIN allows domains to be constrained as non-nulls, currently it is not possible to make
@@ -97,14 +110,22 @@ impl Scalar {
 		}
 	}
 	pub(crate) fn propagate(&mut self, inline: bool) -> PropagatedScalarData {
-		let (annotations, retained) = mem::take(&mut self.annotations)
+		let annotations = mem::take(&mut self.annotations);
+		let field_annotations = annotations
+			.iter()
+			.flat_map(|a| a.propagate_to_field(inline))
+			.collect_vec();
+		let (annotations, retained) = annotations
 			.into_iter()
 			.partition_map(|a| a.propagate_to_column(inline));
 		self.annotations = retained;
 		if inline {
 			self.inlined = true;
 		}
-		PropagatedScalarData { annotations }
+		PropagatedScalarData {
+			annotations,
+			field_annotations,
+		}
 	}
 	pub fn is_always_inline(&self) -> bool {
 		self.annotations
@@ -162,6 +183,12 @@ impl ScalarAnnotation {
 	/// Should annotation be removed after inlining?
 	fn is_inline_target(&self) -> bool {
 		!matches!(self, Self::Inline)
+	}
+	fn propagate_to_field(&self, inline: bool) -> Option<FieldAnnotation> {
+		Some(match self {
+			ScalarAnnotation::Check(c) if inline => FieldAnnotation::Check(c.clone()),
+			_ => return None,
+		})
 	}
 	fn propagate_to_column(self, inline: bool) -> Either<ColumnAnnotation, Self> {
 		Either::Left(match self {
