@@ -11,8 +11,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 use rust_format::{Config, Edition, Formatter, PostProcess};
 use schema::{
-	process::NamingConvention, scalar::EnumItem, table::Cardinality, uid::RenameExt, HasIdent,
-	SchemaComposite, SchemaEnum, SchemaTable, SchemaType, TableColumn,
+	composite::CompositeField, process::NamingConvention, scalar::EnumItem, table::Cardinality,
+	uid::RenameExt, HasIdent, SchemaComposite, SchemaEnum, SchemaTable, SchemaType, TableColumn,
 };
 use syn::{Ident, Path};
 
@@ -53,6 +53,9 @@ fn enum_item_ident(c: &EnumItem) -> Ident {
 }
 fn composite_ident(c: &SchemaComposite) -> Ident {
 	format_ident!("{}", to_pascal_case(&c.id().name()))
+}
+fn field_ident(c: &CompositeField) -> Ident {
+	format_ident!("{}", to_snake_case(&c.id().name()))
 }
 
 fn is_copy(t: &SchemaType) -> bool {
@@ -104,6 +107,49 @@ fn table_has_lifetime(k: TableKind, table: &SchemaTable) -> bool {
 		}
 		TableKind::Load => false,
 	}
+}
+
+fn column_raw_ty(ty: SchemaType<'_>, nullable: bool) -> TokenStream {
+	let ty = match ty {
+		SchemaType::Enum(en) => {
+			let ident = enum_ident(&en);
+			quote!(st::#ident)
+		}
+		SchemaType::Scalar(s) => {
+			let v: String = s
+				.attrlist
+				.get_single("diesel", "type")
+				.expect("diesel type");
+			let v: Path = syn::parse_str(&v).expect("disesl path");
+			quote!(#v)
+		}
+		SchemaType::Composite(c) => {
+			let ident = composite_ident(&c);
+			quote!(st::#ident)
+		}
+	};
+
+	let ty = nullable.then(|| quote!(dt::Nullable<#ty>)).unwrap_or(ty);
+	quote! {#ty}
+}
+
+fn column_ty(kind: TableKind, column: TableColumn<'_>) -> TokenStream {
+	let jojo_reference = is_jojo_reference(kind, is_copy(&column.ty()), &column);
+	let ty = column_ty_name(jojo_reference, &column.ty());
+	let ty = jojo_reference.then(|| quote!(&'a #ty)).unwrap_or(ty);
+	let ty = column.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
+	let ty = (kind == TableKind::Update && !column.is_pk_part()
+		|| kind == TableKind::New && column.has_default())
+	.then(|| quote!(Option<#ty>))
+	.unwrap_or(ty);
+	ty
+}
+
+fn field_ty(field: CompositeField<'_>) -> TokenStream {
+	let copy = is_copy(&field.ty());
+	let ty = column_ty_name(false, &field.ty());
+	let ty = field.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
+	ty
 }
 
 fn column_only_default(column: &TableColumn) -> bool {
@@ -277,6 +323,19 @@ fn print_schema() -> anyhow::Result<()> {
 			pub struct #id;
 		});
 	}
+	for composite in schema.composites() {
+		let composite = SchemaComposite {
+			schema: &schema,
+			composite,
+		};
+		let id = composite_ident(&composite);
+		let name = composite.db(rn).to_string();
+		types.append_all(quote! {
+			#[derive(SqlType, QueryId)]
+			#[diesel(postgres_type(name = #name))]
+			pub struct #id;
+		});
+	}
 	out.append_all(quote! {
 		pub mod sql_types {
 			use diesel::{sql_types::SqlType, QueryId};
@@ -323,6 +382,49 @@ fn print_schema() -> anyhow::Result<()> {
 		}
 	});
 
+	let mut composites = TokenStream::new();
+	for composite in schema.composites() {
+		let composite = SchemaComposite {
+			schema: &schema,
+			composite,
+		};
+		let id = composite_ident(&composite);
+
+		let derives = composite
+			.attrlist
+			.get_multi::<String>("diesel", "derive")
+			.expect("diesel derive")
+			.into_iter()
+			.map(|v| syn::parse_str::<Path>(&v).unwrap());
+
+		let name = format!("crate::sql_types::{id}");
+		let mut copy = true;
+		let fields = composite.fields().map(|f| {
+			if !is_copy(&f.ty()) {
+				copy = false;
+			}
+			let id = field_ident(&f);
+			let name = f.db(rn).to_string();
+			let ty = field_ty(f);
+			quote! {
+				pub #id: #ty,
+			}
+		}).collect::<Vec<_>>();
+		composites.append_all(quote! {
+			#[derive(Debug, PartialEq, Eq, Clone, Hash #(, #derives)*)]
+			pub struct #id {
+				#(#fields)*
+			}
+		});
+	}
+
+	out.append_all(quote! {
+		pub mod composite_types {
+			use super::*;
+			#composites
+		}
+	});
+
 	for table in schema.tables() {
 		let table = SchemaTable {
 			schema: &schema,
@@ -354,28 +456,7 @@ fn print_schema() -> anyhow::Result<()> {
 			} else {
 				quote!()
 			};
-			let ty = match column.ty() {
-				SchemaType::Enum(en) => {
-					let ident = enum_ident(&en);
-					quote!(st::#ident)
-				}
-				SchemaType::Scalar(s) => {
-					let v: String = s
-						.attrlist
-						.get_single("diesel", "type")
-						.expect("diesel type");
-					let v: Path = syn::parse_str(&v).expect("disesl path");
-					quote!(#v)
-				}
-				SchemaType::Composite(c) => {
-					let ident = composite_ident(&c);
-					quote!(st::#ident)
-				}
-			};
-			let ty = column
-				.nullable
-				.then(|| quote!(dt::Nullable<#ty>))
-				.unwrap_or(ty);
+			let ty = column_raw_ty(column.ty(), column.nullable);
 			let docs = &column.docs;
 			let doc_sep = if !docs.is_empty() {
 				quote!(#[doc = ""])
@@ -537,14 +618,7 @@ fn print_schema() -> anyhow::Result<()> {
 				};
 
 				let field_name = column_ident(&column);
-				let jojo_reference = is_jojo_reference(kind, is_copy(&column.ty()), &column);
-				let ty = column_ty_name(jojo_reference, &column.ty());
-				let ty = jojo_reference.then(|| quote!(&'a #ty)).unwrap_or(ty);
-				let ty = column.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
-				let ty = (kind == TableKind::Update && !column.is_pk_part()
-					|| kind == TableKind::New && column.has_default())
-				.then(|| quote!(Option<#ty>))
-				.unwrap_or(ty);
+				let ty = column_ty(kind, column);
 				columns.push(quote! {
 					#diesel_attr
 					#vis #field_name: #ty
@@ -687,6 +761,7 @@ fn print_schema() -> anyhow::Result<()> {
 	out.append_all(quote!{
 		#[allow(unused_parens)]
 		pub mod orm {
+			use super::*;
 			use std::future::Future;
 			use super::sql_types::*;
 			use diesel::{Insertable, Identifiable, Queryable, Selectable, AsChangeset, sql_types as dt, QueryDsl, SelectableHelper, result::Error, ExpressionMethods};

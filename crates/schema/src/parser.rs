@@ -64,12 +64,27 @@ rule composite(s:S) -> Composite = attrlist:attribute_list(s) _ "struct" _ name:
 	"}" _ ";" {
 	Composite::new(attrlist, TypeDefName::alloc(name), fields, annotations)
 }
-rule field(s:S) -> Field = name:def_name(s) _ ":" _ ty:code_ident(s) _ annotations:field_annotation(s)**_ {Field::new(DefName::alloc(name), TypeIdent::alloc(ty), annotations)}
+rule field(s:S) -> Field =
+	name:def_name(s) _
+	t:(":" _ i:code_ident(s) _ {i})?
+	n:("?" _)?
+	annotations:field_annotation(s)**_ {
+	Field::new(
+		DefName::alloc(name),
+		n.is_some(),
+		TypeIdent::alloc(t.unwrap_or((name.0, name.1))),
+		annotations
+	)
+}
 
 rule table_field(s:S) -> Column =
 	docs:docs()
 	attrlist:attribute_list(s) _
-	name:def_name(s) t:(_ ":" _ i:code_ident(s) {i})? n:(_ "?")? _ annotations:column_annotation(s)**_ foreign_key:partial_foreign_key(s)? {
+	name:def_name(s) _
+	t:(":" _ i:code_ident(s) _ {i})?
+	n:("?" _)?
+	annotations:column_annotation(s)**_
+	foreign_key:partial_foreign_key(s)? {
 	Column::new(
 		DefName::alloc(name),
 		docs,

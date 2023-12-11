@@ -6,13 +6,15 @@ use crate::{
 	attribute::AttributeList,
 	column::ColumnAnnotation,
 	def_name_impls, derive_is_isomorph_by_id_name,
+	ids::DbIdent,
 	index::Check,
 	names::{
 		CompositeItemDefName, DbNativeType, FieldIdent, FieldKind, TypeDefName, TypeIdent, TypeKind,
 	},
 	scalar::PropagatedScalarData,
+	sql::Sql,
 	uid::{next_uid, RenameExt, RenameMap, Uid},
-	HasIdent, IsCompatible, SchemaComposite,
+	HasIdent, IsCompatible, SchemaComposite, SchemaType,
 };
 
 #[derive(Debug, Clone)]
@@ -35,6 +37,7 @@ impl FieldAnnotation {
 pub struct Field {
 	uid: Uid,
 	name: CompositeItemDefName,
+	pub nullable: bool,
 	pub ty: TypeIdent,
 	pub annotations: Vec<FieldAnnotation>,
 }
@@ -44,12 +47,14 @@ derive_is_isomorph_by_id_name!(Field);
 impl Field {
 	pub fn new(
 		name: CompositeItemDefName,
+		nullable: bool,
 		ty: TypeIdent,
 		annotations: Vec<FieldAnnotation>,
 	) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
+			nullable,
 			ty,
 			annotations,
 		}
@@ -105,8 +110,32 @@ impl Composite {
 		attrlist: AttributeList,
 		name: TypeDefName,
 		fields: Vec<Field>,
-		annotations: Vec<CompositeAnnotation>,
+		mut annotations: Vec<CompositeAnnotation>,
 	) -> Self {
+		let mut checks = vec![];
+		for field in &fields {
+			if field.nullable {
+				continue;
+			}
+			checks.push(Sql::BinOp(
+				Box::new(Sql::GetField(Box::new(Sql::Placeholder), field.id())),
+				crate::sql::SqlOp::SNe,
+				Box::new(Sql::Null),
+			))
+		}
+		if !checks.is_empty() {
+			annotations.push(CompositeAnnotation::Check(Check::new(
+				Some(DbIdent::new("composite_nullability_check")),
+				Sql::any([
+					Sql::BinOp(
+						Box::new(Sql::Placeholder),
+						crate::sql::SqlOp::SEq,
+						Box::new(Sql::Null),
+					),
+					Sql::all(checks),
+				]),
+			)));
+		}
 		Self {
 			uid: next_uid(),
 			name,
@@ -188,6 +217,9 @@ impl Deref for CompositeField<'_> {
 }
 
 impl CompositeField<'_> {
+	pub fn ty(&self) -> SchemaType<'_> {
+		self.composite.schema.schema_ty(self.ty)
+	}
 	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
 		self.composite.schema.native_type(&self.ty, rn)
 	}

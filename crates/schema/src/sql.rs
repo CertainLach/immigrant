@@ -158,6 +158,14 @@ impl Sql {
 		}
 		v
 	}
+	pub fn any(s: impl IntoIterator<Item = Self>) -> Self {
+		let mut s = s.into_iter();
+		let mut v = s.next().unwrap_or(Self::Boolean(false));
+		for i in s {
+			v = Sql::BinOp(Box::new(v), SqlOp::Or, Box::new(i))
+		}
+		v
+	}
 	pub fn field_name(
 		&self,
 		context: &SchemaItem<'_>,

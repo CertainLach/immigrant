@@ -45,6 +45,7 @@ CREATE TYPE mystruct AS (
 );
 CREATE TABLE tests (
 	a mystruct NOT NULL
+,	CONSTRAINT composite_nullability_check CHECK ((a IS NOT DISTINCT FROM NULL) OR ((a).renamed IS DISTINCT FROM NULL))
 );
 -- updated: create struct with added field, migrate table --
 ALTER TYPE mystruct
@@ -55,12 +56,20 @@ CREATE TYPE mystruct AS (
 ,	field2 myint
 );
 ALTER TABLE tests RENAME COLUMN a TO olda;
-ALTER TABLE tests ADD COLUMN a mystruct;
+ALTER TABLE tests
+	DROP CONSTRAINT composite_nullability_check
+,	ADD COLUMN a mystruct
+;
 ALTER TABLE tests
 	ALTER COLUMN a SET DATA TYPE mystruct USING (ROW((olda).renamed, 2))::mystruct
 ,	ALTER COLUMN a SET NOT NULL
+,	ADD CONSTRAINT composite_nullability_check CHECK (((olda IS NOT DISTINCT FROM NULL) OR ((olda).renamed IS DISTINCT FROM NULL)) AND ((a IS NOT DISTINCT FROM NULL) OR (((a).renamed IS DISTINCT FROM NULL) AND ((a).field2 IS DISTINCT FROM NULL))))
 ;
 -- updated: remove old struct --
+ALTER TABLE tests
+	DROP CONSTRAINT composite_nullability_check
+,	ADD CONSTRAINT composite_nullability_check CHECK ((a IS NOT DISTINCT FROM NULL) OR (((a).renamed IS DISTINCT FROM NULL) AND ((a).field2 IS DISTINCT FROM NULL)))
+;
 ALTER TABLE tests DROP COLUMN olda;
 DROP TYPE oldmystruct;
 -- updated: finalize --

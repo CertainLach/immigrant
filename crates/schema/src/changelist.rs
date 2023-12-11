@@ -278,7 +278,7 @@ mod tests {
 						RenameOp::Rename(p("A", "C"), i("B"))
 					],
 					updated: vec![diff!(p("A", "C"), p("A", "B")),],
-					dropped: vec![(p("D", "B"), Some(ren1))],
+					dropped: vec![p("D", "B")],
 					moved_away: vec![(p("D", "B"), ren1)],
 
 					created: vec![],

@@ -3,7 +3,7 @@
 scalar test = "INTEGER";
 
 struct a {
-	test: test @check (_ != 123);
+	test @check (_ != 123);
 };
 struct b {
 	a_field: a @check (_.test != 246);
@@ -23,6 +23,7 @@ CREATE TYPE b AS (
 );
 CREATE TABLE examples (
 	b b NOT NULL
+,	CONSTRAINT composite_nullability_check CHECK (((b IS NOT DISTINCT FROM NULL) OR ((b).a_field IS DISTINCT FROM NULL)) AND (((b).a_field IS NOT DISTINCT FROM NULL) OR (((b).a_field).test IS DISTINCT FROM NULL)))
 ,	CONSTRAINT examples_b_check CHECK ((((b).a_field).test <> 246) AND (((b).a_field).test <> 123))
 );
 -- updated: cleanup schema changes --
