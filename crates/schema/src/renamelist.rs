@@ -110,19 +110,19 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 		out.extend(renames);
 		return;
 	}
-	let _span = trace_span!(
-		"reordering",
-		"{:?}",
-		renames
-			.iter()
-			.map(|r| (r.source(rn), r.target()))
-			.collect::<Vec<_>>()
-	)
-	.entered();
+	let _span = trace_span!("reordering",).entered();
 	let mut current_state: HashSet<NameOrTemp<T>> = renames.iter().map(|o| o.source(rn)).collect();
 
 	loop {
 		trace!("loop");
+		trace!("state: {current_state:?}");
+		trace!(
+			"items: {:?}",
+			renames
+				.iter()
+				.map(|r| (r.source(rn), r.target()))
+				.collect::<Vec<_>>()
+		);
 		let mut performed = vec![];
 		for (i, op) in renames.iter().enumerate() {
 			trace!("trying to perform {:?} => {:?}", op.source(rn), op.target());
@@ -157,6 +157,7 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 
 	// rest remaining are the loops
 	while !renames.is_empty() {
+		eprintln!("loop!");
 		let mut looped = vec![];
 		let mut step = renames.remove(0);
 		loop {
@@ -171,7 +172,7 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 		assert_eq!(
 			looped.first().unwrap().source(rn),
 			looped.last().unwrap().target(),
-			"this meant to be a loop: {:?}",
+			"this meant to be a loop: {:?} (possible invariant violation, i.e naming conflict in input data?)",
 			looped
 				.iter()
 				.map(|r| (r.source(rn), r.target()))
