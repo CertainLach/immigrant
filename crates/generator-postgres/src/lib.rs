@@ -1143,9 +1143,9 @@ impl HasDefaultDbName for PgTableConstraint<'_> {
 impl IsIsomorph for PgTableConstraint<'_> {
 	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
 		match (self, other) {
-			(PgTableConstraint::PrimaryKey(a), PgTableConstraint::PrimaryKey(b)) => {
+			(PgTableConstraint::PrimaryKey(_), PgTableConstraint::PrimaryKey(_)) => {
 				// There is only one pk per table, its just makes sense
-				a.db(rn) == b.db(rn)
+				true
 			}
 			(PgTableConstraint::Unique(a), PgTableConstraint::Unique(b)) => {
 				let mut a_columns = a.table.db_names(a.columns.clone(), rn);
