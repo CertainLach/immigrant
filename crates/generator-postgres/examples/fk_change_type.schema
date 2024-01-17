@@ -1,0 +1,34 @@
+!!!SETUP
+scalar test = "INTEGER";
+
+table AA {
+	test @primary_key;
+};
+!!!TEST fk without ON DELETE CASCADE
+table BB {
+	test ~ AA;
+};
+!!!UPDATE fk is now cascade
+table BB {
+	test ~.cascade AA;
+};
+!!!RESULT
+-- updated: setup --
+CREATE DOMAIN test AS INTEGER;
+CREATE TABLE aas (
+	test test NOT NULL
+,	CONSTRAINT aas_test_pkey PRIMARY KEY(test)
+);
+-- updated: fk without ON DELETE CASCADE --
+CREATE TABLE bbs (
+	test test NOT NULL
+);
+ALTER TABLE bbs ADD CONSTRAINT bbs_test_fk FOREIGN KEY(test) REFERENCES aas(test);
+-- updated: fk is now cascade --
+ALTER TABLE bbs DROP CONSTRAINT bbs_test_fk;
+ALTER TABLE bbs ADD CONSTRAINT bbs_test_fk FOREIGN KEY(test) REFERENCES aas(test) ON DELETE CASCADE;
+-- updated: cleanup schema changes --
+DROP TABLE bbs;
+-- updated: cleanup setup --
+DROP TABLE aas;
+DROP DOMAIN test;

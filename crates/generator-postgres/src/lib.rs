@@ -1214,6 +1214,9 @@ impl IsCompatible for PgTableConstraint<'_> {
 					b.target_table().db(rn),
 					"rejected by isomorp test"
 				);
+				if a.on_delete != b.on_delete {
+					return false;
+				}
 				let a_source_columns = a.source_db_columns(rn);
 				let b_source_columns = b.source_db_columns(rn);
 				let a_target_columns = a.target_db_columns(rn);
