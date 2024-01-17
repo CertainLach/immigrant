@@ -1,0 +1,39 @@
+!!!TEST A
+scalar test = "INTEGER";
+
+table A {
+	test;
+};
+
+table B {
+	test ~ A;
+};
+!!!UPDATE
+scalar test = "INTEGER";
+
+table A {
+	test "test2";
+};
+
+table B {
+	test "test2" ~ A;
+};
+!!!RESULT
+-- updated: A --
+CREATE DOMAIN test AS INTEGER;
+CREATE TABLE as (
+	test test NOT NULL
+);
+CREATE TABLE bs (
+	test test NOT NULL
+);
+ALTER TABLE bs ADD CONSTRAINT bs_test_fk FOREIGN KEY(test) REFERENCES as(test);
+-- updated --
+ALTER TABLE as RENAME COLUMN test TO test2;
+ALTER TABLE bs RENAME COLUMN test TO test2;
+ALTER TABLE bs RENAME CONSTRAINT bs_test_fk TO bs_test2_fk;
+-- updated: cleanup schema changes --
+ALTER TABLE bs DROP CONSTRAINT bs_test2_fk;
+DROP TABLE as;
+DROP TABLE bs;
+DROP DOMAIN test;

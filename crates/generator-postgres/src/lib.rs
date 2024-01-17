@@ -153,23 +153,24 @@ impl Pg<TableSql<'_>> {
 	}
 }
 
-impl Pg<SchemaTable<'_>> {
-	fn constraints(&self) -> Vec<PgTableConstraint<'_>> {
-		let mut out = vec![];
-		if let Some(pk) = self.primary_key() {
-			out.push(PgTableConstraint::PrimaryKey(pk));
-		}
-		for check in self.checks() {
-			out.push(PgTableConstraint::Check(check));
-		}
-		for unique in self.unique_constraints() {
-			out.push(PgTableConstraint::Unique(unique));
-		}
-		for fk in self.foreign_keys() {
-			out.push(PgTableConstraint::ForeignKey(fk));
-		}
-		out
+fn pg_constraints<'v>(t: &'v SchemaTable) -> Vec<PgTableConstraint<'v>> {
+	let mut out = vec![];
+	if let Some(pk) = t.primary_key() {
+		out.push(PgTableConstraint::PrimaryKey(pk));
 	}
+	for check in t.checks() {
+		out.push(PgTableConstraint::Check(check));
+	}
+	for unique in t.unique_constraints() {
+		out.push(PgTableConstraint::Unique(unique));
+	}
+	for fk in t.foreign_keys() {
+		out.push(PgTableConstraint::ForeignKey(fk));
+	}
+	out
+}
+
+impl Pg<SchemaTable<'_>> {
 	fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
 		let mut out = String::new();
 		Pg(self.sql(sql)).print(&mut out, rn);
@@ -193,7 +194,7 @@ impl Pg<SchemaTable<'_>> {
 			// );
 			wl!(sql, "");
 		}
-		let constraints = self.constraints();
+		let constraints = pg_constraints(self);
 		for constraint in constraints {
 			let Some(inline) = constraint.create_inline_non_fk(rn) else {
 				continue;
@@ -214,8 +215,10 @@ impl Pg<SchemaTable<'_>> {
 		let table_name = &self.db(rn);
 		wl!(sql, "DROP TABLE {table_name};");
 	}
-	pub fn rename(&self, to: DbTable, sql: &mut String, rn: &mut RenameMap) {
-		self.print_alternations(&[alt_ungroup!("RENAME TO {to}")], sql, rn);
+	pub fn rename(&self, to: DbTable, sql: &mut String, rn: &mut RenameMap, external: bool) {
+		if !external {
+			self.print_alternations(&[alt_ungroup!("RENAME TO {to}")], sql, rn);
+		}
 		self.set_db(rn, to);
 	}
 
@@ -303,6 +306,7 @@ impl Pg<TableDiff<'_>> {
 		&self,
 		sql: &mut String,
 		rn: &mut RenameMap,
+		external: bool,
 	) -> ChangeList<TableColumn<'_>> {
 		let mut out = Vec::new();
 
@@ -329,20 +333,30 @@ impl Pg<TableDiff<'_>> {
 			}
 		}
 
-		// Drop fks
-		{
-			let oldpg = Pg(self.old);
-			let newpg = Pg(self.new);
-			let old_constraints = oldpg.constraints();
-			let new_constraints = newpg.constraints();
-			let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
-			for constraint in &constraint_changes.dropped {
-				constraint.drop_alter_fk(&mut out, rn);
-			}
+		if !external {
+			Pg(self.new).print_alternations(&out, sql, rn);
 		}
-
-		Pg(self.new).print_alternations(&out, sql, rn);
 		column_changes
+	}
+
+	pub fn print_stage1_5(
+		&self,
+		sql: &mut String,
+		rn: &RenameMap,
+		external: bool,
+	) -> ChangeList<PgTableConstraint<'_>> {
+		let mut out = vec![];
+		// Drop fks
+		let old_constraints = pg_constraints(&self.old);
+		let new_constraints = pg_constraints(&self.new);
+		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
+		for constraint in &constraint_changes.dropped {
+			constraint.drop_alter_fk(&mut out, rn);
+		}
+		if !external {
+			Pg(self.new).print_alternations(&out, sql, rn);
+		}
+		constraint_changes
 	}
 
 	pub fn print_stage2(
@@ -350,14 +364,10 @@ impl Pg<TableDiff<'_>> {
 		sql: &mut String,
 		rn: &mut RenameMap,
 		column_changes: ChangeList<TableColumn<'_>>,
+		constraint_changes: ChangeList<PgTableConstraint<'_>>,
+		external: bool,
 	) -> Vec<Alternation> {
 		let mut out = Vec::new();
-
-		let oldpg = Pg(self.old);
-		let newpg = Pg(self.new);
-		let old_constraints = oldpg.constraints();
-		let new_constraints = newpg.constraints();
-		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
 
 		// Drop constraints
 		for constraint in constraint_changes.dropped {
@@ -411,7 +421,7 @@ impl Pg<TableDiff<'_>> {
 			constraint.create_alter_fk(&mut fks, rn);
 		}
 
-		{
+		if !external {
 			Pg(self.new).print_alternations(&out, sql, rn);
 			out = vec![];
 		}
@@ -432,7 +442,10 @@ impl Pg<TableDiff<'_>> {
 		for column in column_changes.dropped {
 			Pg(column).drop_alter(&mut out, rn);
 		}
-		Pg(self.new).print_alternations(&out, sql, rn);
+
+		if !external {
+			Pg(self.new).print_alternations(&out, sql, rn);
+		}
 
 		fks
 	}
@@ -521,12 +534,18 @@ impl Pg<SchemaDiff<'_>> {
 			match ele {
 				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
 					stored.insert(t, i);
-					Pg(i).rename(t.db(), sql, rn);
+					Pg(i).rename(t.db(), sql, rn, i.is_external());
 				}
 				RenameOp::Restore(t, n) => {
-					Pg(stored.remove(&t).expect("stored")).rename(n, sql, rn);
+					let item = stored.remove(&t).expect("stored");
+					// FIXME: is_external should check if the NEW ITEM is external, not the source
+					let is_external = item.is_external();
+					Pg(item).rename(n, sql, rn, is_external);
 				}
-				RenameOp::Rename(v, n) => Pg(v).rename(n, sql, rn),
+				RenameOp::Rename(v, n) => {
+					// FIXME: is_external should check if the TARGET is external, not the source
+					Pg(v).rename(n, sql, rn, v.is_external())
+				}
 			}
 		}
 
@@ -551,6 +570,9 @@ impl Pg<SchemaDiff<'_>> {
 		}
 		for ele in changelist.created.iter().filter_map(SchemaItem::as_scalar) {
 			initialized_tys.insert(ele.id());
+			if ele.is_external() {
+				continue;
+			}
 			Pg(ele).create(sql, rn);
 		}
 		for ele in &changelist.updated {
@@ -599,6 +621,7 @@ impl Pg<SchemaDiff<'_>> {
 			}
 		}
 
+		// Update scalars
 		for ele in changelist
 			.updated
 			.iter()
@@ -608,11 +631,15 @@ impl Pg<SchemaDiff<'_>> {
 				let new = ele.new.as_scalar().expect("scalar");
 				Pg(Diff { old, new })
 			}) {
-			Pg(ele).print(sql, rn);
+			let is_external = ele.new.is_external();
+			Pg(ele).print(sql, rn, is_external);
 		}
 
 		// Create new tables
 		for ele in changelist.created.iter().filter_map(SchemaItem::as_table) {
+			if ele.is_external() {
+				continue;
+			}
 			Pg(ele).create(sql, rn);
 		}
 
@@ -629,12 +656,23 @@ impl Pg<SchemaDiff<'_>> {
 			.collect_vec();
 		let mut changes = vec![];
 		for diff in &diffs {
-			let changelist = diff.print_stage1(sql, rn);
+			let changelist = diff.print_stage1(sql, rn, diff.new.is_external());
 			changes.push(changelist);
 		}
+		let mut fksd = vec![];
+		for diff in &diffs {
+			let changelist = diff.print_stage1_5(sql, rn, diff.new.is_external());
+			fksd.push(changelist);
+		}
 		let mut fkss = vec![];
-		for (diff, column_changes) in diffs.iter().zip(changes) {
-			let fks = Pg(diff).print_stage2(sql, rn, column_changes);
+		for ((diff, column_changes), constraint_changes) in diffs.iter().zip(changes).zip(fksd) {
+			let fks = Pg(diff).print_stage2(
+				sql,
+				rn,
+				column_changes,
+				constraint_changes,
+				diff.new.is_external(),
+			);
 			fkss.push(fks);
 		}
 
@@ -646,7 +684,7 @@ impl Pg<SchemaDiff<'_>> {
 		for ele in changelist.created.iter().filter_map(SchemaItem::as_table) {
 			let mut out = Vec::new();
 			let ele = Pg(ele);
-			let constraints = ele.constraints();
+			let constraints = pg_constraints(&ele);
 			for constraint in constraints {
 				constraint.create_alter_fk(&mut out, rn);
 			}
@@ -669,6 +707,9 @@ impl Pg<SchemaDiff<'_>> {
 
 		// Drop old tables
 		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_table) {
+			if ele.is_external() {
+				continue;
+			}
 			Pg(ele).drop(sql, rn);
 		}
 
@@ -712,6 +753,9 @@ impl Pg<SchemaDiff<'_>> {
 			Pg(ele).drop(sql, rn);
 		}
 		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_scalar) {
+			if ele.is_external() {
+				continue;
+			}
 			Pg(ele).drop(sql, rn);
 		}
 	}
@@ -845,8 +889,10 @@ impl Pg<SchemaComposite<'_>> {
 	}
 }
 impl Pg<SchemaScalar<'_>> {
-	pub fn rename(&self, to: DbType, sql: &mut String, rn: &mut RenameMap) {
-		self.print_alternations(&[format!("RENAME TO {to}")], sql, rn);
+	pub fn rename(&self, to: DbType, sql: &mut String, rn: &mut RenameMap, external: bool) {
+		if !external {
+			self.print_alternations(&[format!("RENAME TO {to}")], sql, rn);
+		}
 		self.scalar.set_db(rn, to);
 	}
 	pub fn print_alternations(&self, out: &[String], sql: &mut String, rn: &RenameMap) {
@@ -881,7 +927,7 @@ impl Pg<SchemaScalar<'_>> {
 						Pg(self.schema).format_sql(&check.check, SchemaItem::Scalar(self.0), rn);
 					w!(sql, "{formatted})");
 				}
-				ScalarAnnotation::Inline => {
+				ScalarAnnotation::Inline | ScalarAnnotation::External => {
 					unreachable!("non-material scalars are not created")
 				}
 				ScalarAnnotation::Index(_)
@@ -909,7 +955,7 @@ impl Pg<&Check> {
 	}
 }
 impl Pg<Diff<SchemaScalar<'_>>> {
-	pub fn print(&self, sql: &mut String, rn: &mut RenameMap) {
+	pub fn print(&self, sql: &mut String, rn: &mut RenameMap, external: bool) {
 		let mut new = self
 			.new
 			.annotations
@@ -949,16 +995,18 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 			out.push(sql);
 		}
 
-		Pg(self.old).print_alternations(&out, sql, rn);
+		if !external {
+			Pg(self.old).print_alternations(&out, sql, rn);
+		}
 	}
 }
 
 impl Pg<SchemaItem<'_>> {
-	pub fn rename(&self, to: DbItem, sql: &mut String, rn: &mut RenameMap) {
+	pub fn rename(&self, to: DbItem, sql: &mut String, rn: &mut RenameMap, external: bool) {
 		match self.0 {
-			SchemaItem::Table(t) => Pg(t).rename(DbTable::unchecked_from(to), sql, rn),
+			SchemaItem::Table(t) => Pg(t).rename(DbTable::unchecked_from(to), sql, rn, external),
 			SchemaItem::Enum(e) => Pg(e).rename(DbType::unchecked_from(to), sql, rn),
-			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), sql, rn),
+			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), sql, rn, external),
 			SchemaItem::Composite(c) => Pg(c).rename(DbType::unchecked_from(to), sql, rn),
 		}
 	}
@@ -1112,7 +1160,7 @@ impl Pg<&Schema> {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum PgTableConstraint<'s> {
+pub enum PgTableConstraint<'s> {
 	PrimaryKey(TablePrimaryKey<'s>),
 	Unique(TableUniqueConstraint<'s>),
 	Check(TableCheck<'s>),

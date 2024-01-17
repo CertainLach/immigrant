@@ -117,6 +117,7 @@ rule scalar_annotation(s:S) -> ScalarAnnotation
 / d:default(s) {ScalarAnnotation::Default(d)}
 / i:index(s) {ScalarAnnotation::Index(i)}
 / "@inline" {ScalarAnnotation::Inline}
+/ "@external" {ScalarAnnotation::External}
 rule column_annotation(s:S) -> ColumnAnnotation
 = i:index(s) {ColumnAnnotation::Index(i)}
 / c:check(s) {ColumnAnnotation::Check(c)}
@@ -129,6 +130,7 @@ rule table_annotation(s:S) -> TableAnnotation
 / u:unique(s) {TableAnnotation::Unique(u)}
 / pk:primary_key(s) {TableAnnotation::PrimaryKey(pk)}
 / i:index(s) {TableAnnotation::Index(i)}
+/ "@external" {TableAnnotation::External}
 rule composite_annotation(s:S) -> CompositeAnnotation
 = c:check(s) {CompositeAnnotation::Check(c)}
 rule field_annotation(s:S) -> FieldAnnotation

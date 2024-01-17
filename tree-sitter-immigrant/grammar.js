@@ -133,6 +133,7 @@ module.exports = grammar({
 		),
 
 		field_annotation: $ => repeat1(choice(
+			'@external',
 			$.expr_annotation,
 			$.fk_annotation,
 			seq($.pk_annotation, optional($.field_list)),

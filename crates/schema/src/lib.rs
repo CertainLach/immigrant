@@ -251,6 +251,14 @@ impl SchemaItem<'_> {
 			SchemaItem::Composite(c) => c.schema,
 		}
 	}
+	pub fn is_external(&self) -> bool {
+		match self {
+			SchemaItem::Table(t) => t.is_external(),
+			SchemaItem::Enum(_) => false,
+			SchemaItem::Scalar(s) => s.is_external(),
+			SchemaItem::Composite(_) => false,
+		}
+	}
 }
 impl HasUid for SchemaItem<'_> {
 	fn uid(&self) -> uid::Uid {
@@ -273,7 +281,8 @@ impl IsCompatible for SchemaItem<'_> {
 			}
 			(SchemaItem::Composite(a), SchemaItem::Composite(b)) => {
 				// There is no DB engine, which supports updating structs
-				let changes = mk_change_list(rn, &a.fields().collect_vec(), &b.fields().collect_vec());
+				let changes =
+					mk_change_list(rn, &a.fields().collect_vec(), &b.fields().collect_vec());
 				changes.dropped.is_empty() && changes.created.is_empty()
 			}
 			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
@@ -390,7 +399,7 @@ impl SchemaTable<'_> {
 			value: sql,
 		}
 	}
-	pub fn primary_key(&self) -> Option<TablePrimaryKey> {
+	pub fn primary_key(&self) -> Option<TablePrimaryKey<'_>> {
 		let pk = self.table.primary_key()?;
 		Some(TablePrimaryKey {
 			table: *self,

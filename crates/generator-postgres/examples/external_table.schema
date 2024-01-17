@@ -1,0 +1,45 @@
+!!!TEST external table should not have associated CREATE TABLE or DROP TABLE
+scalar test = "INTEGER" @external;
+
+table External {
+	test;
+	@external;
+};
+!!!UPDATE any updates in external tables should be passed as is
+scalar test = "INTEGER" @external;
+
+table External {
+	test "test3";
+	test2: test;
+	test4: test;
+	@external;
+};
+
+table Other {
+	test ~ External;
+};
+!!!UPDATE even updates are assumed
+scalar test "othertest" = "OTHERTHING" @check (_ != 0) @external;
+
+table External "otherexternal" {
+	test;
+	test2: test;
+	@external;
+};
+
+table Other {
+	test ~ External;
+};
+!!!RESULT
+-- updated: external table should not have associated CREATE TABLE or DROP TABLE --
+
+-- updated: any updates in external tables should be passed as is --
+CREATE TABLE others (
+	test test NOT NULL
+);
+ALTER TABLE others ADD CONSTRAINT others_test_fk FOREIGN KEY(test) REFERENCES externals(test3);
+-- updated: even updates are assumed --
+
+-- updated: cleanup schema changes --
+ALTER TABLE others DROP CONSTRAINT others_test_fk;
+DROP TABLE others;

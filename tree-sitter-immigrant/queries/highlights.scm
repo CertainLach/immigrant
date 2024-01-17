@@ -8,6 +8,7 @@
 "@primary_key"
 "@unique"
 "@index"
+"@external"
 "@inline"
 "!!!SETUP"
 "!!!TEST"

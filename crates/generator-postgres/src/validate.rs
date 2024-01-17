@@ -39,6 +39,7 @@ pub fn validate(_code: &str, schema: &Schema, rn: &RenameMap) {
 						TableAnnotation::Unique(u) => validate_db(u, rn),
 						TableAnnotation::PrimaryKey(p) => validate_db(p, rn),
 						TableAnnotation::Index(i) => validate_db(i, rn),
+						TableAnnotation::External => {}
 					}
 				}
 			}
@@ -54,7 +55,9 @@ pub fn validate(_code: &str, schema: &Schema, rn: &RenameMap) {
 						ScalarAnnotation::PrimaryKey(_)
 						| ScalarAnnotation::Unique(_)
 						| ScalarAnnotation::Index(_) => panic!("should be propagated"),
-						ScalarAnnotation::Default(_) | ScalarAnnotation::Inline => {}
+						ScalarAnnotation::Default(_)
+						| ScalarAnnotation::Inline
+						| ScalarAnnotation::External => {}
 					}
 				}
 			}

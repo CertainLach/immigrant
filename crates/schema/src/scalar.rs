@@ -69,9 +69,8 @@ pub(crate) struct PropagatedScalarData {
 impl PropagatedScalarData {
 	/// Returns true if extended
 	pub(crate) fn extend(&mut self, other: Self) {
-		self.annotations.extend(other.annotations.into_iter());
-		self.field_annotations
-			.extend(other.field_annotations.into_iter());
+		self.annotations.extend(other.annotations);
+		self.field_annotations.extend(other.field_annotations);
 	}
 	pub(crate) fn is_empty(&self) -> bool {
 		self.annotations.is_empty() && self.field_annotations.is_empty()
@@ -132,6 +131,11 @@ impl Scalar {
 			.iter()
 			.any(|a| matches!(a, ScalarAnnotation::Inline))
 	}
+	pub fn is_external(&self) -> bool {
+		self.annotations
+			.iter()
+			.any(|a| matches!(a, ScalarAnnotation::External))
+	}
 	pub fn inlined(&self) -> bool {
 		self.inlined
 	}
@@ -172,6 +176,7 @@ pub enum ScalarAnnotation {
 	Index(Index),
 	// Always convert to native types, even if database supports domain types.
 	Inline,
+	External,
 }
 impl ScalarAnnotation {
 	pub fn as_check(&self) -> Option<&Check> {
@@ -182,7 +187,7 @@ impl ScalarAnnotation {
 	}
 	/// Should annotation be removed after inlining?
 	fn is_inline_target(&self) -> bool {
-		!matches!(self, Self::Inline)
+		!matches!(self, Self::Inline | Self::External)
 	}
 	fn propagate_to_field(&self, inline: bool) -> Option<FieldAnnotation> {
 		Some(match self {

@@ -53,6 +53,11 @@ impl Table {
 			.at_most_one()
 			.expect("at most one pk")
 	}
+	pub fn is_external(&self) -> bool {
+		self.annotations
+			.iter()
+			.any(|a| matches!(a, TableAnnotation::External))
+	}
 }
 #[derive(Debug)]
 pub enum TableAnnotation {
@@ -60,6 +65,7 @@ pub enum TableAnnotation {
 	Unique(UniqueConstraint),
 	PrimaryKey(PrimaryKey),
 	Index(Index),
+	External,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -276,6 +282,7 @@ impl<'a> SchemaTable<'a> {
 					}
 				}
 				TableAnnotation::Check { .. } => {}
+				TableAnnotation::External => {}
 			}
 		}
 		// FIXME: Wrong assumption? When target is one, it doesn't mean the source is one too

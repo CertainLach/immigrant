@@ -99,7 +99,6 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 	out: &mut Vec<RenameOp<T>>,
 	id: &mut RenameTempAllocator,
 ) {
-	info!("reorder");
 	// No loops possible/reordering needed
 	if renames.len() == 1 {
 		if let RenameOp::Rename(a, b) = &renames[0] {
