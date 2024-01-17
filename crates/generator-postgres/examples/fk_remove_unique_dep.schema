@@ -1,0 +1,49 @@
+!!!TEST fk removal should depend on unique removal
+scalar test1 = "INT";
+scalar test2 = "INT";
+
+table AA {
+	test1;
+	test2;
+	@unique(test1, test2);
+};
+table BB {
+	test1;
+	test2;
+	(test1, test2) ~ AA;
+};
+!!!UPDATE both unique and constraint are deleted
+scalar test1 = "INT";
+scalar test2 = "INT";
+
+table AA {
+	test1;
+	test2;
+};
+table BB {
+	test1;
+	test2;
+};
+!!!RESULT
+-- updated: fk removal should depend on unique removal --
+CREATE DOMAIN test1 AS INT;
+CREATE DOMAIN test2 AS INT;
+CREATE TABLE aas (
+	test1 test1 NOT NULL
+,	test2 test2 NOT NULL
+,	CONSTRAINT aas_test1_test2_key UNIQUE(test1, test2)
+
+);
+CREATE TABLE bbs (
+	test1 test1 NOT NULL
+,	test2 test2 NOT NULL
+);
+ALTER TABLE bbs ADD CONSTRAINT bbs_test1_test2_fk FOREIGN KEY(test1, test2) REFERENCES aas(test1, test2);
+-- updated: both unique and constraint are deleted --
+ALTER TABLE aas DROP CONSTRAINT aas_test1_test2_key;
+ALTER TABLE bbs DROP CONSTRAINT bbs_test1_test2_fk;
+-- updated: cleanup schema changes --
+DROP TABLE aas;
+DROP TABLE bbs;
+DROP DOMAIN test1;
+DROP DOMAIN test2;
