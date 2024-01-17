@@ -12,7 +12,7 @@ table BB {
 	test2;
 	(test1, test2) ~ AA;
 };
-!!!UPDATE both unique and constraint are deleted
+!!!UPDATE both unique and fk are deleted, fk should be dropped first
 scalar test1 = "INT";
 scalar test2 = "INT";
 
@@ -39,9 +39,9 @@ CREATE TABLE bbs (
 ,	test2 test2 NOT NULL
 );
 ALTER TABLE bbs ADD CONSTRAINT bbs_test1_test2_fk FOREIGN KEY(test1, test2) REFERENCES aas(test1, test2);
--- updated: both unique and constraint are deleted --
-ALTER TABLE aas DROP CONSTRAINT aas_test1_test2_key;
+-- updated: both unique and fk are deleted, fk should be dropped first --
 ALTER TABLE bbs DROP CONSTRAINT bbs_test1_test2_fk;
+ALTER TABLE aas DROP CONSTRAINT aas_test1_test2_key;
 -- updated: cleanup schema changes --
 DROP TABLE aas;
 DROP TABLE bbs;

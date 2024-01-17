@@ -329,6 +329,18 @@ impl Pg<TableDiff<'_>> {
 			}
 		}
 
+		// Drop fks
+		{
+			let oldpg = Pg(self.old);
+			let newpg = Pg(self.new);
+			let old_constraints = oldpg.constraints();
+			let new_constraints = newpg.constraints();
+			let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
+			for constraint in &constraint_changes.dropped {
+				constraint.drop_alter_fk(&mut out, rn);
+			}
+		}
+
 		Pg(self.new).print_alternations(&out, sql, rn);
 		column_changes
 	}
@@ -347,10 +359,11 @@ impl Pg<TableDiff<'_>> {
 		let new_constraints = newpg.constraints();
 		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
 
-		// Drop/rename constraints
+		// Drop constraints
 		for constraint in constraint_changes.dropped {
-			constraint.drop_alter(&mut out, rn);
+			constraint.drop_alter_non_fk(&mut out, rn);
 		}
+		// Rename constraints
 		for ele in constraint_changes.renamed {
 			let mut stored = HashMap::new();
 			match ele {
@@ -646,7 +659,7 @@ impl Pg<SchemaDiff<'_>> {
 			'fk: for fk in a.foreign_keys() {
 				for b in changelist.dropped.iter().filter_map(SchemaItem::as_table) {
 					if fk.target == b.id() {
-						Pg(PgTableConstraint::ForeignKey(fk)).drop_alter(&mut out, rn);
+						Pg(PgTableConstraint::ForeignKey(fk)).drop_alter_fk(&mut out, rn);
 						continue 'fk;
 					}
 				}
@@ -1228,7 +1241,20 @@ impl IsCompatible for PgTableConstraint<'_> {
 	}
 }
 impl PgTableConstraint<'_> {
-	fn drop_alter(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+	fn is_fk(&self) -> bool {
+		matches!(self, Self::ForeignKey(_))
+	}
+	fn drop_alter_non_fk(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+		if self.is_fk() {
+			return;
+		}
+		let name = self.db(rn);
+		out.push(alt_group!("DROP CONSTRAINT {name}"));
+	}
+	fn drop_alter_fk(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+		if !self.is_fk() {
+			return;
+		}
 		let name = self.db(rn);
 		out.push(alt_group!("DROP CONSTRAINT {name}"));
 	}

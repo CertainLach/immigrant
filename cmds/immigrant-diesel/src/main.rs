@@ -14,7 +14,7 @@ use schema::{
 	composite::CompositeField, process::NamingConvention, scalar::EnumItem, table::Cardinality,
 	uid::RenameExt, HasIdent, SchemaComposite, SchemaEnum, SchemaTable, SchemaType, TableColumn,
 };
-use syn::{Ident, Path};
+use syn::{Ident, Index, Path};
 
 #[derive(PartialEq, Clone, Copy)]
 enum TableKind {
@@ -138,18 +138,15 @@ fn column_ty(kind: TableKind, column: TableColumn<'_>) -> TokenStream {
 	let ty = column_ty_name(jojo_reference, &column.ty());
 	let ty = jojo_reference.then(|| quote!(&'a #ty)).unwrap_or(ty);
 	let ty = column.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
-	let ty = (kind == TableKind::Update && !column.is_pk_part()
+	(kind == TableKind::Update && !column.is_pk_part()
 		|| kind == TableKind::New && column.has_default())
 	.then(|| quote!(Option<#ty>))
-	.unwrap_or(ty);
-	ty
+	.unwrap_or(ty)
 }
 
 fn field_ty(field: CompositeField<'_>) -> TokenStream {
-	let copy = is_copy(&field.ty());
 	let ty = column_ty_name(false, &field.ty());
-	let ty = field.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty);
-	ty
+	field.nullable.then(|| quote!(Option<#ty>)).unwrap_or(ty)
 }
 
 fn column_only_default(column: &TableColumn) -> bool {
@@ -397,23 +394,65 @@ fn print_schema() -> anyhow::Result<()> {
 			.into_iter()
 			.map(|v| syn::parse_str::<Path>(&v).unwrap());
 
-		let name = format!("crate::sql_types::{id}");
 		let mut copy = true;
-		let fields = composite.fields().map(|f| {
-			if !is_copy(&f.ty()) {
-				copy = false;
-			}
+		let fields = composite
+			.fields()
+			.map(|f| {
+				if !is_copy(&f.ty()) {
+					copy = false;
+				}
+				let id = field_ident(&f);
+				let ty = field_ty(f);
+				quote! {
+					pub #id: #ty,
+				}
+			})
+			.collect::<Vec<_>>();
+
+		let ser_list = composite.fields().map(|f| {
 			let id = field_ident(&f);
-			let name = f.db(rn).to_string();
-			let ty = field_ty(f);
-			quote! {
-				pub #id: #ty,
-			}
-		}).collect::<Vec<_>>();
+			quote! {&self.#id}
+		});
+
+		let des_list = composite.fields().enumerate().map(|(i, f)| {
+			let id = field_ident(&f);
+			let i = Index::from(i);
+			quote! {#id: val.#i}
+		});
+
+		let raw_tys = composite
+			.fields()
+			.map(|f| column_raw_ty(f.ty(), f.nullable))
+			.collect::<Vec<_>>();
+		let tys = composite.fields().map(|f| field_ty(f));
+
+		let sql_type = quote!(crate::sql_types::#id);
+
 		composites.append_all(quote! {
-			#[derive(Debug, PartialEq, Eq, Clone, Hash #(, #derives)*)]
+			#[derive(Debug, PartialEq, Eq, Clone, Hash, diesel::expression::AsExpression, diesel::deserialize::FromSqlRow #(, #derives)*)]
+			#[diesel(sql_type = #sql_type)]
 			pub struct #id {
 				#(#fields)*
+			}
+
+			impl diesel::serialize::ToSql<#sql_type, diesel::pg::Pg> for #id {
+				fn to_sql<'b>(
+					&'b self,
+					out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+				) -> diesel::serialize::Result {
+					diesel::serialize::WriteTuple::<(#(#raw_tys,)*)>::write_tuple(&(#(#ser_list),*), out)
+				}
+			}
+
+			impl diesel::deserialize::FromSql<#sql_type, diesel::pg::Pg> for #id {
+				fn from_sql(
+					bytes: <diesel::pg::Pg as diesel::backend::Backend>::RawValue<'_>,
+				) -> diesel::deserialize::Result<Self> {
+					let val = <(#(#tys),*) as diesel::deserialize::FromSql<diesel::sql_types::Record<(#(#raw_tys),*)>, diesel::pg::Pg>>::from_sql(bytes)?;
+					Ok(Self {
+						#(#des_list,)*
+					})
+				}
 			}
 		});
 	}
