@@ -152,7 +152,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 
 	let mut to_rename = vec![];
 	for updated in out.updated.iter() {
-		to_rename.push((updated.old.clone(), updated.new.db(rn)));
+		to_rename.push((updated.old.clone(), updated.new.db(rn), updated.old.clone()));
 	}
 	let mut moveaways = vec![];
 	for old_dropped in out_dropped.iter() {

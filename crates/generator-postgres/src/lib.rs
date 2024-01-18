@@ -318,14 +318,14 @@ impl Pg<TableDiff<'_>> {
 			let mut updated = HashMap::new();
 			for ele in &column_changes.renamed {
 				match ele {
-					RenameOp::Rename(i, r) => {
+					RenameOp::Rename(i, r, _) => {
 						Pg(*i).rename_alter(DbIdent::unchecked_from(r.clone()), &mut out, rn);
 					}
 					RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
 						Pg(*i).rename_alter(t.db(), &mut out, rn);
 						updated.insert(t, i);
 					}
-					RenameOp::Restore(t, n) => {
+					RenameOp::Restore(t, n, _) => {
 						let table = updated.remove(&t).expect("stored");
 						Pg(*table).rename_alter(DbIdent::unchecked_from(n.clone()), &mut out, rn);
 					}
@@ -377,14 +377,14 @@ impl Pg<TableDiff<'_>> {
 		for ele in constraint_changes.renamed {
 			let mut stored = HashMap::new();
 			match ele {
-				RenameOp::Rename(a, b) => {
+				RenameOp::Rename(a, b, _) => {
 					a.rename_alter(b, &mut out, rn);
 				}
 				RenameOp::Store(a, b) => {
 					a.rename_alter(b.db(), &mut out, rn);
 					stored.insert(b, a);
 				}
-				RenameOp::Restore(r, t) => {
+				RenameOp::Restore(r, t, _) => {
 					stored
 						.remove(&r)
 						.expect("stored")
@@ -536,16 +536,11 @@ impl Pg<SchemaDiff<'_>> {
 					stored.insert(t, i);
 					Pg(i).rename(t.db(), sql, rn, i.is_external());
 				}
-				RenameOp::Restore(t, n) => {
+				RenameOp::Restore(t, n, r) => {
 					let item = stored.remove(&t).expect("stored");
-					// FIXME: is_external should check if the NEW ITEM is external, not the source
-					let is_external = item.is_external();
-					Pg(item).rename(n, sql, rn, is_external);
+					Pg(item).rename(n, sql, rn, r.is_external());
 				}
-				RenameOp::Rename(v, n) => {
-					// FIXME: is_external should check if the TARGET is external, not the source
-					Pg(v).rename(n, sql, rn, v.is_external())
-				}
+				RenameOp::Rename(v, n, r) => Pg(v).rename(n, sql, rn, r.is_external()),
 			}
 		}
 
@@ -830,10 +825,10 @@ impl Pg<EnumDiff<'_>> {
 					stored.insert(t, i.clone());
 					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
-				RenameOp::Rename(v, n) => {
+				RenameOp::Rename(v, n, _) => {
 					changes.push(Pg(v).rename_alter(n, rn));
 				}
-				RenameOp::Restore(r, n) => {
+				RenameOp::Restore(r, n, _) => {
 					let stored = stored.remove(&r).expect("was not stored");
 					Pg(stored).rename_alter(n, rn);
 				}
