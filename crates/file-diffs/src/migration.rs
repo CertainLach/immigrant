@@ -70,7 +70,7 @@ impl Migration {
 	// Convert reset schema to diff schema
 	pub fn to_diff(&mut self, old_schema: String) -> Result<()> {
 		let MigrationSchemaDiff::Reset(reset) = &self.schema_diff else {
-			return Ok(())
+			return Ok(());
 		};
 		let diff_input = InternedInput::new(old_schema.as_str(), reset.as_str());
 		let update = diff(
@@ -101,11 +101,11 @@ impl FromStr for Migration {
 		let mut lines = migration.lines().peekable();
 		skip_empty(&mut lines);
 		let Some(header) = lines.next() else {
-        return Err(UpdateIsEmpty);
-    };
+			return Err(UpdateIsEmpty);
+		};
 		let Some(name) = header.strip_prefix("# ") else {
-        return Err(MissingHeader);
-    };
+			return Err(MissingHeader);
+		};
 		let name = name.to_owned();
 
 		let description = until_next_header(&mut lines);
@@ -210,8 +210,8 @@ fn until_next_header(l: &mut Peekable<Lines>) -> String {
 	skip_empty(l);
 	loop {
 		let Some(line) = l.next_if(|l| !l.starts_with('#')) else {
-            break;
-        };
+			break;
+		};
 		out.push(line);
 	}
 	while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {

@@ -73,14 +73,14 @@ pub fn list_ids(path: &Path) -> Result<Vec<MigrationId>> {
 
 		let mut split = dirname.splitn(2, '_');
 		let Some(id) = split.next() else {
-			return Err(MissingMigrationId(dirname.to_owned()))
-        };
-		let Ok(id) = id.parse::<u32>()  else {
-			return Err(MissingMigrationId(dirname.to_owned()))
-        };
+			return Err(MissingMigrationId(dirname.to_owned()));
+		};
+		let Ok(id) = id.parse::<u32>() else {
+			return Err(MissingMigrationId(dirname.to_owned()));
+		};
 		let Some(slug) = split.next() else {
-			return Err(MissingSlug(dirname.to_owned()))
-        };
+			return Err(MissingSlug(dirname.to_owned()));
+		};
 
 		ids.push(MigrationId {
 			id,
@@ -111,19 +111,20 @@ pub fn list_ids(path: &Path) -> Result<Vec<MigrationId>> {
 	}
 	Ok(ids)
 }
-pub fn list(root: &Path) -> Result<Vec<(MigrationId, Migration)>> {
+pub fn list(root: &Path) -> Result<Vec<(MigrationId, Migration, PathBuf)>> {
 	let mut out = Vec::new();
 	let ids = list_ids(root)?;
 	let mut path = root.to_path_buf();
 	for id in ids {
 		let slug = id.slug.clone();
 		path.push(&id.dirname);
+		let migration_dir = path.to_owned();
 		path.push("db.update");
 
 		let update = fs::read_to_string(&path)?;
 		let migration =
 			Migration::from_str(&update).map_err(|error| MigrationParse { id: slug, error })?;
-		out.push((id, migration));
+		out.push((id, migration, migration_dir));
 
 		path.pop();
 		path.pop();

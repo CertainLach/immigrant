@@ -108,7 +108,7 @@ fn main() -> anyhow::Result<()> {
 			}
 			Item::Enum(_) => {}
 			Item::Scalar(_) => {}
-			Item::Composite(_) => {},
+			Item::Composite(_) => {}
 		}
 	}
 	Ok(())

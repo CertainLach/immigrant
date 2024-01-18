@@ -1,0 +1,16 @@
+[package]
+name = "immigrant-migrate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.79"
+clap = { version = "4.4.18", features = ["derive"] }
+cli.workspace = true
+file-diffs.workspace = true
+futures = "0.3.30"
+schema.workspace = true
+slug = "0.1.5"
+sqlx = { version = "0.7.3", features = ["runtime-tokio", "postgres", "macros"] }
+tokio = { version = "1.35.1", features = ["macros"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
