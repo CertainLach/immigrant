@@ -1,7 +1,7 @@
 use crate::{
 	attribute::AttributeList,
 	def_name_impls,
-	names::{ColumnIdent, TableIdent, TableKind, ViewDefName, ViewKind},
+	names::{ColumnIdent, TableIdent, ViewDefName, ViewKind},
 	uid::{next_uid, Uid},
 };
 

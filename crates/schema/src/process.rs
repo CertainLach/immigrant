@@ -158,8 +158,13 @@ impl Pgnc<&mut Table> {
 			return;
 		}
 		let id = self.id().name();
-		let id = to_snake_case(&id);
-		self.set_db(rn, DbIdent::new(&to_plural(&id)));
+		let id = if self.attrlist.get_single("pgnc", "as_is") == Ok(true) {
+			id
+		} else {
+			let id = to_snake_case(&id);
+			to_plural(&id)
+		};
+		self.set_db(rn, DbIdent::new(&id));
 	}
 	pub fn generate_column_names(&self, rn: &mut RenameMap) {
 		for column in self.columns.iter() {
@@ -404,7 +409,12 @@ impl Pgnc<&mut View> {
 			return;
 		}
 		let id = self.id().name();
-		let id = to_snake_case(&id);
-		self.set_db(rn, DbIdent::new(&to_plural(&id)));
+		let id = if self.attrlist.get_single("pgnc", "as_is") == Ok(true) {
+			id
+		} else {
+			let id = to_snake_case(&id);
+			to_plural(&id)
+		};
+		self.set_db(rn, DbIdent::new(&id));
 	}
 }

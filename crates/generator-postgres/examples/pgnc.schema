@@ -1,0 +1,16 @@
+!!!TEST naming convention modifiers, table should be named as in schema
+scalar foo = "INTEGER";
+
+#pgnc(as_is)
+table bar {
+	foo;
+};
+!!!RESULT
+-- updated: naming convention modifiers, table should be named as in schema --
+CREATE DOMAIN foo AS INTEGER;
+CREATE TABLE bar (
+	foo foo NOT NULL
+);
+-- updated: cleanup schema changes --
+DROP TABLE bar;
+DROP DOMAIN foo;
