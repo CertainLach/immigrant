@@ -13,8 +13,9 @@ use crate::{
 	scalar::PropagatedScalarData,
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
+	view::View,
 	HasIdent, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, SchemaType,
+	SchemaTable, SchemaType, SchemaView,
 };
 
 #[derive(derivative::Derivative)]
@@ -28,6 +29,8 @@ pub enum Item {
 	Scalar(Scalar),
 	#[derivative(Debug = "transparent")]
 	Composite(Composite),
+	#[derivative(Debug = "transparent")]
+	View(View),
 }
 impl Item {
 	pub fn is_table(&self) -> bool {
@@ -103,8 +106,9 @@ impl Schema {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
 			Item::Enum(_) => 0,
-			Item::Scalar(_) => 9998,
-			Item::Composite(_) => 9999,
+			Item::Scalar(_) => 9997,
+			Item::Composite(_) => 9998,
+			Item::View(_) => 9999,
 		});
 
 		let mut propagated_scalars = HashMap::new();
@@ -188,6 +192,7 @@ impl Schema {
 						schema: self,
 						composite,
 					}),
+					Item::View(view) => SchemaItem::View(SchemaView { schema: self, view }),
 					_ => return None,
 				})
 			})
@@ -210,6 +215,7 @@ impl Schema {
 					schema: self,
 					composite,
 				}),
+				Item::View(view) => SchemaItem::View(SchemaView { schema: self, view }),
 			})
 			.collect()
 	}

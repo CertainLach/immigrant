@@ -17,6 +17,7 @@ use crate::{
 	sql::Sql,
 	table::{Table, TableAnnotation},
 	uid::{RenameExt, RenameMap},
+	view::View,
 	w, HasIdent,
 };
 
@@ -75,6 +76,10 @@ impl Pgnc<&mut Schema> {
 					let c = Pgnc(c);
 					c.generate_name(rn);
 					c.generate_item_names(rn);
+				}
+				Item::View(v) => {
+					let c = Pgnc(v);
+					c.generate_name(rn);
 				}
 			}
 		}
@@ -389,5 +394,17 @@ impl Pgnc<&mut Composite> {
 			let id = ele.id().name();
 			ele.set_db(rn, DbIdent::new(&id));
 		}
+	}
+}
+
+impl Pgnc<&mut View> {
+	/// Generate name for the table itself
+	pub fn generate_name(&self, rn: &mut RenameMap) {
+		if self.db_assigned(rn) {
+			return;
+		}
+		let id = self.id().name();
+		let id = to_snake_case(&id);
+		self.set_db(rn, DbIdent::new(&to_plural(&id)));
 	}
 }

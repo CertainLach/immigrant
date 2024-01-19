@@ -10,7 +10,7 @@ use crate::{
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, TableDefName, TableIdent,
-		TypeDefName, TypeIdent,
+		TypeDefName, TypeIdent, ViewDefName,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
 	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
@@ -18,6 +18,7 @@ use crate::{
 	sql::{Sql, SqlOp, SqlUnOp},
 	table::{ForeignKey, OnDelete, Table, TableAnnotation},
 	uid::RenameMap,
+	view::{Definition, DefinitionPart, View},
 };
 
 fn h<T>(v: T) -> Box<T> {
@@ -31,6 +32,7 @@ pub(super) rule root(s:S) -> Schema = _ t:item(s)**_ _ {Schema(t)}
 
 rule item(s:S) -> Item
 = t:table(s) {Item::Table(t)}
+/ t:view(s) {Item::View(t)}
 / t:enum(s) {Item::Enum(t)}
 / t:scalar(s) {Item::Scalar(t)}
 / t:composite(s) {Item::Composite(t)}
@@ -50,6 +52,29 @@ rule table(s:S) -> Table =
 		fields,
 		annotations,
 		foreign_keys,
+	)
+}};
+rule definition(s:S) -> Definition = "$$"
+	parts:(
+		raw:$((!"$$" !"${" [_])+)
+			{DefinitionPart::Raw(raw.to_string())}
+	/	i:("${" _ i:code_ident(s) _ "}" {i})
+			{DefinitionPart::TableRef(TableIdent::alloc(i))}
+	/	i:("${" _ i:code_ident(s) _ "." _ j:code_ident(s) _ "}" {(i, j)})
+			{DefinitionPart::ColumnRef(TableIdent::alloc(i.0), ColumnIdent::alloc(i.1))}
+	)+
+"$$" {{
+	Definition(parts)
+}};
+rule view(s:S) -> View =
+	docs:docs()
+	attrlist:attribute_list(s) _
+	"view" _ name:def_name(s) _ "=" _ definition:definition(s) _ ";" {{
+	View::new(
+		docs,
+		attrlist,
+		ViewDefName::alloc(name),
+		definition,
 	)
 }};
 rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {

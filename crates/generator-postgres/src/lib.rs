@@ -8,16 +8,20 @@ use schema::{
 	ids::{DbIdent, Ident},
 	index::Check,
 	mk_change_list,
-	names::{ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType},
+	names::{
+		ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType,
+		DbView,
+	},
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
+	view::DefinitionPart,
 	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
 	IsCompatible, IsIsomorph, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
-	SchemaSql, SchemaTable, TableCheck, TableColumn, TableDiff, TableForeignKey, TableIndex,
-	TablePrimaryKey, TableSql, TableUniqueConstraint,
+	SchemaSql, SchemaTable, SchemaView, TableCheck, TableColumn, TableDiff, TableForeignKey,
+	TableIndex, TablePrimaryKey, TableSql, TableUniqueConstraint,
 };
 
 pub mod validate;
@@ -671,6 +675,11 @@ impl Pg<SchemaDiff<'_>> {
 			fkss.push(fks);
 		}
 
+		// Create new views
+		for ele in changelist.created.iter().filter_map(SchemaItem::as_view) {
+			Pg(ele).create(sql, rn);
+		}
+
 		// Create new foreign keys
 		assert_eq!(diffs.len(), fkss.len());
 		for (diff, fks) in diffs.iter().zip(fkss) {
@@ -698,6 +707,11 @@ impl Pg<SchemaDiff<'_>> {
 				}
 			}
 			Pg(a).print_alternations(&out, sql, rn);
+		}
+
+		// Drop old views
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
+			Pg(ele).drop(sql, rn);
 		}
 
 		// Drop old tables
@@ -1003,6 +1017,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Enum(e) => Pg(e).rename(DbType::unchecked_from(to), sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).rename(DbType::unchecked_from(to), sql, rn, external),
 			SchemaItem::Composite(c) => Pg(c).rename(DbType::unchecked_from(to), sql, rn),
+			SchemaItem::View(v) => Pg(v).rename(DbView::unchecked_from(to), sql, rn),
 		}
 	}
 	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
@@ -1011,6 +1026,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Enum(e) => Pg(e).create(sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).create(sql, rn),
 			SchemaItem::Composite(c) => Pg(c).create(sql, rn),
+			SchemaItem::View(_) => todo!(),
 		}
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
@@ -1019,6 +1035,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Enum(e) => Pg(e).drop(sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).drop(sql, rn),
 			SchemaItem::Composite(c) => Pg(c).drop(sql, rn),
+			SchemaItem::View(c) => Pg(c).drop(sql, rn),
 		}
 	}
 }
@@ -1107,7 +1124,9 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 		}
 		Sql::Placeholder => {
 			match context {
-				SchemaItem::Table(_) => panic!("placeholder should be replaced on this point"),
+				SchemaItem::Table(_) | SchemaItem::View(_) => {
+					panic!("placeholder should be replaced on this point")
+				}
 				SchemaItem::Enum(_) => panic!("enums have no sql items"),
 				SchemaItem::Scalar(_) => w!(out, "VALUE"),
 				SchemaItem::Composite(_) => panic!("composite checks should be inlined"),
@@ -1378,6 +1397,69 @@ impl Pg<TableCheck<'_>> {
 	}
 	pub fn drop_alter(&self, out: &mut Vec<String>, rn: &RenameMap) {
 		out.push(format!("DROP CONSTRAINT {}", self.db(rn)));
+	}
+}
+
+impl Pg<SchemaView<'_>> {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+		let table_name = &self.db(rn);
+		w!(sql, "CREATE VIEW {table_name} AS");
+		for ele in &self.0.definition.0 {
+			match ele {
+				DefinitionPart::Raw(r) => w!(sql, "{r}"),
+				DefinitionPart::TableRef(t) => {
+					let table = self.schema.schema_table(t).expect("referenced");
+					w!(sql, "{}", table.db(rn))
+				}
+				DefinitionPart::ColumnRef(t, c) => {
+					let table = self.schema.schema_table(t).expect("referenced");
+					let db = Sql::context_ident_name(&SchemaItem::Table(table), *c, rn);
+					w!(sql, "{db}")
+				}
+			}
+		}
+		wl!(sql, ";");
+	}
+	pub fn rename(&self, to: DbView, sql: &mut String, rn: &mut RenameMap) {
+		self.print_alternations(&[alt_ungroup!("RENAME TO {to}")], sql, rn);
+		self.set_db(rn, to);
+	}
+	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
+		let name = &self.db(rn);
+		wl!(sql, "DROP VIEW {name};");
+	}
+
+	pub fn print_alternations(&self, mut out: &[Alternation], sql: &mut String, rn: &RenameMap) {
+		fn print_group(name: &DbView, list: &[Alternation], sql: &mut String) {
+			if list.len() > 1 {
+				w!(sql, "ALTER VIEW {name}\n");
+				for (i, alt) in list.iter().enumerate() {
+					if i != 0 {
+						w!(sql, ",");
+					};
+					wl!(sql, "\t{}", alt.alt);
+				}
+				wl!(sql, ";");
+			} else {
+				let alt = &list[0];
+				w!(sql, "ALTER VIEW {name} {};\n", alt.alt);
+			}
+		}
+		let name = &self.db(rn);
+		while !out.is_empty() {
+			let mut count = 1;
+			loop {
+				if !out[count - 1].groupable_down || out.len() == count {
+					break;
+				}
+				if !out[count].groupable_up {
+					break;
+				}
+				count += 1;
+			}
+			print_group(name, &out[..count], sql);
+			out = &out[count..];
+		}
 	}
 }
 

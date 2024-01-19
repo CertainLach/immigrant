@@ -182,6 +182,25 @@ impl Sql {
 			SchemaType::Composite(c) => c.field(field).db(rn),
 		}
 	}
+	pub fn context_ident_name<'s>(
+		context: &'s SchemaItem<'s>,
+		ident: ColumnIdent,
+		rn: &RenameMap,
+	) -> DbIdent<FieldKind> {
+		match context {
+			SchemaItem::Table(t) => {
+				let column = t.schema_column(ident);
+				DbIdent::unchecked_from(column.db(rn))
+			}
+			SchemaItem::Enum(_) => panic!("nothing in enum"),
+			SchemaItem::Scalar(_) => panic!("nothing in scalar: {context:?}"),
+			SchemaItem::Composite(c) => {
+				let field = c.field(Ident::unchecked_cast(ident));
+				field.db(rn)
+			}
+			SchemaItem::View(_) => panic!("nothing in view"),
+		}
+	}
 	/// If self == Sql::Ident(name), convert name to native
 	pub fn ident_name<'s>(
 		&self,
@@ -191,18 +210,7 @@ impl Sql {
 		let Sql::Ident(f) = self else {
 			panic!("not ident");
 		};
-		match context {
-			SchemaItem::Table(t) => {
-				let column = t.schema_column(*f);
-				DbIdent::unchecked_from(column.db(rn))
-			}
-			SchemaItem::Enum(_) => panic!("nothing in enum"),
-			SchemaItem::Scalar(_) => panic!("nothing in scalar: {context:?}"),
-			SchemaItem::Composite(c) => {
-				let field = c.field(Ident::unchecked_cast(*f));
-				field.db(rn)
-			}
-		}
+		Self::context_ident_name(context, *f, rn)
 	}
 	fn type_ident_of_expr<'s>(&self, context: &'s SchemaItem<'s>) -> Ident<TypeKind> {
 		match self {
@@ -229,6 +237,7 @@ impl Sql {
 					let field = c.field(Ident::unchecked_cast(*f));
 					field.ty
 				}
+				SchemaItem::View(_) => panic!("nothing in view"),
 			},
 			Sql::GetField(f, t) => {
 				let ty_id = f.type_ident_of_expr(context);
@@ -244,7 +253,9 @@ impl Sql {
 			}
 			Sql::Parened(v) => v.type_ident_of_expr(context),
 			Sql::Placeholder => match context {
-				SchemaItem::Table(_) => panic!("can't refer to table fields using this notation"),
+				SchemaItem::Table(_) | SchemaItem::View(_) => {
+					panic!("can't refer to table fields using this notation")
+				}
 				SchemaItem::Enum(e) => e.id(),
 				SchemaItem::Scalar(s) => s.id(),
 				SchemaItem::Composite(c) => c.id(),

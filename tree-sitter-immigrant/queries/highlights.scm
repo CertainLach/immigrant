@@ -1,5 +1,6 @@
 ["scalar"
 "table"
+"view"
 "enum"
 "struct"
 "@default"
@@ -20,6 +21,7 @@
 "."
 ":"] @punctuation.delimiter
 ["{"
+"${"
 "}"
 "("
 ")"
@@ -34,7 +36,8 @@
 "!=="
 "::"
 "="
-"!"] @operator
+"!"
+"$$"] @operator
 
 ["#"
 ] @keyword

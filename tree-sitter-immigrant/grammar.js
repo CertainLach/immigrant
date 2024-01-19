@@ -29,6 +29,7 @@ module.exports = grammar({
 		declaration: $ => choice(
 			$.scalar_declaration,
 			$.table_declaration,
+			$.view_declaration,
 			$.enum_declaration,
 			$.composite_declaration,
 		),
@@ -48,6 +49,37 @@ module.exports = grammar({
 			repeat1($.table_field),
 			repeat($.table_annotation),
 			'}',
+			';',
+		),
+		decl: $ => repeat1(choice(
+			$.decl_column,
+			$.decl_table,
+			$.decl_raw,
+		)),
+		decl_raw: $ => prec.right(repeat1(choice(
+			/[^\$]+/,
+			/\$[^\$\{]/
+		))),
+		decl_column: $ => seq(
+			'${',
+			field('table', $.type_identifier),
+			'.',
+			field('column', $.field_identifier),
+			'}',
+		),
+		decl_table: $ => seq(
+			'${',
+			field('table', $.type_identifier),
+			'}',
+		),
+		view_declaration: $ => seq(
+			repeat($.attribute),
+			'view',
+			field('name', $.type_db_name),
+			'=',
+			'$$',
+			$.decl,
+			'$$',
 			';',
 		),
 		enum_declaration: $ => seq(

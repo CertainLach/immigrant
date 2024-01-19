@@ -16,6 +16,7 @@ use self::{
 	sql::Sql,
 	table::{ForeignKey, Table, TableAnnotation},
 	uid::RenameMap,
+	view::View,
 };
 
 pub mod column;
@@ -26,6 +27,7 @@ pub mod root;
 pub mod scalar;
 pub mod sql;
 pub mod table;
+pub mod view;
 
 pub mod ids;
 pub mod names;
@@ -216,6 +218,7 @@ pub enum SchemaItem<'a> {
 	Enum(SchemaEnum<'a>),
 	Scalar(SchemaScalar<'a>),
 	Composite(SchemaComposite<'a>),
+	View(SchemaView<'a>),
 }
 derive_is_isomorph_by_id_name!(SchemaItem<'_>);
 impl SchemaItem<'_> {
@@ -243,12 +246,19 @@ impl SchemaItem<'_> {
 			_ => None,
 		}
 	}
+	pub fn as_view(&self) -> Option<SchemaView> {
+		match self {
+			Self::View(e) => Some(*e),
+			_ => None,
+		}
+	}
 	pub fn schema(&self) -> &Schema {
 		match self {
 			SchemaItem::Table(t) => t.schema,
 			SchemaItem::Enum(e) => e.schema,
 			SchemaItem::Scalar(s) => s.schema,
 			SchemaItem::Composite(c) => c.schema,
+			SchemaItem::View(v) => v.schema,
 		}
 	}
 	pub fn is_external(&self) -> bool {
@@ -257,6 +267,7 @@ impl SchemaItem<'_> {
 			SchemaItem::Enum(_) => false,
 			SchemaItem::Scalar(s) => s.is_external(),
 			SchemaItem::Composite(_) => false,
+			SchemaItem::View(_) => false,
 		}
 	}
 }
@@ -267,6 +278,7 @@ impl HasUid for SchemaItem<'_> {
 			SchemaItem::Enum(e) => e.uid(),
 			SchemaItem::Scalar(s) => s.uid(),
 			SchemaItem::Composite(s) => s.uid(),
+			SchemaItem::View(v) => v.uid(),
 		}
 	}
 }
@@ -305,6 +317,7 @@ impl HasIdent for SchemaItem<'_> {
 			SchemaItem::Enum(e) => Ident::unchecked_cast(e.id()),
 			SchemaItem::Scalar(s) => Ident::unchecked_cast(s.id()),
 			SchemaItem::Composite(s) => Ident::unchecked_cast(s.id()),
+			SchemaItem::View(v) => Ident::unchecked_cast(v.id()),
 		}
 	}
 }
@@ -317,6 +330,7 @@ impl HasDefaultDbName for SchemaItem<'_> {
 			SchemaItem::Enum(e) => e.default_db().map(DbIdent::unchecked_from),
 			SchemaItem::Scalar(s) => s.default_db().map(DbIdent::unchecked_from),
 			SchemaItem::Composite(s) => s.default_db().map(DbIdent::unchecked_from),
+			SchemaItem::View(v) => v.default_db().map(DbIdent::unchecked_from),
 		}
 	}
 }
@@ -430,6 +444,21 @@ impl Deref for SchemaTable<'_> {
 
 	fn deref(&self) -> &Self::Target {
 		self.table
+	}
+}
+
+#[derive(Clone, Copy, Derivative)]
+#[derivative(Debug)]
+pub struct SchemaView<'a> {
+	#[derivative(Debug = "ignore")]
+	pub schema: &'a Schema,
+	pub view: &'a View,
+}
+impl Deref for SchemaView<'_> {
+	type Target = View;
+
+	fn deref(&self) -> &Self::Target {
+		self.view
 	}
 }
 

@@ -66,6 +66,7 @@ pub fn validate(_code: &str, schema: &Schema, rn: &RenameMap) {
 					validate_db(ele, rn);
 				}
 			}
+			schema::SchemaItem::View(_) => {}
 		}
 	}
 }
