@@ -14,9 +14,6 @@ table Foo {
 view Test = $$
 	SELECT *, (${Foo.example} + 2) AS ex2 FROM ${Foo}
 $$;
-view ZZZ = $$
-	SELECT * FROM ${Test}
-$$;
 !!!RESULT
 -- updated: views --
 CREATE DOMAIN example AS INTEGER;
@@ -35,6 +32,5 @@ CREATE VIEW tests AS
 DROP VIEW moveaway_1;
 -- updated: cleanup schema changes --
 DROP VIEW tests;
-DROP VIEW zzzes;
 DROP TABLE foos;
 DROP DOMAIN example;

@@ -107,7 +107,7 @@ impl Pgnc<&mut Scalar> {
 				if c.db_assigned(rn) {
 					continue;
 				}
-				c.set_db(rn, DbIdent::new(&format!("{name}_check")));
+				c.set_db(rn, DbIdent::new(&format!("{}_check", name.raw())));
 			}
 		}
 	}
@@ -286,10 +286,10 @@ impl Pgnc<&mut Table> {
 		for ann in self.annotations.iter() {
 			match ann {
 				TableAnnotation::Index(i) if !i.db_assigned(rn) => {
-					let mut out = self.db(rn).to_string();
+					let mut out = self.db(rn).raw().to_string();
 					w!(out, "_");
 					for column in self.db_names(i.fields.iter().cloned(), rn) {
-						w!(out, "{column}_");
+						w!(out, "{}_", column.raw());
 					}
 					if i.unique {
 						w!(out, "key")
@@ -299,28 +299,28 @@ impl Pgnc<&mut Table> {
 					decided_names.push(Some(out));
 				}
 				TableAnnotation::Check(c) if !c.db_assigned(rn) => {
-					let mut out = self.db(rn).to_string();
+					let mut out = self.db(rn).raw().to_string();
 					w!(out, "_");
 					for ele in self.db_names(c.check.affected_columns(), rn) {
-						w!(out, "{ele}_");
+						w!(out, "{}_", ele.raw());
 					}
 					w!(out, "check");
 					decided_names.push(Some(out));
 				}
 				TableAnnotation::Unique(u) if !u.db_assigned(rn) => {
-					let mut out = self.db(rn).to_string();
+					let mut out = self.db(rn).raw().to_string();
 					w!(out, "_");
 					for ele in self.db_names(u.columns.iter().cloned(), rn) {
-						w!(out, "{ele}_");
+						w!(out, "{}_", ele.raw());
 					}
 					w!(out, "key");
 					decided_names.push(Some(out));
 				}
 				TableAnnotation::PrimaryKey(p) if !p.db_assigned(rn) => {
-					let mut out = self.db(rn).to_string();
+					let mut out = self.db(rn).raw().to_string();
 					w!(out, "_");
 					for ele in self.db_names(p.columns.iter().cloned(), rn) {
-						w!(out, "{ele}_");
+						w!(out, "{}_", ele.raw());
 					}
 					w!(out, "pkey");
 					decided_names.push(Some(out));
@@ -348,7 +348,7 @@ impl Pgnc<&mut Table> {
 			}
 		}
 		for fk in self.foreign_keys.iter() {
-			let mut out = self.db(rn).to_string();
+			let mut out = self.db(rn).raw().to_string();
 			w!(out, "_");
 			let fields = fk
 				.source_fields
@@ -356,7 +356,7 @@ impl Pgnc<&mut Table> {
 				.or(fk.target_fields.as_ref())
 				.expect("source or target should be set");
 			for ele in self.db_names(fields.iter().cloned(), rn) {
-				w!(out, "{ele}_");
+				w!(out, "{}_", ele.raw());
 			}
 			w!(out, "fk");
 			fk.set_db(rn, DbIdent::new(&out));

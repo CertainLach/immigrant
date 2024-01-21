@@ -25,20 +25,20 @@ table A {
 !!!RESULT
 -- updated: table with indexed column --
 CREATE DOMAIN test AS TEXT;
-CREATE TABLE as (
+CREATE TABLE "as" (
 	field test NOT NULL
 );
-CREATE INDEX as_field_idx ON as(
+CREATE INDEX as_field_idx ON "as"(
 	field
 );
 -- updated: index is dropped --
 DROP INDEX as_field_idx;
 -- updated: index is returned back --
-CREATE INDEX as_field_idx ON as(
+CREATE INDEX as_field_idx ON "as"(
 	field
 );
 -- updated: a name was assigned to the index --
 ALTER INDEX as_field_idx RENAME TO custom_name;
 -- updated: cleanup schema changes --
-DROP TABLE as;
+DROP TABLE "as";
 DROP DOMAIN test;

@@ -61,7 +61,7 @@ impl<T: HasDefaultDbName + HasUid> RenameExt for T {
 		}
 	}
 	fn set_db(&self, rn: &mut RenameMap, name: DbIdent<Self::Kind>) {
-		rn.0.insert(self.uid(), name.to_string());
+		rn.0.insert(self.uid(), name.raw().to_string());
 	}
 	fn db_assigned(&self, rn: &RenameMap) -> bool {
 		rn.0.contains_key(&self.uid()) || self.default_db().is_some()

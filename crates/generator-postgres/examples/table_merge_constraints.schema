@@ -18,7 +18,7 @@ table Test {
 };
 !!!RESULT
 -- updated: table with various constraints to ensure they are properly merged --
-CREATE DOMAIN int AS INTEGER;
+CREATE DOMAIN "int" AS INTEGER;
 CREATE TABLE tests (
 	test TEXT NOT NULL
 ,	a int NOT NULL
@@ -43,4 +43,4 @@ CREATE INDEX tests_d_idx ON tests(
 );
 -- updated: cleanup schema changes --
 DROP TABLE tests;
-DROP DOMAIN int;
+DROP DOMAIN "int";

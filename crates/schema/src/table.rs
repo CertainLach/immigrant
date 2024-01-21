@@ -177,7 +177,7 @@ impl Table {
 			}
 		}
 		let table = self.db(rn);
-		unreachable!("unknown field: {table}.{column:?}");
+		unreachable!("unknown field: {table:?}.{column:?}");
 	}
 	pub fn db_names(
 		&self,
@@ -197,7 +197,7 @@ impl Table {
 				w!(out, "_");
 			}
 			let db_name = self.db_name(&column, rn);
-			w!(out, "{db_name}");
+			w!(out, "{}", db_name.raw());
 		}
 		assert!(!out.is_empty(), "passed no columns");
 		out
@@ -213,7 +213,7 @@ impl Table {
 				w!(out, ", ");
 			}
 			let db_name = self.db_name(&column, rn);
-			w!(out, "{db_name}");
+			w!(out, "{}", db_name.raw());
 		}
 	}
 }

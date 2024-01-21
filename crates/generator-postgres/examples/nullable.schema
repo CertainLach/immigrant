@@ -10,10 +10,10 @@ table A {
 !!!RESULT
 -- updated: nullable and not-null column --
 CREATE DOMAIN a AS TEXT;
-CREATE TABLE as (
+CREATE TABLE "as" (
 	a a
 ,	b a NOT NULL
 );
 -- updated: cleanup schema changes --
-DROP TABLE as;
+DROP TABLE "as";
 DROP DOMAIN a;

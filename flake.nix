@@ -40,6 +40,10 @@
             nodePackages_latest.yarn
             nodejs_latest
             tree-sitter
+            
+            # PG parser
+            rustPlatform.bindgenHook
+            cmake
           ];
         };
       }

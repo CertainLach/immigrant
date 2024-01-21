@@ -179,45 +179,36 @@ impl<K> PartialOrd for DbIdent<K> {
 	}
 }
 impl<K> DbIdent<K> {
-	pub fn guard() -> Self {
-		Self::new("")
-	}
 	pub fn new(v: &str) -> Self {
+		assert_ne!(v, "");
 		Self {
 			id: v.to_owned(),
 			_marker: PhantomData,
 		}
 	}
-	pub(crate) fn assert_not_guard(&self) {
-		assert!(self.assigned(), "db name was not assigned")
-	}
-	pub fn assigned(&self) -> bool {
-		!self.id.is_empty()
+	pub fn raw(&self) -> &str {
+		&self.id
 	}
 }
 impl<K> PartialEq for DbIdent<K> {
 	fn eq(&self, other: &Self) -> bool {
-		self.assert_not_guard();
-		other.assert_not_guard();
 		self.id == other.id
 	}
 }
 impl<K> Eq for DbIdent<K> {}
 impl<K> Hash for DbIdent<K> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
-		self.assert_not_guard();
 		self.id.hash(state);
 	}
 }
-impl<K> Display for DbIdent<K> {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		self.assert_not_guard();
-		write!(f, "{}", self.id)
-	}
-}
+// impl<K> Display for DbIdent<K> {
+// 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+// 		self.assert_not_guard();
+// 		write!(f, "{}", self.id)
+// 	}
+// }
 impl<K> Debug for DbIdent<K> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		self.assert_not_guard();
 		write!(f, "{:?}", self.id)
 	}
 }

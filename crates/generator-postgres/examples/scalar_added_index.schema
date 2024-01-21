@@ -10,15 +10,15 @@ table B {
 };
 !!!RESULT
 -- updated: a table and the scalar --
-CREATE DOMAIN A AS TEXT;
+CREATE DOMAIN "A" AS TEXT;
 CREATE TABLE bs (
 	a A NOT NULL
 );
 -- updated: check was added to the scalar --
-ALTER DOMAIN A
-	ADD CONSTRAINT A_check CHECK (VALUE <> 'test')
+ALTER DOMAIN "A"
+	ADD CONSTRAINT "A_check" CHECK (VALUE <> 'test')
 ;
 ALTER TABLE bs ADD CONSTRAINT bs_a_pkey PRIMARY KEY(a);
 -- updated: cleanup schema changes --
 DROP TABLE bs;
-DROP DOMAIN A;
+DROP DOMAIN "A";
