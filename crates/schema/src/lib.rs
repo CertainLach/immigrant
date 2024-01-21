@@ -462,6 +462,13 @@ impl Deref for SchemaView<'_> {
 	}
 }
 
+#[derive(Clone, Copy, Derivative)]
+#[derivative(Debug)]
+pub enum SchemaTableOrView<'a> {
+	Table(SchemaTable<'a>),
+	View(SchemaView<'a>),
+}
+
 pub trait HasIdent {
 	type Kind;
 	fn id(&self) -> Ident<Self::Kind>;

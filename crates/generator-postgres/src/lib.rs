@@ -682,6 +682,7 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		// Create new views
+		// FIXME: Toposort them
 		for ele in changelist.created.iter().filter_map(SchemaItem::as_view) {
 			Pg(ele).create(sql, rn);
 		}
@@ -1417,8 +1418,15 @@ impl Pg<SchemaView<'_>> {
 			match ele {
 				DefinitionPart::Raw(r) => w!(sql, "{r}"),
 				DefinitionPart::TableRef(t) => {
-					let table = self.schema.schema_table(t).expect("referenced");
-					w!(sql, "{}", table.db(rn))
+					let table = self.schema.schema_table_or_view(t).expect("referenced");
+					match table {
+						schema::SchemaTableOrView::Table(t) => {
+							w!(sql, "{}", t.db(rn))
+						}
+						schema::SchemaTableOrView::View(v) => {
+							w!(sql, "{}", v.db(rn))
+						}
+					}
 				}
 				DefinitionPart::ColumnRef(t, c) => {
 					let table = self.schema.schema_table(t).expect("referenced");

@@ -7,6 +7,7 @@ use super::{
 use crate::{
 	changelist::ChangeList,
 	composite::Composite,
+	ids::Ident,
 	mk_change_list,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{NamingConvention, Pgnc},
@@ -15,7 +16,7 @@ use crate::{
 	uid::{RenameExt, RenameMap},
 	view::View,
 	HasIdent, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, SchemaType, SchemaView,
+	SchemaTable, SchemaTableOrView, SchemaType, SchemaView,
 };
 
 #[derive(derivative::Derivative)]
@@ -75,6 +76,12 @@ impl Item {
 	pub fn as_composite(&self) -> Option<&Composite> {
 		match self {
 			Self::Composite(value) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn as_view(&self) -> Option<&View> {
+		match self {
+			Self::View(value) => Some(value),
 			_ => None,
 		}
 	}
@@ -251,6 +258,9 @@ impl Schema {
 	pub fn tables(&self) -> impl Iterator<Item = &Table> {
 		self.0.iter().filter_map(Item::as_table)
 	}
+	pub fn views(&self) -> impl Iterator<Item = &View> {
+		self.0.iter().filter_map(Item::as_view)
+	}
 	pub fn enums(&self) -> impl Iterator<Item = &Enum> {
 		self.0.iter().filter_map(Item::as_enum)
 	}
@@ -268,6 +278,27 @@ impl Schema {
 				schema: self,
 				table: t,
 			})
+	}
+
+	pub fn schema_table_or_view(&self, name: &TableIdent) -> Option<SchemaTableOrView<'_>> {
+		if let Some(v) = self
+			.tables()
+			.find(|t| &t.id() == name)
+			.map(|t| SchemaTable {
+				schema: self,
+				table: t,
+			})
+			.map(SchemaTableOrView::Table)
+		{
+			return Some(v);
+		}
+		self.views()
+			.find(|t| t.id() == Ident::unchecked_cast(*name))
+			.map(|t| SchemaView {
+				schema: self,
+				view: t,
+			})
+			.map(SchemaTableOrView::View)
 	}
 
 	pub fn schema_scalar(&self, scalar: TypeIdent) -> SchemaScalar<'_> {
