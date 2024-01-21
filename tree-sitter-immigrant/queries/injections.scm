@@ -4,6 +4,6 @@
     (#offset! @injection.content 0 9 0 0)
     (#set! injection.include-children)
  )
-((decl_raw) @injection.content
+(decl ((decl_raw) @injection.content
  (#set! injection.language "sql")
- (#set! injection.combined))
+))

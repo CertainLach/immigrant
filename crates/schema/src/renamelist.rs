@@ -18,6 +18,13 @@ impl RenameTemp {
 		DbIdent::new(&format!("tmp_{}", self.0))
 	}
 }
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Copy)]
+pub struct RenameMoveaway(usize);
+impl RenameMoveaway {
+	pub fn db<K: Kind>(&self) -> DbIdent<K> {
+		DbIdent::new(&format!("moveaway_{}", self.0))
+	}
+}
 
 #[derive(Derivative)]
 #[derivative(Clone, PartialEq, Eq, Debug)]
@@ -31,13 +38,14 @@ pub enum RenameOp<T: RenameExt> {
 	/// (Always queued after corresponding `Self::Store`, you should keep track of stored items)
 	Restore(RenameTemp, DbIdent<T::Kind>, T),
 	/// Moveaways are never restored back, they occur on deletion.
-	Moveaway(T, RenameTemp),
+	Moveaway(T, RenameMoveaway),
 }
 impl<T: RenameExt + Clone> RenameOp<T> {
 	fn target(&self) -> NameOrTemp<T> {
 		match self {
 			RenameOp::Rename(_, v, _) => NameOrTemp::Name(v.clone()),
-			RenameOp::Store(_, v) | RenameOp::Moveaway(_, v) => NameOrTemp::Temp(*v),
+			RenameOp::Store(_, v) => NameOrTemp::Temp(*v),
+			RenameOp::Moveaway(_, v) => NameOrTemp::Moveaway(*v),
 			RenameOp::Restore(_, v, _) => NameOrTemp::Name(v.clone()),
 		}
 	}
@@ -56,6 +64,7 @@ enum NameOrTemp<T: RenameExt> {
 	Name(DbIdent<T::Kind>),
 	#[derivative(Debug = "transparent")]
 	Temp(RenameTemp),
+	Moveaway(RenameMoveaway),
 }
 
 /// Given renames, create a list of rename operations.
@@ -80,7 +89,7 @@ enum NameOrTemp<T: RenameExt> {
 pub fn reorder_renames<T: RenameExt + Clone>(
 	rn: &RenameMap,
 	renames: Vec<(T, DbIdent<T::Kind>, T)>,
-	moveaways: Vec<(T, RenameTemp)>,
+	moveaways: Vec<(T, RenameMoveaway)>,
 	allocator: &mut RenameTempAllocator,
 ) -> Vec<RenameOp<T>> {
 	let mut out = Vec::new();
@@ -194,10 +203,14 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 }
 
 #[derive(Default)]
-pub struct RenameTempAllocator(usize);
+pub struct RenameTempAllocator(usize, usize);
 impl RenameTempAllocator {
 	pub fn next_temp(&mut self) -> RenameTemp {
 		self.0 += 1;
 		RenameTemp(self.0)
+	}
+	pub fn next_moveaway(&mut self) -> RenameMoveaway {
+		self.1 += 1;
+		RenameMoveaway(self.1)
 	}
 }

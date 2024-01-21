@@ -9,7 +9,7 @@ use std::{collections::HashSet, fmt::Debug};
 use itertools::Itertools;
 
 use crate::{
-	renamelist::{reorder_renames, RenameOp, RenameTemp, RenameTempAllocator},
+	renamelist::{reorder_renames, RenameMoveaway, RenameOp, RenameTempAllocator},
 	uid::{RenameExt, RenameMap},
 	Diff,
 };
@@ -18,7 +18,7 @@ use crate::{
 pub struct ChangeList<T: RenameExt> {
 	pub dropped: Vec<T>,
 	pub renamed: Vec<RenameOp<T>>,
-	pub moved_away: Vec<(T, RenameTemp)>,
+	pub moved_away: Vec<(T, RenameMoveaway)>,
 	pub updated: Vec<Diff<T>>,
 	pub created: Vec<T>,
 }
@@ -122,7 +122,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 			continue;
 		}
 		let tmp = if occupancy.contains(&old.db(rn)) {
-			Some(allocator.next_temp())
+			Some(allocator.next_moveaway())
 		} else {
 			None
 		};
@@ -136,7 +136,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		.collect::<Vec<_>>()
 	{
 		out.created.push(recreated.new.clone());
-		out_dropped.push((recreated.old.clone(), Some(allocator.next_temp())));
+		out_dropped.push((recreated.old.clone(), Some(allocator.next_moveaway())));
 	}
 	out.updated
 		.retain(|diff| diff.old.is_compatible(&diff.new, rn));
@@ -159,7 +159,7 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		if let Some(tmp) = old_dropped.1 {
 			moveaways.push((old_dropped.0.clone(), tmp));
 		} else if new.iter().any(|n| n.db(rn) == old_dropped.0.db(rn)) {
-			moveaways.push((old_dropped.0.clone(), allocator.next_temp()));
+			moveaways.push((old_dropped.0.clone(), allocator.next_moveaway()));
 		}
 	}
 	out.renamed = reorder_renames(rn, to_rename, moveaways.clone(), &mut allocator);

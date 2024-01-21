@@ -25,7 +25,7 @@ CREATE TABLE tables (
 );
 -- updated: enum entry is dropped, other entry is added instead, table default is rewritten to it --
 ALTER TYPE myenumname
-	RENAME TO tmp_1
+	RENAME TO moveaway_1
 ;
 CREATE TYPE myenumname AS ENUM (
 	'test2'
@@ -35,7 +35,7 @@ ALTER TABLE tables
 	ALTER COLUMN a SET DATA TYPE myenumname
 ,	ALTER COLUMN a SET DEFAULT ('test2')::myenumname
 ;
-DROP TYPE tmp_1;
+DROP TYPE moveaway_1;
 -- updated: cleanup schema changes --
 DROP TABLE tables;
 DROP TYPE myenumname;

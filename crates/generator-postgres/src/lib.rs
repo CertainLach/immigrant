@@ -325,9 +325,12 @@ impl Pg<TableDiff<'_>> {
 					RenameOp::Rename(i, r, _) => {
 						Pg(*i).rename_alter(DbIdent::unchecked_from(r.clone()), &mut out, rn);
 					}
-					RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
+					RenameOp::Store(i, t) => {
 						Pg(*i).rename_alter(t.db(), &mut out, rn);
 						updated.insert(t, i);
+					}
+					RenameOp::Moveaway(i, t) => {
+						Pg(*i).rename_alter(t.db(), &mut out, rn);
 					}
 					RenameOp::Restore(t, n, _) => {
 						let table = updated.remove(&t).expect("stored");
@@ -536,8 +539,11 @@ impl Pg<SchemaDiff<'_>> {
 		for ele in changelist.renamed {
 			let mut stored = HashMap::new();
 			match ele {
-				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
+				RenameOp::Store(i, t) => {
 					stored.insert(t, i);
+					Pg(i).rename(t.db(), sql, rn, i.is_external());
+				}
+				RenameOp::Moveaway(i, t) => {
 					Pg(i).rename(t.db(), sql, rn, i.is_external());
 				}
 				RenameOp::Restore(t, n, r) => {
@@ -835,8 +841,11 @@ impl Pg<EnumDiff<'_>> {
 		for el in changelist.renamed.iter().cloned() {
 			let mut stored = HashMap::new();
 			match el {
-				RenameOp::Store(i, t) | RenameOp::Moveaway(i, t) => {
+				RenameOp::Store(i, t) => {
 					stored.insert(t, i.clone());
+					changes.push(Pg(i).rename_alter(t.db(), rn));
+				}
+				RenameOp::Moveaway(i, t) => {
 					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
 				RenameOp::Rename(v, n, _) => {

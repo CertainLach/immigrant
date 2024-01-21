@@ -12,7 +12,7 @@ CREATE DOMAIN b AS TEXT;
 CREATE DOMAIN a AS TEXT;
 -- updated: scalar b is renamed to c, scalar a is dropped, and table is created in its place --
 ALTER DOMAIN a
-	RENAME TO tmp_1
+	RENAME TO moveaway_1
 ;
 ALTER DOMAIN b
 	RENAME TO c
@@ -20,7 +20,7 @@ ALTER DOMAIN b
 CREATE TABLE a (
 	field c NOT NULL
 );
-DROP DOMAIN tmp_1;
+DROP DOMAIN moveaway_1;
 -- updated: cleanup schema changes --
 DROP TABLE a;
 DROP DOMAIN c;
