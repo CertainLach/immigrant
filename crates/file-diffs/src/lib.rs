@@ -15,6 +15,7 @@ use Error::*;
 
 pub use self::migration::Migration;
 
+#[derive(Debug)]
 pub struct MigrationId {
 	pub id: u32,
 	pub slug: String,

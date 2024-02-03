@@ -313,7 +313,8 @@ fn print_schema() -> anyhow::Result<()> {
 			en,
 		};
 		let id = enum_ident(&en);
-		let name = en.db(rn).to_string();
+		let name = en.db(rn);
+		let name = name.raw();
 		types.append_all(quote! {
 			#[derive(SqlType, QueryId)]
 			#[diesel(postgres_type(name = #name))]
@@ -326,7 +327,8 @@ fn print_schema() -> anyhow::Result<()> {
 			composite,
 		};
 		let id = composite_ident(&composite);
-		let name = composite.db(rn).to_string();
+		let name = composite.db(rn);
+		let name = name.raw();
 		types.append_all(quote! {
 			#[derive(SqlType, QueryId)]
 			#[diesel(postgres_type(name = #name))]
@@ -359,7 +361,8 @@ fn print_schema() -> anyhow::Result<()> {
 		let name = format!("crate::sql_types::{id}");
 		let items = en.items.iter().map(|i| {
 			let id = enum_item_ident(i);
-			let name = i.db(rn).to_string();
+			let name = i.db(rn);
+			let name = name.raw();
 			quote! {
 				#[db_rename = #name]
 				#id
@@ -470,7 +473,8 @@ fn print_schema() -> anyhow::Result<()> {
 			table,
 		};
 		let docs = table.docs.iter();
-		let table_name = table.db(rn).to_string();
+		let table_name = table.db(rn);
+		let table_name = table_name.raw();
 		let table_ident = table_mod_ident(&table);
 		#[allow(clippy::cmp_owned)]
 		let sql_name_attr = if table_name != table_ident.to_string() {
@@ -486,7 +490,8 @@ fn print_schema() -> anyhow::Result<()> {
 
 		let mut columns = Vec::new();
 		for column in table.columns() {
-			let name = column.db(rn).to_string();
+			let name = column.db(rn);
+			let name = name.raw();
 
 			let ident = column_ident(&column);
 			#[allow(clippy::cmp_owned)]
@@ -502,7 +507,8 @@ fn print_schema() -> anyhow::Result<()> {
 			} else {
 				quote!()
 			};
-			let db_ty = column.db_type(rn).to_string();
+			let db_ty = column.db_type(rn);
+			let db_ty = db_ty.raw();
 			let column_doc = format!("`{table_name}`.`{name} column`");
 			let ty_doc = format!("The SQL type is \"{db_ty}\"`");
 			columns.push(quote! {
@@ -811,7 +817,7 @@ fn print_schema() -> anyhow::Result<()> {
 			#orm
 		}
 	});
-	let mut fmt = out.to_string();
+	let mut fmt = out.to_string().to_owned();
 	fmt.push('\n');
 	let config = Config::new_str()
 		.edition(Edition::Rust2021)

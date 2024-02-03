@@ -375,7 +375,7 @@ impl Pg<TableDiff<'_>> {
 		&self,
 		sql: &mut String,
 		rn: &mut RenameMap,
-		column_changes: ChangeList<TableColumn<'_>>,
+		column_changes: &ChangeList<TableColumn<'_>>,
 		constraint_changes: ChangeList<PgTableConstraint<'_>>,
 		external: bool,
 	) -> Vec<Alternation> {
@@ -417,13 +417,13 @@ impl Pg<TableDiff<'_>> {
 		}
 
 		// Create new columns
-		for ele in column_changes.created {
-			Pg(ele).create_alter(&mut out, rn);
+		for ele in &column_changes.created {
+			Pg(*ele).create_alter(&mut out, rn);
 		}
 
 		// Update columns
-		for ele in column_changes.updated {
-			Pg(ele).print_alter(&mut out, rn);
+		for ele in &column_changes.updated {
+			Pg(*ele).print_alter(&mut out, rn);
 		}
 
 		// Update/create constraints except for foreign keys
@@ -450,6 +450,21 @@ impl Pg<TableDiff<'_>> {
 			updated.old.rename(new_name, sql, rn);
 		}
 
+		if !external {
+			Pg(self.new).print_alternations(&out, sql, rn);
+		}
+
+		fks
+	}
+	pub fn print_stage3(
+		&self,
+		sql: &mut String,
+		rn: &RenameMap,
+		column_changes: ChangeList<TableColumn<'_>>,
+		external: bool,
+	) {
+		let mut out = Vec::new();
+
 		// Drop old columns
 		for column in column_changes.dropped {
 			Pg(column).drop_alter(&mut out, rn);
@@ -458,8 +473,6 @@ impl Pg<TableDiff<'_>> {
 		if !external {
 			Pg(self.new).print_alternations(&out, sql, rn);
 		}
-
-		fks
 	}
 }
 
@@ -677,7 +690,7 @@ impl Pg<SchemaDiff<'_>> {
 			fksd.push(changelist);
 		}
 		let mut fkss = vec![];
-		for ((diff, column_changes), constraint_changes) in diffs.iter().zip(changes).zip(fksd) {
+		for ((diff, column_changes), constraint_changes) in diffs.iter().zip(changes.iter()).zip(fksd) {
 			let fks = Pg(diff).print_stage2(
 				sql,
 				rn,
@@ -686,6 +699,20 @@ impl Pg<SchemaDiff<'_>> {
 				diff.new.is_external(),
 			);
 			fkss.push(fks);
+		}
+
+		// Drop old views
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
+			Pg(ele).drop(sql, rn);
+		}
+
+		for (diff, column_changes) in diffs.iter().zip(changes) {
+			Pg(diff).print_stage3(
+				sql,
+				rn,
+				column_changes,
+				diff.new.is_external(),
+			);
 		}
 
 		// Create new views
@@ -721,11 +748,6 @@ impl Pg<SchemaDiff<'_>> {
 				}
 			}
 			Pg(a).print_alternations(&out, sql, rn);
-		}
-
-		// Drop old views
-		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
-			Pg(ele).drop(sql, rn);
 		}
 
 		// Drop old tables

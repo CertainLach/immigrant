@@ -78,12 +78,12 @@ async fn main() -> Result<()> {
 	)
 	.await?;
 	let (last_ver,) = sqlx::query_as::<_, (i32,)>(
-		"SELECT COALESCE(MAX(version), 0) AS version FROM __immigrant_migrations",
+		"SELECT COALESCE(MAX(version), -1) AS version FROM __immigrant_migrations",
 	)
 	.fetch_one(&mut *conn)
 	.await?;
-	assert!(last_ver >= 0);
-	let last_ver = last_ver as u32;
+	assert!(last_ver >= -1);
+	let last_ver = last_ver as i32;
 
 	match opts.cmd {
 		Subcommand::Commit {
@@ -97,12 +97,14 @@ async fn main() -> Result<()> {
 			let list = list(&root)?;
 
 			for (id, _, path) in &list {
-				if id.id <= last_ver {
+				dbg!(&id);
+				if id.id as i32 <= last_ver {
 					continue;
 				}
 				let mut path = path.to_owned();
 				path.push("up.sql");
 				let sql = fs::read_to_string(&path).context("reading migration up.sql file")?;
+				dbg!(&sql);
 				run_migrations(&mut conn, id.id, sql, &migrations_table).await?;
 			}
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
