@@ -194,7 +194,7 @@ impl SchemaComposite<'_> {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CompositeField<'a> {
 	composite: SchemaComposite<'a>,
 	field: &'a Field,

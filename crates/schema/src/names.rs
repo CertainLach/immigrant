@@ -32,6 +32,7 @@ def_kind!(
 	TypeKind(9),
 	ViewKind(9),
 	FieldKind(10),
+	TriggerKind(9),
 );
 
 pub struct DefName<K> {
@@ -94,6 +95,7 @@ impl<K> Clone for DefName<K> {
 
 pub type TableDefName = DefName<TableKind>;
 pub type ViewDefName = DefName<ViewKind>;
+pub type TriggerDefName = DefName<TriggerKind>;
 pub type ColumnDefName = DefName<ColumnKind>;
 pub type TypeDefName = DefName<TypeKind>;
 pub type EnumItemDefName = DefName<EnumItemKind>;
@@ -101,12 +103,14 @@ pub type CompositeItemDefName = DefName<FieldKind>;
 
 pub type TableIdent = Ident<TableKind>;
 pub type ViewIdent = Ident<ViewKind>;
+pub type TriggerIdent = Ident<TriggerKind>;
 pub type ColumnIdent = Ident<ColumnKind>;
 pub type TypeIdent = Ident<TypeKind>;
 pub type FieldIdent = Ident<FieldKind>;
 
 pub type DbTable = DbIdent<TableKind>;
 pub type DbView = DbIdent<ViewKind>;
+pub type DbTrigger = DbIdent<TriggerKind>;
 pub type DbColumn = DbIdent<ColumnKind>;
 pub type DbType = DbIdent<TypeKind>;
 pub type DbProcedure = DbIdent<ProcedureKind>;

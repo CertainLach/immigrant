@@ -15,8 +15,8 @@ use crate::{
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
 	view::View,
-	HasIdent, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql,
-	SchemaTable, SchemaTableOrView, SchemaType, SchemaView,
+	HasIdent, IsCompatible, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
+	SchemaSql, SchemaTable, SchemaTableOrView, SchemaType, SchemaView,
 };
 
 #[derive(derivative::Derivative)]
@@ -141,17 +141,14 @@ impl Schema {
 			let mut extended_this_step = <HashMap<TypeIdent, PropagatedScalarData>>::new();
 			for s in self.0.iter_mut().filter_map(Item::as_composite_mut) {
 				s.process();
-				eprintln!("propagating from {s:?}");
 				let to_propagate = s.propagate();
 				let existing = extended_this_step.entry(s.id()).or_default();
 				existing.extend(to_propagate);
 			}
 
 			if extended_this_step.values().all(|v| v.is_empty()) {
-				eprintln!("nothing is propagated D:");
 				break;
 			}
-			eprintln!("propagated = {extended_this_step:?}");
 
 			// Propagate newly discovered propagations
 			for composite in self.0.iter_mut().filter_map(Item::as_composite_mut) {
@@ -319,12 +316,5 @@ impl Schema {
 	}
 	pub fn sql<'a>(&'a self, sql: &'a Sql) -> SchemaSql<'_> {
 		SchemaSql { schema: self, sql }
-	}
-}
-impl SchemaDiff<'_> {
-	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
-		let old = self.old.material_items();
-		let new = self.new.material_items();
-		mk_change_list(rn, &old, &new)
 	}
 }

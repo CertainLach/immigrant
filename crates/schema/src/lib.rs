@@ -28,6 +28,7 @@ pub mod scalar;
 pub mod sql;
 pub mod table;
 pub mod view;
+pub mod trigger;
 
 pub mod ids;
 pub mod names;
@@ -280,32 +281,6 @@ impl HasUid for SchemaItem<'_> {
 			SchemaItem::Composite(s) => s.uid(),
 			SchemaItem::View(v) => v.uid(),
 		}
-	}
-}
-impl IsCompatible for SchemaItem<'_> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
-		match (self, new) {
-			(SchemaItem::Table(_), SchemaItem::Table(_)) => true,
-			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
-				// There is no DB engine, which supports removing enum variants, so removals are incompatible, and the
-				// enum should be recreated.
-				mk_change_list(rn, &a.items, &b.items).dropped.is_empty()
-			}
-			(SchemaItem::Composite(a), SchemaItem::Composite(b)) => {
-				// There is no DB engine, which supports updating structs
-				let changes =
-					mk_change_list(rn, &a.fields().collect_vec(), &b.fields().collect_vec());
-				changes.dropped.is_empty() && changes.created.is_empty()
-			}
-			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
-			_ => false,
-		}
-		// matches!(
-		// 	(self, new),
-		// 	(Self::Table(_), Self::Table(_))
-		// 		| (Self::Enum(a), Self::Enum(_))
-		// 		| (Self::Scalar(_), Self::Scalar(_))
-		// )
 	}
 }
 impl HasIdent for SchemaItem<'_> {

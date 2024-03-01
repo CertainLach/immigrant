@@ -20,7 +20,7 @@
         };
         rust =
           (pkgs.rustChannelOf {
-            date = "2023-08-14";
+            date = "2024-02-13";
             channel = "nightly";
           })
           .default

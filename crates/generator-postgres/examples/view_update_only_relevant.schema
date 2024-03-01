@@ -1,0 +1,101 @@
+!!!SETUP
+scalar x = "INTEGER";
+scalar y = "INTEGER";
+!!!TEST initialization
+table Foo {
+	x;
+	y;
+};
+table Bar {
+	x;
+	y;
+};
+view Baz = $$
+	SELECT * FROM ${Foo}
+$$;
+view Qux = $$
+	SELECT * FROM ${Bar}
+$$;
+!!!UPDATE field dropped from Foo, only Baz should be updated.
+table Foo {
+	x;
+};
+table Bar {
+	x;
+	y;
+};
+view Baz = $$
+	SELECT * FROM ${Foo}
+$$;
+view Qux = $$
+	SELECT * FROM ${Bar}
+$$;
+!!!UPDATE field dropped from Bar, only Qux should be updated.
+table Foo {
+	x;
+};
+table Bar {
+	y;
+};
+view Baz = $$
+	SELECT * FROM ${Foo}
+$$;
+view Qux = $$
+	SELECT * FROM ${Bar}
+$$;
+!!!UPDATE Bar renamed to quuxes, view Qux should NOT be updated.
+table Foo {
+	x;
+};
+table Bar "quuxes" {
+	y;
+};
+view Baz = $$
+	SELECT * FROM ${Foo}
+$$;
+view Qux = $$
+	SELECT * FROM ${Bar}
+$$;
+!!!RESULT
+-- updated: setup --
+CREATE DOMAIN x AS INTEGER;
+CREATE DOMAIN y AS INTEGER;
+-- updated: initialization --
+CREATE TABLE foos (
+	x x NOT NULL
+,	y y NOT NULL
+);
+CREATE TABLE bars (
+	x x NOT NULL
+,	y y NOT NULL
+);
+CREATE VIEW bazs AS
+	SELECT * FROM foos
+;
+CREATE VIEW quxes AS
+	SELECT * FROM bars
+;
+-- updated: field dropped from Foo, only Baz should be updated. --
+ALTER VIEW bazs RENAME TO moveaway_1;
+DROP VIEW moveaway_1;
+ALTER TABLE foos DROP COLUMN y;
+CREATE VIEW bazs AS
+	SELECT * FROM foos
+;
+-- updated: field dropped from Bar, only Qux should be updated. --
+ALTER VIEW quxes RENAME TO moveaway_1;
+DROP VIEW moveaway_1;
+ALTER TABLE bars DROP COLUMN x;
+CREATE VIEW quxes AS
+	SELECT * FROM bars
+;
+-- updated: Bar renamed to quuxes, view Qux should NOT be updated. --
+ALTER TABLE bars RENAME TO quuxes;
+-- updated: cleanup schema changes --
+DROP VIEW bazs;
+DROP VIEW quxes;
+DROP TABLE foos;
+DROP TABLE quuxes;
+-- updated: cleanup setup --
+DROP DOMAIN x;
+DROP DOMAIN y;

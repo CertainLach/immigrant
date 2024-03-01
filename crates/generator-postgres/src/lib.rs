@@ -15,14 +15,14 @@ use schema::{
 	},
 	renamelist::RenameOp,
 	root::Schema,
-	scalar::{EnumItem, ScalarAnnotation},
+	scalar::{EnumItem, EnumItemHandle, ScalarAnnotation},
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
 	view::DefinitionPart,
 	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
 	IsCompatible, IsIsomorph, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
-	SchemaSql, SchemaTable, SchemaView, TableCheck, TableColumn, TableDiff, TableForeignKey,
-	TableIndex, TablePrimaryKey, TableSql, TableUniqueConstraint,
+	SchemaSql, SchemaTable, SchemaTableOrView, SchemaView, TableCheck, TableColumn, TableDiff,
+	TableForeignKey, TableIndex, TablePrimaryKey, TableSql, TableUniqueConstraint,
 };
 
 use crate::escape::escape_identifier;
@@ -30,7 +30,7 @@ use crate::escape::escape_identifier;
 mod escape;
 pub mod validate;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Pg<T>(pub T);
 impl<T> Deref for Pg<T> {
 	type Target = T;
@@ -270,7 +270,10 @@ impl Pg<ColumnDiff<'_>> {
 		let name = Id(self.new.db(rn));
 		let new_ty = self.new.db_type(rn);
 		if self.old.db_type(rn) != new_ty {
-			out.push(alt_group!("ALTER COLUMN {name} SET DATA TYPE {}", new_ty.raw()));
+			out.push(alt_group!(
+				"ALTER COLUMN {name} SET DATA TYPE {}",
+				new_ty.raw()
+			));
 		}
 		let new_nullable = self.new.nullable;
 		if self.old.nullable != new_nullable {
@@ -321,7 +324,7 @@ impl Pg<TableDiff<'_>> {
 
 		let old_columns = self.old.columns().collect::<Vec<_>>();
 		let new_columns = self.new.columns().collect::<Vec<_>>();
-		let column_changes = mk_change_list(rn, &old_columns, &new_columns);
+		let column_changes = mk_change_list(rn, &old_columns, &new_columns, |v| v);
 		// Rename/moveaway columns
 		{
 			let mut updated = HashMap::new();
@@ -361,7 +364,7 @@ impl Pg<TableDiff<'_>> {
 		// Drop fks
 		let old_constraints = pg_constraints(&self.old);
 		let new_constraints = pg_constraints(&self.new);
-		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints);
+		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints, |v| v);
 		for constraint in &constraint_changes.dropped {
 			constraint.drop_alter_fk(&mut out, rn);
 		}
@@ -411,7 +414,7 @@ impl Pg<TableDiff<'_>> {
 		// Drop old indexes
 		let old_indexes = self.old.indexes().map(Pg).collect_vec();
 		let new_indexes = self.new.indexes().map(Pg).collect_vec();
-		let index_changes = mk_change_list(rn, &old_indexes, &new_indexes);
+		let index_changes = mk_change_list(rn, &old_indexes, &new_indexes, |v| v);
 		for index in index_changes.dropped {
 			index.drop(sql, rn);
 		}
@@ -690,7 +693,9 @@ impl Pg<SchemaDiff<'_>> {
 			fksd.push(changelist);
 		}
 		let mut fkss = vec![];
-		for ((diff, column_changes), constraint_changes) in diffs.iter().zip(changes.iter()).zip(fksd) {
+		for ((diff, column_changes), constraint_changes) in
+			diffs.iter().zip(changes.iter()).zip(fksd)
+		{
 			let fks = Pg(diff).print_stage2(
 				sql,
 				rn,
@@ -707,12 +712,7 @@ impl Pg<SchemaDiff<'_>> {
 		}
 
 		for (diff, column_changes) in diffs.iter().zip(changes) {
-			Pg(diff).print_stage3(
-				sql,
-				rn,
-				column_changes,
-				diff.new.is_external(),
-			);
+			Pg(diff).print_stage3(sql, rn, column_changes, diff.new.is_external());
 		}
 
 		// Create new views
@@ -857,7 +857,7 @@ impl Pg<SchemaEnum<'_>> {
 		wl!(sql, ";");
 	}
 }
-impl Pg<EnumItem> {
+impl Pg<EnumItemHandle<'_>> {
 	pub fn rename_alter(&self, to: DbEnumItem, rn: &mut RenameMap) -> String {
 		// TODO: Escape both as literals
 		let out = format!("RENAME VALUE '{}' TO {}", self.db(rn).raw(), to.raw());
@@ -867,8 +867,12 @@ impl Pg<EnumItem> {
 }
 impl Pg<EnumDiff<'_>> {
 	pub fn print_renamed_added(&self, sql: &mut String, rn: &mut RenameMap) {
-		let changelist =
-			schema::mk_change_list(rn, &self.0.old.items.clone(), &self.0.new.items.clone());
+		let changelist = schema::mk_change_list(
+			rn,
+			&self.0.old.items().collect_vec(),
+			&self.0.new.items().collect_vec(),
+			|v| v,
+		);
 		let mut changes = vec![];
 		for el in changelist.renamed.iter().cloned() {
 			let mut stored = HashMap::new();
@@ -1461,10 +1465,10 @@ impl Pg<SchemaView<'_>> {
 				DefinitionPart::TableRef(t) => {
 					let table = self.schema.schema_table_or_view(t).expect("referenced");
 					match table {
-						schema::SchemaTableOrView::Table(t) => {
+						SchemaTableOrView::Table(t) => {
 							w!(sql, "{}", Id(t.db(rn)))
 						}
-						schema::SchemaTableOrView::View(v) => {
+						SchemaTableOrView::View(v) => {
 							w!(sql, "{}", Id(v.db(rn)))
 						}
 					}
@@ -1534,6 +1538,135 @@ impl<T> Display for Id<&DbIdent<T>> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let id = escape_identifier(self.0.raw());
 		write!(f, "{id}")
+	}
+}
+
+#[derive(PartialEq, Eq)]
+struct FingerprintBuilder(Vec<u8>);
+impl FingerprintBuilder {
+	fn new() -> Self {
+		let mut value = FingerprintBuilder(Vec::new());
+		value.section("start");
+		value
+	}
+	fn section(&mut self, name: impl AsRef<[u8]>) {
+		self.raw(0, name);
+	}
+	fn fragment(&mut self, fragment: impl AsRef<[u8]>) {
+		self.raw(1, fragment);
+	}
+	fn raw(&mut self, kind: u8, raw: impl AsRef<[u8]>) {
+		self.0.push(kind);
+		let raw = raw.as_ref();
+		let encoded = u32::to_be_bytes(raw.len() as u32);
+		self.0.extend(&encoded);
+		self.0.extend(raw);
+	}
+	fn sub(&mut self, name: impl AsRef<[u8]>, sub: FingerprintBuilder) {
+		self.section(name);
+		self.0.extend(sub.0);
+		self.section("[END]");
+	}
+}
+
+impl IsCompatible for Pg<SchemaItem<'_>> {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		match (self.0, new.0) {
+			(SchemaItem::Table(_), SchemaItem::Table(_)) => true,
+			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
+				// There is no DB engine, which supports removing enum variants, so removals are incompatible, and the
+				// enum should be recreated.
+				mk_change_list(
+					rn,
+					&a.items().collect_vec(),
+					&b.items().collect_vec(),
+					|v| v,
+				)
+				.dropped
+				.is_empty()
+			}
+			(SchemaItem::Composite(a), SchemaItem::Composite(b)) => {
+				// There is no DB engine, which supports updating structs
+				let changes = mk_change_list(
+					rn,
+					&a.fields().collect_vec(),
+					&b.fields().collect_vec(),
+					|v| v,
+				);
+				changes.dropped.is_empty() && changes.created.is_empty()
+			}
+			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
+			(SchemaItem::View(a), SchemaItem::View(b)) => {
+				fn fingerprint(view: SchemaView<'_>, rn: &RenameMap) -> FingerprintBuilder {
+					let mut fp = FingerprintBuilder::new();
+					for part in &view.definition.0 {
+						match part {
+							DefinitionPart::Raw(r) => {
+								fp.section("raw");
+								fp.fragment(r);
+							}
+							DefinitionPart::TableRef(t) => {
+								let t = view.schema.schema_table_or_view(t).expect("exists");
+								match t {
+									SchemaTableOrView::Table(t) => {
+										fp.section("subtable");
+										for ele in t.columns() {
+											fp.section("name");
+											fp.fragment(ele.db(rn).raw());
+											fp.section("ty");
+											ele.db_type(rn);
+										}
+									}
+									SchemaTableOrView::View(v) => {
+										fp.sub("reqview", fingerprint(v, rn));
+									}
+								}
+							}
+							DefinitionPart::ColumnRef(t, c) => {
+								let t = view.schema.schema_table_or_view(t).expect("exists");
+								match t {
+									SchemaTableOrView::Table(t) => {
+										fp.section("subtable");
+										let c = t.schema_column(*c);
+										fp.section("name");
+										fp.fragment(c.db(rn).raw());
+										fp.section("ty");
+										c.db_type(rn);
+									}
+									SchemaTableOrView::View(v) => {
+										// If view is rebuilt, current view can't be the same.
+										fp.sub("reqview", fingerprint(v, rn));
+									}
+								}
+							}
+						}
+					}
+					fp
+				}
+				let fpa = fingerprint(a, rn);
+				let fpb = fingerprint(b, rn);
+				fpa == fpb
+			}
+			_ => false,
+		}
+		// matches!(
+		// 	(self, new),
+		// 	(Self::Table(_), Self::Table(_))
+		// 		| (Self::Enum(a), Self::Enum(_))
+		// 		| (Self::Scalar(_), Self::Scalar(_))
+		// )
+	}
+}
+impl IsIsomorph for Pg<SchemaItem<'_>> {
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+		self.0.is_isomorph(&other.0, rn)
+	}
+}
+impl Pg<SchemaDiff<'_>> {
+	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
+		let old = self.old.material_items();
+		let new = self.new.material_items();
+		mk_change_list(rn, old.as_slice(), new.as_slice(), |v| Pg(v))
 	}
 }
 

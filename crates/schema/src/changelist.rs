@@ -37,9 +37,25 @@ impl<T: RenameExt> ChangeList<T> {
 pub trait IsCompatible {
 	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool;
 }
+impl<T> IsCompatible for &T
+where
+	T: IsCompatible,
+{
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		(**self).is_compatible(*new, rn)
+	}
+}
 
 pub trait IsIsomorph {
 	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool;
+}
+impl<T> IsIsomorph for &T
+where
+	T: IsIsomorph,
+{
+	fn is_isomorph(&self, new: &Self, rn: &RenameMap) -> bool {
+		(**self).is_isomorph(*new, rn)
+	}
 }
 #[macro_export]
 macro_rules! derive_is_isomorph_by_id_name {
@@ -53,10 +69,11 @@ macro_rules! derive_is_isomorph_by_id_name {
 	};
 }
 
-pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
+pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsIsomorph>(
 	rn: &RenameMap,
 	old: &[T],
 	new: &[T],
+	mapper: impl Fn(T) -> V,
 ) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
 
@@ -68,7 +85,9 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
-			!new_listed.contains(i) && f.is_isomorph(&old, rn) && f.db(rn) == old.db(rn)
+			!new_listed.contains(i)
+				&& mapper(*f).is_isomorph(&mapper(old), rn)
+				&& f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
 			{
@@ -88,11 +107,10 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 		if old_listed.contains(&oid) {
 			continue;
 		}
-		let mut new_by_code = new
-			.iter()
-			.cloned()
-			.enumerate()
-			.filter(|(i, f)| f.is_isomorph(&old, rn) && !new_listed.contains(i));
+		let mut new_by_code =
+			new.iter().cloned().enumerate().filter(|(i, f)| {
+				mapper(*f).is_isomorph(&mapper(old), rn) && !new_listed.contains(i)
+			});
 		if let Some((nid, new)) = new_by_code.next() {
 			assert!(new_by_code.next().is_none());
 			old_listed.insert(oid);
@@ -132,14 +150,14 @@ pub fn mk_change_list<T: RenameExt + Clone + IsCompatible + Debug + IsIsomorph>(
 	for recreated in out
 		.updated
 		.iter()
-		.filter(|diff| !diff.old.is_compatible(&diff.new, rn))
+		.filter(|diff| !mapper(diff.old).is_compatible(&mapper(diff.new), rn))
 		.collect::<Vec<_>>()
 	{
 		out.created.push(recreated.new.clone());
 		out_dropped.push((recreated.old.clone(), Some(allocator.next_moveaway())));
 	}
 	out.updated
-		.retain(|diff| diff.old.is_compatible(&diff.new, rn));
+		.retain(|diff| mapper(diff.old).is_compatible(&mapper(diff.new), rn));
 
 	for (_, new) in new
 		.iter()

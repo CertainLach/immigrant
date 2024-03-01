@@ -12,6 +12,7 @@ use crate::{
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
 	uid::{next_uid, RenameExt, RenameMap, Uid},
+	SchemaEnum,
 };
 
 #[derive(Debug, Clone)]
@@ -30,7 +31,24 @@ impl EnumItem {
 def_name_impls!(EnumItem, EnumItemKind);
 derive_is_isomorph_by_id_name!(EnumItem);
 
-impl IsCompatible for EnumItem {
+/// FIXME: Rename to EnumItem, rename old EnumItem to Variant
+#[derive(Debug, Clone, Copy)]
+pub struct EnumItemHandle<'a> {
+	enum_: SchemaEnum<'a>,
+	item: &'a EnumItem,
+}
+def_name_impls!(EnumItemHandle<'_>, EnumItemKind);
+derive_is_isomorph_by_id_name!(EnumItemHandle<'_>);
+
+impl std::ops::Deref for EnumItemHandle<'_> {
+	type Target = EnumItem;
+
+	fn deref(&self) -> &Self::Target {
+		self.item
+	}
+}
+
+impl IsCompatible for EnumItemHandle<'_> {
 	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
 		true
 	}
@@ -60,6 +78,16 @@ impl Enum {
 	}
 }
 def_name_impls!(Enum, TypeKind);
+
+impl SchemaEnum<'_> {
+
+	pub fn items(&self) -> impl Iterator<Item = EnumItemHandle<'_>> {
+		self.items.iter().map(|item| EnumItemHandle {
+			enum_: *self,
+			item,
+		})
+	}
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct PropagatedScalarData {
