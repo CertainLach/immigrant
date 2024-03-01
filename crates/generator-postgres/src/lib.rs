@@ -715,10 +715,54 @@ impl Pg<SchemaDiff<'_>> {
 			Pg(diff).print_stage3(sql, rn, column_changes, diff.new.is_external());
 		}
 
-		// Create new views
-		// FIXME: Toposort them
-		for ele in changelist.created.iter().filter_map(SchemaItem::as_view) {
-			Pg(ele).create(sql, rn);
+		// Create new views, in toposorted order
+		{
+			let mut remaining_views = changelist
+				.created
+				.iter()
+				.filter_map(SchemaItem::as_view)
+				.collect_vec();
+			if !remaining_views.is_empty() {
+				let mut dependencies = remaining_views
+					.iter()
+					.map(|c| c.id())
+					.collect::<HashSet<_>>();
+				loop {
+					let (ready, pending) = remaining_views
+						.iter()
+						.partition::<Vec<SchemaView<'_>>, _>(|c| {
+							for def in &c.definition.0 {
+								match def {
+									DefinitionPart::Raw(_) => {}
+									DefinitionPart::TableRef(t) => {
+										if dependencies.contains(&Ident::unchecked_cast(*t)) {
+											return false;
+										}
+									}
+									DefinitionPart::ColumnRef(t, _) => {
+										if dependencies.contains(&Ident::unchecked_cast(*t)) {
+											return false;
+										}
+									}
+								}
+							}
+							true
+						});
+					assert!(
+						!ready.is_empty(),
+						"i'm stuck (circular view dependency?) with {} left: {pending:?}",
+						pending.len()
+					);
+					for ele in ready {
+						Pg(ele).create(sql, rn);
+						dependencies.remove(&ele.id());
+					}
+					if pending.is_empty() {
+						break;
+					}
+					remaining_views = pending;
+				}
+			}
 		}
 
 		// Create new foreign keys
@@ -1614,7 +1658,7 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 											fp.section("name");
 											fp.fragment(ele.db(rn).raw());
 											fp.section("ty");
-											ele.db_type(rn);
+											fp.fragment(ele.db_type(rn).raw());
 										}
 									}
 									SchemaTableOrView::View(v) => {
@@ -1631,7 +1675,7 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 										fp.section("name");
 										fp.fragment(c.db(rn).raw());
 										fp.section("ty");
-										c.db_type(rn);
+										fp.fragment(c.db_type(rn).raw());
 									}
 									SchemaTableOrView::View(v) => {
 										// If view is rebuilt, current view can't be the same.

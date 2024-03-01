@@ -1,0 +1,51 @@
+!!!TEST view creation toposort, Baz should be created before Qux.
+scalar foo = "INTEGER" @inline;
+
+table Bar {
+	foo;
+};
+view Qux = $$
+	SELECT * FROM ${Baz};
+$$;
+view Baz = $$
+	SELECT * FROM ${Bar};
+$$;
+!!!UPDATE also for views
+scalar foo = "TEXT" @inline;
+
+table Bar {
+	foo;
+};
+view Qux = $$
+	SELECT * FROM ${Baz};
+$$;
+view Baz = $$
+	SELECT * FROM ${Bar};
+$$;
+!!!RESULT
+-- updated: view creation toposort, Baz should be created before Qux. --
+CREATE TABLE bars (
+	foo INTEGER NOT NULL
+);
+CREATE VIEW bazs AS
+	SELECT * FROM bars;
+;
+CREATE VIEW quxes AS
+	SELECT * FROM bazs;
+;
+-- updated: also for views --
+ALTER VIEW quxes RENAME TO moveaway_1;
+ALTER VIEW bazs RENAME TO moveaway_2;
+ALTER TABLE bars ALTER COLUMN foo SET DATA TYPE TEXT;
+DROP VIEW moveaway_1;
+DROP VIEW moveaway_2;
+CREATE VIEW bazs AS
+	SELECT * FROM bars;
+;
+CREATE VIEW quxes AS
+	SELECT * FROM bazs;
+;
+-- updated: cleanup schema changes --
+DROP VIEW quxes;
+DROP VIEW bazs;
+DROP TABLE bars;
