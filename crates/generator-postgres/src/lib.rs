@@ -1192,11 +1192,18 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 			} else {
 				w!(out, "{va}");
 			}
-			w!(out, " {op} ");
-			if sql_needs_parens(b) {
-				w!(out, "({vb})");
-			} else {
-				w!(out, "{vb}");
+			match (op, vb.as_str()) {
+				// String comparison is not looking good, but it works...
+				("IS NOT DISTINCT FROM", "NULL") => w!(out, " IS NULL"),
+				("IS DISTINCT FROM", "NULL") => w!(out, " IS NOT NULL"),
+				_ => {
+					w!(out, " {op} ");
+					if sql_needs_parens(b) {
+						w!(out, "({vb})");
+					} else {
+						w!(out, "{vb}");
+					}
+				}
 			}
 		}
 		Sql::Parened(a) => {
