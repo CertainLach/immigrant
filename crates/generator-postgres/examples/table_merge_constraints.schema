@@ -28,8 +28,8 @@ CREATE TABLE tests (
 ,	e int NOT NULL
 ,	f int NOT NULL
 ,	CONSTRAINT hui PRIMARY KEY(a, b)
-,	CONSTRAINT testcheck CHECK ((test <> '2') AND (test <> '1'))
-,	CONSTRAINT tests_test_check CHECK ((test <> '3') AND (test <> '4'))
+,	CONSTRAINT testcheck CHECK (test <> '2' AND test <> '1')
+,	CONSTRAINT tests_test_check CHECK (test <> '3' AND test <> '4')
 );
 CREATE INDEX testidx ON tests(
 	e

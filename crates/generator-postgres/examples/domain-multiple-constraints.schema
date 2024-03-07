@@ -8,7 +8,7 @@ scalar test = "INTEGER"
 !!!RESULT
 -- updated: scalar and multiple checks on it --
 CREATE DOMAIN test AS INTEGER
-	CONSTRAINT not_6_or_12 CHECK ((VALUE <> 6) AND (VALUE <> 12))
-	CONSTRAINT test_check CHECK (((VALUE > 0) AND (VALUE < 1000)) AND (VALUE <> 5));
+	CONSTRAINT not_6_or_12 CHECK (VALUE <> 6 AND VALUE <> 12)
+	CONSTRAINT test_check CHECK (VALUE > 0 AND VALUE < 1000 AND VALUE <> 5);
 -- updated: cleanup schema changes --
 DROP DOMAIN test;

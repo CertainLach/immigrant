@@ -16,7 +16,7 @@ use schema::{
 	renamelist::RenameOp,
 	root::Schema,
 	scalar::{EnumItem, EnumItemHandle, ScalarAnnotation},
-	sql::Sql,
+	sql::{Sql, SqlOp},
 	uid::{RenameExt, RenameMap},
 	view::DefinitionPart,
 	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
@@ -1131,7 +1131,7 @@ impl Pg<SchemaItem<'_>> {
 	}
 }
 
-fn sql_needs_parens(sql: &Sql) -> bool {
+fn sql_needs_parens(sql: &Sql, parent_binop: Option<SqlOp>) -> bool {
 	match sql {
 		Sql::Cast(_, _)
 		| Sql::Call(_, _)
@@ -1144,6 +1144,16 @@ fn sql_needs_parens(sql: &Sql) -> bool {
 		| Sql::Placeholder
 		| Sql::Tuple(_)
 		| Sql::Null => false,
+
+		// It is possible to fully implement precedence climbing here, however I have tried, and it resulted in
+		// not very good looking code in some cases (Mix&matching LIKE, AND & IN); So I will only add variants, which should never conflict with what user sees.
+		Sql::BinOp(_, a @ (SqlOp::And | SqlOp::Or), _) if Some(*a) == parent_binop => false,
+		Sql::BinOp(_, SqlOp::And, _) if matches!(parent_binop, Some(SqlOp::Or)) => false,
+		Sql::BinOp(
+			_,
+			SqlOp::Lt | SqlOp::Gt | SqlOp::Le | SqlOp::Ge | SqlOp::Ne | SqlOp::SEq | SqlOp::SNe,
+			_,
+		) if matches!(parent_binop, Some(SqlOp::And | SqlOp::Or)) => false,
 
 		Sql::UnOp(_, _) | Sql::BinOp(_, _, _) | Sql::If(_, _, _) => true,
 	}
@@ -1184,21 +1194,21 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 			w!(out, "{op}({expr})");
 		}
 		Sql::BinOp(a, op, b) => {
-			let op = op.format();
+			let sop = op.format();
 			let va = format_sql(a, schema, context, rn);
 			let vb = format_sql(b, schema, context, rn);
-			if sql_needs_parens(a) {
+			if sql_needs_parens(a, Some(*op)) {
 				w!(out, "({va})");
 			} else {
 				w!(out, "{va}");
 			}
 			match (op, vb.as_str()) {
 				// String comparison is not looking good, but it works...
-				("IS NOT DISTINCT FROM", "NULL") => w!(out, " IS NULL"),
-				("IS DISTINCT FROM", "NULL") => w!(out, " IS NOT NULL"),
+				(SqlOp::SEq, "NULL") => w!(out, " IS NULL"),
+				(SqlOp::SNe, "NULL") => w!(out, " IS NOT NULL"),
 				_ => {
-					w!(out, " {op} ");
-					if sql_needs_parens(b) {
+					w!(out, " {sop} ");
+					if sql_needs_parens(b, Some(*op)) {
 						w!(out, "({vb})");
 					} else {
 						w!(out, "{vb}");
@@ -1208,7 +1218,7 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 		}
 		Sql::Parened(a) => {
 			let va = format_sql(a, schema, context, rn);
-			if sql_needs_parens(a) {
+			if sql_needs_parens(a, None) {
 				w!(out, "({va})");
 			} else {
 				w!(out, "{va}");
@@ -1235,7 +1245,12 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 		Sql::GetField(f, c) => {
 			let va = format_sql(f, schema, context, rn);
 			let name = Id(f.field_name(&context, *c, rn));
-			w!(out, "({va}).{name}");
+			if sql_needs_parens(f, None) {
+				w!(out, "({va})")
+			} else {
+				w!(out, "{va}");
+			}
+			w!(out, ".{name}");
 		}
 		Sql::Tuple(t) => {
 			w!(out, "ROW(");

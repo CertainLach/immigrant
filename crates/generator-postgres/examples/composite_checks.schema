@@ -23,8 +23,8 @@ CREATE TYPE b AS (
 );
 CREATE TABLE examples (
 	b b NOT NULL
-,	CONSTRAINT composite_nullability_check CHECK (((b IS NULL) OR ((b).a_field IS NOT NULL)) AND (((b).a_field IS NULL) OR (((b).a_field).test IS NOT NULL)))
-,	CONSTRAINT examples_b_check CHECK ((((b).a_field).test <> 246) AND (((b).a_field).test <> 123))
+,	CONSTRAINT composite_nullability_check CHECK ((b IS NULL OR b.a_field IS NOT NULL) AND (b.a_field IS NULL OR b.a_field.test IS NOT NULL))
+,	CONSTRAINT examples_b_check CHECK (b.a_field.test <> 246 AND b.a_field.test <> 123)
 );
 -- updated: cleanup schema changes --
 DROP TABLE examples;

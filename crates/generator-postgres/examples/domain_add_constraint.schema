@@ -31,7 +31,7 @@ ALTER DOMAIN a
 ;
 ALTER DOMAIN b
 	DROP CONSTRAINT other
-,	ADD CONSTRAINT other CHECK ((VALUE <> 'd') AND (VALUE <> 'dd'))
+,	ADD CONSTRAINT other CHECK (VALUE <> 'd' AND VALUE <> 'dd')
 ,	ADD CONSTRAINT third CHECK (VALUE <> 'e')
 ;
 -- updated: then they all are gone --

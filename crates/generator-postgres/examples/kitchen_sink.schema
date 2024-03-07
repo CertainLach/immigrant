@@ -69,10 +69,10 @@ CREATE TABLE clients (
 ,	user_group user_group NOT NULL
 ,	test_struct test_struct NOT NULL
 ,	CONSTRAINT clients_user_id_pkey PRIMARY KEY(user_id)
-,	CONSTRAINT composite_nullability_check CHECK ((test_struct IS NULL) OR (((test_struct).a IS NOT NULL) AND ((test_struct).b IS NOT NULL)))
-,	CONSTRAINT extra_checks CHECK (((test_struct).a <> 99) AND ((test_struct).b <> 99))
-,	CONSTRAINT if_a_then_b CHECK (CASE WHEN ((test_struct).a > 10) THEN ((test_struct).b > 10) ELSE (TRUE) END)
-,	CONSTRAINT non_zero_int_cant_be_zero CHECK ((test_struct).b <> 0)
+,	CONSTRAINT composite_nullability_check CHECK (test_struct IS NULL OR test_struct.a IS NOT NULL AND test_struct.b IS NOT NULL)
+,	CONSTRAINT extra_checks CHECK (test_struct.a <> 99 AND test_struct.b <> 99)
+,	CONSTRAINT if_a_then_b CHECK (CASE WHEN (test_struct.a > 10) THEN (test_struct.b > 10) ELSE (TRUE) END)
+,	CONSTRAINT non_zero_int_cant_be_zero CHECK (test_struct.b <> 0)
 );
 CREATE INDEX clients_user_id_idx ON clients(
 	user_id
