@@ -265,15 +265,27 @@ impl Pgnc<&mut Table> {
 			.partition::<Vec<_>, _>(|i| i.db_assigned(rn));
 		let named_idxs = named_idxs
 			.into_iter()
-			.map(|i| ((i.unique, i.db(rn)), i.fields))
+			.map(|i| {
+				(
+					(
+						i.unique,
+						i.using.clone(),
+						i.default_opclass.clone(),
+						i.db(rn),
+					),
+					i.fields().to_vec(),
+				)
+			})
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
-		for ((unique, name), fields) in named_idxs {
+		for ((unique, using, default_opclass, name), fields) in named_idxs {
 			annotations.push(TableAnnotation::Index(Index::new(
 				Some(name),
 				unique,
 				fields.into_iter().flatten().collect(),
+				using,
+				default_opclass,
 			)))
 		}
 		for idx in unnamed_idxs {
@@ -288,7 +300,7 @@ impl Pgnc<&mut Table> {
 				TableAnnotation::Index(i) if !i.db_assigned(rn) => {
 					let mut out = self.db(rn).raw().to_string();
 					w!(out, "_");
-					for column in self.db_names(i.fields.iter().cloned(), rn) {
+					for column in self.db_names(i.fields().iter().map(|v| &v.0).cloned(), rn) {
 						w!(out, "{}_", column.raw());
 					}
 					if i.unique {

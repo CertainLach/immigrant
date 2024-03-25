@@ -26,10 +26,12 @@ impl Check {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
+		self.uid = next_uid();
 		self.check.replace_placeholder(Sql::Ident(column));
 		self
 	}
 	pub fn propagate_to_composite(mut self, field: FieldIdent) -> Self {
+		self.uid = next_uid();
 		self.check
 			.replace_placeholder(Sql::GetField(Box::new(Sql::Placeholder), field));
 		self
@@ -56,6 +58,7 @@ impl UniqueConstraint {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
+		self.uid = next_uid();
 		self.columns.insert(0, column);
 		self
 	}
@@ -82,10 +85,16 @@ impl PrimaryKey {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
+		self.uid = next_uid();
 		self.columns.insert(0, column);
 		self
 	}
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Using(pub String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OpClass(pub String);
 
 /// Can appear on columns, scalars, and tables.
 ///
@@ -96,30 +105,60 @@ pub struct Index {
 	uid: Uid,
 	name: Option<DbIdent<IndexKind>>,
 	pub unique: bool,
-	pub fields: Vec<ColumnIdent>,
+	fields: Vec<(ColumnIdent, Option<OpClass>)>,
+	pub using: Option<Using>,
+	pub default_opclass: Option<OpClass>,
 }
 db_name_impls!(Index, IndexKind);
 impl Index {
-	pub fn new(name: Option<DbIdent<IndexKind>>, unique: bool, fields: Vec<ColumnIdent>) -> Self {
+	pub fn new(
+		name: Option<DbIdent<IndexKind>>,
+		unique: bool,
+		fields: Vec<(ColumnIdent, Option<OpClass>)>,
+		using: Option<Using>,
+		default_opclass: Option<OpClass>,
+	) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
 			unique,
-			fields,
+			fields: fields
+				.into_iter()
+				.map(|v| (v.0, v.1.or(default_opclass.clone())))
+				.collect(),
+			using,
+			default_opclass,
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.fields.insert(0, column);
+		self.uid = next_uid();
+		self.fields
+			.insert(0, (column, self.default_opclass.clone()));
+		self.uid = next_uid();
 		self
+	}
+	pub fn fields(&self) -> &[(ColumnIdent, Option<OpClass>)] {
+		&self.fields
+	}
+	pub fn field_idents(&self) -> impl IntoIterator<Item = ColumnIdent> + '_ {
+		self.fields().iter().map(|i| i.0)
 	}
 }
 impl TableIndex<'_> {
 	pub fn db_columns<'i>(&'i self, rn: &'i RenameMap) -> impl Iterator<Item = DbColumn> + 'i {
-		self.fields.iter().map(|f| self.table.db_name(f, rn))
+		self.fields.iter().map(|f| self.table.db_name(&f.0, rn))
+	}
+	pub fn db_columns_opclass<'i>(
+		&'i self,
+		rn: &'i RenameMap,
+	) -> impl Iterator<Item = (DbColumn, Option<OpClass>)> + 'i {
+		self.fields
+			.iter()
+			.map(|f| (self.table.db_name(&f.0, rn), f.1.clone()))
 	}
 	pub fn db_types<'i>(&'i self, rn: &'i RenameMap) -> impl Iterator<Item = DbNativeType> + 'i {
 		self.fields
 			.iter()
-			.map(|f| self.table.schema_column(*f).db_type(rn))
+			.map(|f| self.table.schema_column(f.0).db_type(rn))
 	}
 }

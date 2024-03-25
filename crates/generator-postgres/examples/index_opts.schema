@@ -1,0 +1,27 @@
+!!!TEST
+scalar embedding = "vector(1024)";
+table Embeddings {
+	embedding @index.opclass(vector_l2_ops).using(ivfflat);
+};
+!!!UPDATE
+scalar embedding = "vector(1024)";
+table Embeddings {
+	embedding @index.opclass(vector_cosine_ops).using(ivfflat);
+};
+!!!RESULT
+-- updated --
+CREATE DOMAIN embedding AS vector(1024);
+CREATE TABLE embeddings (
+	embedding embedding NOT NULL
+);
+CREATE INDEX embeddings_embedding_idx ON embeddings USING ivfflat(
+	embedding vector_l2_ops
+);
+-- updated --
+DROP INDEX embeddings_embedding_idx;
+CREATE INDEX embeddings_embedding_idx ON embeddings USING ivfflat(
+	embedding vector_cosine_ops
+);
+-- updated: cleanup schema changes --
+DROP TABLE embeddings;
+DROP DOMAIN embedding;

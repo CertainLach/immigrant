@@ -7,7 +7,7 @@ use std::{
 use itertools::Itertools;
 use schema::{
 	ids::{DbIdent, Ident},
-	index::Check,
+	index::{Check, Using},
 	mk_change_list,
 	names::{
 		ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType,
@@ -516,9 +516,13 @@ impl IsIsomorph for Pg<TableIndex<'_>> {
 	}
 }
 impl IsCompatible for Pg<TableIndex<'_>> {
-	fn is_compatible(&self, new: &Self, _rn: &RenameMap) -> bool {
+	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+		let old_column_opclass = self.db_columns_opclass(rn).collect_vec();
+		let new_column_opclass = new.db_columns_opclass(rn).collect_vec();
 		// We can't update unique flag, so they are not compatible and need to be recreated
 		self.unique == new.unique
+			&& self.using == new.using
+			&& old_column_opclass == new_column_opclass
 	}
 }
 impl Pg<TableIndex<'_>> {
@@ -530,12 +534,20 @@ impl Pg<TableIndex<'_>> {
 		if self.unique {
 			w!(sql, "UNIQUE ");
 		}
-		w!(sql, "INDEX {name} ON {table_name}(\n");
-		for (i, c) in self.db_columns(rn).enumerate() {
+		w!(sql, "INDEX {name} ON {table_name}");
+		if let Some(using) = &self.using {
+			w!(sql, " USING {}", Id(using.0.as_str()));
+		}
+		w!(sql, "(\n");
+		for (i, (c, opclass)) in self.db_columns_opclass(rn).enumerate() {
 			if i != 0 {
 				w!(sql, ",");
 			}
-			w!(sql, "\t{}\n", Id(c));
+			w!(sql, "\t{}", Id(c));
+			if let Some(opclass) = opclass {
+				w!(sql, " {}", Id(opclass.0.as_str()));
+			}
+			w!(sql, "\n");
 		}
 		w!(sql, ");\n");
 	}
@@ -1603,6 +1615,12 @@ impl<T> Display for Id<DbIdent<T>> {
 impl<T> Display for Id<&DbIdent<T>> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let id = escape_identifier(self.0.raw());
+		write!(f, "{id}")
+	}
+}
+impl Display for Id<&str> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let id = escape_identifier(self.0);
 		write!(f, "{id}")
 	}
 }

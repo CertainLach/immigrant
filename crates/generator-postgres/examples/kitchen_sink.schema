@@ -82,7 +82,7 @@ CREATE TABLE news (
 ,	user_id user_id NOT NULL
 ,	CONSTRAINT news_id_pkey PRIMARY KEY(id)
 );
-CREATE INDEX clients_user_id_idx ON news(
+CREATE INDEX news_user_id_idx ON news(
 	user_id
 );
 ALTER TABLE news ADD CONSTRAINT news_user_id_fk FOREIGN KEY(user_id) REFERENCES clients(user_id);

@@ -1,0 +1,28 @@
+!!!TEST
+scalar foo = "INTEGER" @index;
+
+table A {
+	foo;
+};
+table B {
+	foo;
+};
+!!!RESULT
+-- updated --
+CREATE DOMAIN foo AS INTEGER;
+CREATE TABLE "as" (
+	foo foo NOT NULL
+);
+CREATE INDEX as_foo_idx ON "as"(
+	foo
+);
+CREATE TABLE bs (
+	foo foo NOT NULL
+);
+CREATE INDEX bs_foo_idx ON bs(
+	foo
+);
+-- updated: cleanup schema changes --
+DROP TABLE "as";
+DROP TABLE bs;
+DROP DOMAIN foo;

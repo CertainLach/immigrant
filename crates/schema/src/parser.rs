@@ -7,7 +7,7 @@ use crate::{
 	column::{Column, ColumnAnnotation, PartialForeignKey},
 	composite::{Composite, CompositeAnnotation, Field, FieldAnnotation},
 	ids::{in_allocator, DbIdent},
-	index::{Check, Index, PrimaryKey, UniqueConstraint},
+	index::{Check, Index, OpClass, PrimaryKey, UniqueConstraint, Using},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, TableDefName, TableIdent,
 		TypeDefName, TypeIdent, ViewDefName,
@@ -204,7 +204,11 @@ rule unique(s:S) -> UniqueConstraint
 rule check(s:S) -> Check
 = "@check" _ name:db_ident()? _ "(" _ check:sql(s) _ ")" {Check::new(name.map(DbIdent::new), check)}
 rule index(s:S) -> Index
-= "@index" _ unq:("." _ "unique" _)? name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default())}
+= "@index" _
+	unq:("." _ "unique" _)?
+	default_opclass:("." _ "opclass" _ "(" _ opclass:code_ident(s) _ ")" _ {OpClass(opclass.1.to_owned())})?
+	using:("." _ "using" _ "(" _ using:code_ident(s) _ ")" _ {Using(using.1.to_owned())})?
+	name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default().into_iter().map(|v| (v, None)).collect(), using, default_opclass)}
 
 rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 

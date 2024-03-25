@@ -80,12 +80,10 @@ impl Enum {
 def_name_impls!(Enum, TypeKind);
 
 impl SchemaEnum<'_> {
-
 	pub fn items(&self) -> impl Iterator<Item = EnumItemHandle<'_>> {
-		self.items.iter().map(|item| EnumItemHandle {
-			enum_: *self,
-			item,
-		})
+		self.items
+			.iter()
+			.map(|item| EnumItemHandle { enum_: *self, item })
 	}
 }
 

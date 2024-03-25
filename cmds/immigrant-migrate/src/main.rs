@@ -42,6 +42,7 @@ async fn run_migrations(
 	migrations_table: &str,
 ) -> Result<()> {
 	let mut tx = conn.begin().await?;
+	
 	tx.execute(format!("INSERT INTO {migrations_table}(version) VALUES ({id});").as_str())
 		.await?;
 	{
@@ -97,15 +98,13 @@ async fn main() -> Result<()> {
 			let list = list(&root)?;
 
 			for (id, _, path) in &list {
-				dbg!(&id);
 				if id.id as i32 <= last_ver {
 					continue;
 				}
 				let mut path = path.to_owned();
 				path.push("up.sql");
 				let sql = fs::read_to_string(&path).context("reading migration up.sql file")?;
-				dbg!(&sql);
-				run_migrations(&mut conn, id.id, sql, &migrations_table).await?;
+				run_migrations(&mut conn, id.id, sql, migrations_table).await?;
 			}
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
 

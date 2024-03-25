@@ -267,7 +267,7 @@ impl<'a> SchemaTable<'a> {
 		for ele in self.annotations.iter() {
 			match ele {
 				TableAnnotation::Index(i) => {
-					if i.unique && is_unique_by_index(i.fields.iter().copied(), &columns) {
+					if i.unique && is_unique_by_index(i.field_idents(), &columns) {
 						return Cardinality::One;
 					}
 				}
