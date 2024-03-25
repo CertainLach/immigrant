@@ -153,8 +153,8 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 		.filter(|diff| !mapper(diff.old).is_compatible(&mapper(diff.new), rn))
 		.collect::<Vec<_>>()
 	{
-		out.created.push(recreated.new.clone());
-		out_dropped.push((recreated.old.clone(), Some(allocator.next_moveaway())));
+		out.created.push(recreated.new);
+		out_dropped.push((recreated.old, Some(allocator.next_moveaway())));
 	}
 	out.updated
 		.retain(|diff| mapper(diff.old).is_compatible(&mapper(diff.new), rn));
@@ -170,14 +170,14 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 
 	let mut to_rename = vec![];
 	for updated in out.updated.iter() {
-		to_rename.push((updated.old.clone(), updated.new.db(rn), updated.old.clone()));
+		to_rename.push((updated.old, updated.new.db(rn), updated.old));
 	}
 	let mut moveaways = vec![];
 	for old_dropped in out_dropped.iter() {
 		if let Some(tmp) = old_dropped.1 {
-			moveaways.push((old_dropped.0.clone(), tmp));
+			moveaways.push((old_dropped.0, tmp));
 		} else if new.iter().any(|n| n.db(rn) == old_dropped.0.db(rn)) {
-			moveaways.push((old_dropped.0.clone(), allocator.next_moveaway()));
+			moveaways.push((old_dropped.0, allocator.next_moveaway()));
 		}
 	}
 	out.renamed = reorder_renames(rn, to_rename, moveaways.clone(), &mut allocator);

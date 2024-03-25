@@ -939,7 +939,7 @@ impl Pg<EnumDiff<'_>> {
 			let mut stored = HashMap::new();
 			match el {
 				RenameOp::Store(i, t) => {
-					stored.insert(t, i.clone());
+					stored.insert(t, i);
 					changes.push(Pg(i).rename_alter(t.db(), rn));
 				}
 				RenameOp::Moveaway(i, t) => {
@@ -1772,7 +1772,7 @@ impl Pg<SchemaDiff<'_>> {
 	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
 		let old = self.old.material_items();
 		let new = self.new.material_items();
-		mk_change_list(rn, old.as_slice(), new.as_slice(), |v| Pg(v))
+		mk_change_list(rn, old.as_slice(), new.as_slice(), Pg)
 	}
 }
 

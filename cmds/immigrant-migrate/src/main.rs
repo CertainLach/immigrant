@@ -45,8 +45,11 @@ async fn run_migrations(
 	let mut tx = conn.begin().await?;
 
 	tx.execute(
-		format!("INSERT INTO {migrations_table}(version, schema) VALUES ({id}, {schema_str});")
-			.as_str(),
+		sqlx::query(
+			format!("INSERT INTO {migrations_table}(version, schema) VALUES ($1, $2);").as_str(),
+		)
+		.bind(id as i32)
+		.bind(schema_str),
 	)
 	.await?;
 	{
@@ -83,7 +86,7 @@ async fn main() -> Result<()> {
 					version INTEGER NOT NULL PRIMARY KEY,
 					run_on TIMESTAMP NOT NULL DEFAULT NOW(),
 					-- Either <noop>, <reset>%fullImmigrantSchema, or <diff>%diffImmigrantSchema
-					schema TEXT,
+					schema TEXT
 				);
 				ALTER TABLE {migrations_table} ADD COLUMN IF NOT EXISTS schema TEXT;
 			"#
