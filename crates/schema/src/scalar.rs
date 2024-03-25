@@ -11,13 +11,13 @@ use crate::{
 	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
-	uid::{next_uid, RenameExt, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
 	SchemaEnum,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EnumItem {
-	uid: Uid,
+	uid: OwnUid,
 	name: EnumItemDefName,
 }
 impl EnumItem {
@@ -56,7 +56,7 @@ impl IsCompatible for EnumItemHandle<'_> {
 
 #[derive(Debug)]
 pub struct Enum {
-	uid: Uid,
+	uid: OwnUid,
 	name: TypeDefName,
 	pub attrlist: AttributeList,
 	pub items: Vec<EnumItem>,
@@ -108,7 +108,7 @@ impl PropagatedScalarData {
 /// might work not as user would expect. I.e it allows value to be null in case of outer joins.
 #[derive(Debug)]
 pub struct Scalar {
-	uid: Uid,
+	uid: OwnUid,
 	name: TypeDefName,
 	pub attrlist: AttributeList,
 	/// TODO: There is no support for making one scalar depend on other scalar/enum.
@@ -188,7 +188,7 @@ impl Scalar {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ScalarAnnotation {
 	/// Moved to column if inlined.
 	Default(Sql),
@@ -217,7 +217,7 @@ impl ScalarAnnotation {
 	}
 	fn propagate_to_field(&self, inline: bool) -> Option<FieldAnnotation> {
 		Some(match self {
-			ScalarAnnotation::Check(c) if inline => FieldAnnotation::Check(c.clone()),
+			ScalarAnnotation::Check(c) if inline => FieldAnnotation::Check(c.clone_for_propagate()),
 			_ => return None,
 		})
 	}

@@ -12,13 +12,13 @@ use crate::{
 		TableIdent, TableKind, TypeIdent,
 	},
 	scalar::PropagatedScalarData,
-	uid::{next_uid, RenameExt, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
 	w, HasIdent, Index, SchemaTable, TableColumn, TableForeignKey, TableIndex, TableItem,
 };
 
 #[derive(Debug)]
 pub struct Table {
-	uid: Uid,
+	uid: OwnUid,
 	name: TableDefName,
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
@@ -90,7 +90,7 @@ impl OnDelete {
 
 #[derive(Debug)]
 pub struct ForeignKey {
-	uid: Uid,
+	uid: OwnUid,
 	name: Option<DbForeignKey>,
 	pub source_fields: Option<Vec<ColumnIdent>>,
 	pub target: TableIdent,

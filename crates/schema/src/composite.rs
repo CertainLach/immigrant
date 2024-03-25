@@ -13,11 +13,11 @@ use crate::{
 	},
 	scalar::PropagatedScalarData,
 	sql::Sql,
-	uid::{next_uid, RenameExt, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
 	HasIdent, IsCompatible, SchemaComposite, SchemaType,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FieldAnnotation {
 	Check(Check),
 }
@@ -31,11 +31,16 @@ impl FieldAnnotation {
 			_ => return Either::Right(self),
 		})
 	}
+	fn clone_for_propagate(&self) -> Self {
+		match self {
+			FieldAnnotation::Check(c) => Self::Check(c.clone_for_propagate()),
+		}
+	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Field {
-	uid: Uid,
+	uid: OwnUid,
 	name: CompositeItemDefName,
 	pub nullable: bool,
 	pub ty: TypeIdent,
@@ -65,8 +70,12 @@ impl Field {
 		propagated: &PropagatedScalarData,
 	) {
 		if self.ty == scalar {
-			self.annotations
-				.extend(propagated.field_annotations.iter().cloned());
+			self.annotations.extend(
+				propagated
+					.field_annotations
+					.iter()
+					.map(|a| a.clone_for_propagate()),
+			);
 		}
 	}
 	pub fn propagate_annotations(&mut self) -> Vec<CompositeAnnotation> {
@@ -78,14 +87,14 @@ impl Field {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum CompositeAnnotation {
 	Check(Check),
 }
 impl CompositeAnnotation {
 	fn propagate_to_field(&self) -> Option<FieldAnnotation> {
 		Some(match self {
-			CompositeAnnotation::Check(c) => FieldAnnotation::Check(c.clone()),
+			CompositeAnnotation::Check(c) => FieldAnnotation::Check(c.clone_for_propagate()),
 		})
 	}
 	fn propagate_to_column(self) -> Either<ColumnAnnotation, Self> {
@@ -95,9 +104,9 @@ impl CompositeAnnotation {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Composite {
-	uid: Uid,
+	uid: OwnUid,
 	name: TypeDefName,
 	pub attrlist: AttributeList,
 	pub fields: Vec<Field>,

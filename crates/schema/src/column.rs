@@ -14,11 +14,11 @@ use crate::{
 	index::{Check, PrimaryKey, UniqueConstraint},
 	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, TypeIdent},
 	scalar::PropagatedScalarData,
-	uid::{next_uid, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameMap, Uid},
 	HasIdent, SchemaType, TableColumn,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ColumnAnnotation {
 	/// Moved to table.
 	Check(Check),
@@ -60,11 +60,21 @@ impl ColumnAnnotation {
 			_ => return Either::Right(self),
 		})
 	}
+	fn clone_for_propagate(&self) -> Self {
+		match self {
+			ColumnAnnotation::Check(c) => Self::Check(c.clone_for_propagate()),
+			ColumnAnnotation::Unique(u) => Self::Unique(u.clone_for_propagate()),
+			ColumnAnnotation::PrimaryKey(p) => Self::PrimaryKey(p.clone_for_propagate()),
+			ColumnAnnotation::Index(i) => Self::Index(i.clone_for_propagate()),
+			ColumnAnnotation::Default(d) => Self::Default(d.clone()),
+			ColumnAnnotation::InitializeAs(i) => Self::InitializeAs(i.clone()),
+		}
+	}
 }
 
 #[derive(Debug)]
 pub struct Column {
-	uid: Uid,
+	uid: OwnUid,
 	name: ColumnDefName,
 	pub docs: Vec<String>,
 	pub attrs: AttributeList,
@@ -115,8 +125,12 @@ impl Column {
 		propagated: &PropagatedScalarData,
 	) {
 		if self.ty == scalar {
-			self.annotations
-				.extend(propagated.annotations.iter().cloned());
+			self.annotations.extend(
+				propagated
+					.annotations
+					.iter()
+					.map(|v| v.clone_for_propagate()),
+			);
 		}
 	}
 	pub fn propagate_annotations(&mut self) -> Vec<TableAnnotation> {

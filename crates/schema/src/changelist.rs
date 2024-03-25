@@ -196,15 +196,15 @@ mod tests {
 		names::{DefName, TypeKind},
 		renamelist::{RenameOp, RenameTempAllocator},
 		span::{register_source, SimpleSpan},
-		uid::{next_uid, HasUid, RenameMap, Uid},
+		uid::{next_uid, HasUid, OwnUid, RenameMap, Uid},
 		HasDefaultDbName, HasIdent,
 	};
 	#[test]
 	fn changelist_conflict() {
 		tracing_subscriber::fmt().init();
 		in_allocator(|| {
-			#[derive(Clone, Debug, PartialEq)]
-			struct P(Uid, DefName<TypeKind>);
+			#[derive(Debug, PartialEq)]
+			struct P(OwnUid, DefName<TypeKind>);
 			derive_is_isomorph_by_id_name!(P);
 			impl IsCompatible for P {
 				fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
@@ -225,7 +225,7 @@ mod tests {
 			}
 			impl HasUid for P {
 				fn uid(&self) -> Uid {
-					self.0
+					self.0.uid()
 				}
 			}
 			fn p(a: &'static str, b: &'static str) -> P {

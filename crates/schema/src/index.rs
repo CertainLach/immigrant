@@ -3,16 +3,16 @@ use crate::{
 	db_name_impls,
 	ids::DbIdent,
 	names::{ColumnIdent, ConstraintKind, DbColumn, DbNativeType, FieldIdent, IndexKind},
-	uid::{next_uid, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameMap, Uid},
 	TableIndex,
 };
 
 /// Can appear on columns, scalars, and tables.
 ///
 /// Checks with the same name are merged using sql AND operator.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Check {
-	uid: Uid,
+	uid: OwnUid,
 	name: Option<DbIdent<ConstraintKind>>,
 	pub check: Sql,
 }
@@ -26,15 +26,20 @@ impl Check {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.uid = next_uid();
 		self.check.replace_placeholder(Sql::Ident(column));
 		self
 	}
 	pub fn propagate_to_composite(mut self, field: FieldIdent) -> Self {
-		self.uid = next_uid();
 		self.check
 			.replace_placeholder(Sql::GetField(Box::new(Sql::Placeholder), field));
 		self
+	}
+	pub fn clone_for_propagate(&self) -> Self {
+		Check {
+			uid: next_uid(),
+			name: self.name.clone(),
+			check: self.check.clone(),
+		}
 	}
 }
 
@@ -42,9 +47,9 @@ impl Check {
 ///
 /// Constraints with the same name are merged, unifying columns.
 /// When appears on a scalar - always inlined to column.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct UniqueConstraint {
-	uid: Uid,
+	uid: OwnUid,
 	name: Option<DbIdent<ConstraintKind>>,
 	pub columns: Vec<ColumnIdent>,
 }
@@ -58,9 +63,15 @@ impl UniqueConstraint {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.uid = next_uid();
 		self.columns.insert(0, column);
 		self
+	}
+	pub fn clone_for_propagate(&self) -> Self {
+		Self {
+			uid: next_uid(),
+			name: self.name.clone(),
+			columns: self.columns.clone(),
+		}
 	}
 }
 
@@ -69,9 +80,9 @@ impl UniqueConstraint {
 /// Only tables can define name for primary key, in other cases it will raise a validation error.
 /// Always merged, if there is a name conflict - raises a validation error.
 /// When appears on a scalar - always inlined to column.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PrimaryKey {
-	uid: Uid,
+	uid: OwnUid,
 	name: Option<DbIdent<ConstraintKind>>,
 	pub columns: Vec<ColumnIdent>,
 }
@@ -85,9 +96,15 @@ impl PrimaryKey {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.uid = next_uid();
 		self.columns.insert(0, column);
 		self
+	}
+	pub fn clone_for_propagate(&self) -> Self {
+		Self {
+			uid: next_uid(),
+			name: self.name.clone(),
+			columns: self.columns.clone(),
+		}
 	}
 }
 
@@ -102,13 +119,14 @@ pub struct With(pub String);
 ///
 /// Indexed with the same name are merged, if one index is marked as unique, and other isn't - raises a validation error.
 // TODO: Index kind? BTREE/etc
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Index {
-	uid: Uid,
+	uid: OwnUid,
 	name: Option<DbIdent<IndexKind>>,
 	pub unique: bool,
 	fields: Vec<(ColumnIdent, Option<OpClass>)>,
 	pub using: Option<Using>,
+	// FIXME: Should only exist when Index is defined on field, this opclass is applied to the field itself, not to the index
 	pub default_opclass: Option<OpClass>,
 	pub with: Option<With>,
 }
@@ -136,10 +154,8 @@ impl Index {
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {
-		self.uid = next_uid();
 		self.fields
 			.insert(0, (column, self.default_opclass.clone()));
-		self.uid = next_uid();
 		self
 	}
 	pub fn fields(&self) -> &[(ColumnIdent, Option<OpClass>)] {
@@ -147,6 +163,17 @@ impl Index {
 	}
 	pub fn field_idents(&self) -> impl IntoIterator<Item = ColumnIdent> + '_ {
 		self.fields().iter().map(|i| i.0)
+	}
+	pub fn clone_for_propagate(&self) -> Self {
+		Self {
+			uid: next_uid(),
+			name: self.name.clone(),
+			unique: self.unique,
+			fields: self.fields.clone(),
+			using: self.using.clone(),
+			default_opclass: self.default_opclass.clone(),
+			with: self.with.clone(),
+		}
 	}
 }
 impl TableIndex<'_> {

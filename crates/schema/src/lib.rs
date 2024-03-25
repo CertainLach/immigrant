@@ -27,8 +27,8 @@ pub mod root;
 pub mod scalar;
 pub mod sql;
 pub mod table;
-pub mod view;
 pub mod trigger;
+pub mod view;
 
 pub mod ids;
 pub mod names;
@@ -478,7 +478,7 @@ macro_rules! def_name_impls {
 	($t:ty, $k:ident) => {
 		impl $crate::uid::HasUid for $t {
 			fn uid(&self) -> Uid {
-				self.uid
+				$crate::uid::HasUid::uid(&self.uid)
 			}
 		}
 		impl $crate::HasIdent for $t {
@@ -524,7 +524,7 @@ macro_rules! db_name_impls {
 	($t:ty, $k:ident) => {
 		impl $crate::uid::HasUid for $t {
 			fn uid(&self) -> Uid {
-				self.uid
+				$crate::uid::HasUid::uid(&self.uid)
 			}
 		}
 		impl $crate::HasDefaultDbName for $t {

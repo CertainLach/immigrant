@@ -2,7 +2,7 @@ use crate::{
 	attribute::AttributeList,
 	def_name_impls,
 	names::{ColumnIdent, TableIdent, ViewDefName, ViewKind},
-	uid::{next_uid, Uid},
+	uid::{next_uid, OwnUid, Uid},
 };
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub struct Definition(pub Vec<DefinitionPart>);
 
 #[derive(Debug)]
 pub struct View {
-	uid: Uid,
+	uid: OwnUid,
 	name: ViewDefName,
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,

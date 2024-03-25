@@ -5,16 +5,29 @@ use crate::{ids::DbIdent, HasDefaultDbName};
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
 pub struct Uid(usize);
 
+/// OwnUid - Uid attached to annotation/something else
+/// It doesn't make sense to clone Annotation Uid, because if we do so, then
+/// changing name of annotation on table column also changes annotation name in scalar/other copies of this annotation
+/// Because of that, cloning of OwnUid should also clone entry of RenameMap.
+#[derive(PartialEq, Eq, Hash, Debug)]
+#[repr(transparent)]
+pub struct OwnUid(Uid);
+impl HasUid for OwnUid {
+	fn uid(&self) -> Uid {
+		self.0
+	}
+}
+
 thread_local! {
 	static LAST_UID: Cell<usize> = Default::default();
 }
 
-pub(crate) fn next_uid() -> Uid {
-	LAST_UID.with(|u| {
+pub(crate) fn next_uid() -> OwnUid {
+	OwnUid(LAST_UID.with(|u| {
 		let v = u.get();
 		u.set(v.checked_add(1).expect("overflow"));
 		Uid(v)
-	})
+	}))
 }
 
 #[derive(Default, Clone)]
