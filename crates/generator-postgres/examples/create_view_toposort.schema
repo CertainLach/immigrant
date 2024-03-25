@@ -36,9 +36,9 @@ CREATE VIEW quxes AS
 -- updated: also for views --
 ALTER VIEW quxes RENAME TO moveaway_1;
 ALTER VIEW bazs RENAME TO moveaway_2;
-ALTER TABLE bars ALTER COLUMN foo SET DATA TYPE TEXT;
 DROP VIEW moveaway_1;
 DROP VIEW moveaway_2;
+ALTER TABLE bars ALTER COLUMN foo SET DATA TYPE TEXT;
 CREATE VIEW bazs AS
 	SELECT * FROM bars;
 ;

@@ -6,6 +6,10 @@ table Foo {
 view Test = $$
 	SELECT * FROM ${Foo}
 $$;
+// Also materialized
+view.materialized TestMaterialized = $$
+	SELECT * FROM ${Foo}
+$$;
 !!!UPDATE table changes will result in view metadata update
 scalar example = "INTEGER";
 table Foo {
@@ -13,6 +17,9 @@ table Foo {
 };
 view Test = $$
 	SELECT *, (${Foo.example} + 2) AS ex2 FROM ${Foo}
+$$;
+view.materialized TestMaterialized "newname" = $$
+	SELECT * FROM ${Foo}
 $$;
 !!!RESULT
 -- updated: views --
@@ -23,14 +30,23 @@ CREATE TABLE foos (
 CREATE VIEW tests AS
 	SELECT * FROM foos
 ;
+CREATE MATERIALIZED VIEW test_materializeds AS
+	SELECT * FROM foos
+;
 -- updated: table changes will result in view metadata update --
 ALTER VIEW tests RENAME TO moveaway_1;
+ALTER MATERIALIZED VIEW test_materializeds RENAME TO moveaway_2;
 ALTER TABLE foos RENAME COLUMN example TO example2;
 DROP VIEW moveaway_1;
+DROP MATERIALIZED VIEW moveaway_2;
 CREATE VIEW tests AS
 	SELECT *, (example2 + 2) AS ex2 FROM foos
 ;
+CREATE MATERIALIZED VIEW newname AS
+	SELECT * FROM foos
+;
 -- updated: cleanup schema changes --
 DROP VIEW tests;
+DROP MATERIALIZED VIEW newname;
 DROP TABLE foos;
 DROP DOMAIN example;

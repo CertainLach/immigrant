@@ -8,7 +8,7 @@ use schema::{
 
 /// Can be updated in database source code, and some are already doing that,
 /// but for simplicity assuming default here.
-const MAX_IDENTIFIER_LEN: usize = 63;
+pub const MAX_IDENTIFIER_LEN: usize = 63;
 
 fn validate_db<T: RenameExt>(v: &T, rn: &RenameMap) {
 	let str = v.db(rn);

@@ -704,6 +704,12 @@ impl Pg<SchemaDiff<'_>> {
 			let changelist = diff.print_stage1_5(sql, rn, diff.new.is_external());
 			fksd.push(changelist);
 		}
+
+		// Drop old views
+		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
+			Pg(ele).drop(sql, rn);
+		}
+
 		let mut fkss = vec![];
 		for ((diff, column_changes), constraint_changes) in
 			diffs.iter().zip(changes.iter()).zip(fksd)
@@ -716,11 +722,6 @@ impl Pg<SchemaDiff<'_>> {
 				diff.new.is_external(),
 			);
 			fkss.push(fks);
-		}
-
-		// Drop old views
-		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
-			Pg(ele).drop(sql, rn);
 		}
 
 		for (diff, column_changes) in diffs.iter().zip(changes) {
@@ -1534,14 +1535,20 @@ impl Pg<TableCheck<'_>> {
 impl Pg<SchemaView<'_>> {
 	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
 		let table_name = Id(self.db(rn));
-		w!(sql, "CREATE VIEW {table_name} AS");
+		w!(sql, "CREATE");
+		if self.materialized {
+			w!(sql, " MATERIALIZED");
+		}
+		w!(sql, " VIEW {table_name} AS");
 		for ele in &self.0.definition.0 {
 			match ele {
 				DefinitionPart::Raw(r) => {
 					w!(sql, "{r}")
 				}
 				DefinitionPart::TableRef(t) => {
-					let table = self.schema.schema_table_or_view(t).expect("referenced");
+					let Some(table) = self.schema.schema_table_or_view(t) else {
+						panic!("referenced table not found: {t:?}");
+					};
 					match table {
 						SchemaTableOrView::Table(t) => {
 							w!(sql, "{}", Id(t.db(rn)))
@@ -1566,14 +1573,22 @@ impl Pg<SchemaView<'_>> {
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
 		let name = Id(self.db(rn));
-		wl!(sql, "DROP VIEW {name};");
+		w!(sql, "DROP");
+		if self.materialized {
+			w!(sql, " MATERIALIZED");
+		}
+		wl!(sql, " VIEW {name};");
 	}
 
 	pub fn print_alternations(&self, mut out: &[Alternation], sql: &mut String, rn: &RenameMap) {
-		fn print_group(name: &DbView, list: &[Alternation], sql: &mut String) {
+		fn print_group(materialized: bool, name: &DbView, list: &[Alternation], sql: &mut String) {
 			let name = Id(name);
+			w!(sql, "ALTER");
+			if materialized {
+				w!(sql, " MATERIALIZED");
+			}
 			if list.len() > 1 {
-				w!(sql, "ALTER VIEW {name}\n");
+				w!(sql, " VIEW {name}\n");
 				for (i, alt) in list.iter().enumerate() {
 					if i != 0 {
 						w!(sql, ",");
@@ -1583,7 +1598,7 @@ impl Pg<SchemaView<'_>> {
 				wl!(sql, ";");
 			} else {
 				let alt = &list[0];
-				w!(sql, "ALTER VIEW {name} {};\n", alt.alt);
+				w!(sql, " VIEW {name} {};\n", alt.alt);
 			}
 		}
 		let name = &self.db(rn);
@@ -1598,7 +1613,7 @@ impl Pg<SchemaView<'_>> {
 				}
 				count += 1;
 			}
-			print_group(name, &out[..count], sql);
+			print_group(self.materialized, name, &out[..count], sql);
 			out = &out[count..];
 		}
 	}
@@ -1726,6 +1741,9 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 						}
 					}
 					fp
+				}
+				if a.materialized != b.materialized {
+					return false;
 				}
 				let fpa = fingerprint(a, rn);
 				let fpb = fingerprint(b, rn);

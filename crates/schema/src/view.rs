@@ -20,6 +20,7 @@ pub struct View {
 	name: ViewDefName,
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
+	pub materialized: bool,
 	pub definition: Definition,
 }
 def_name_impls!(View, ViewKind);
@@ -28,6 +29,7 @@ impl View {
 		docs: Vec<String>,
 		attrlist: AttributeList,
 		name: ViewDefName,
+		materialized: bool,
 		definition: Definition,
 	) -> Self {
 		Self {
@@ -35,6 +37,7 @@ impl View {
 			name,
 			docs,
 			attrlist,
+			materialized,
 			definition,
 		}
 	}

@@ -69,11 +69,12 @@ rule definition(s:S) -> Definition = "$$"
 rule view(s:S) -> View =
 	docs:docs()
 	attrlist:attribute_list(s) _
-	"view" _ name:def_name(s) _ "=" _ definition:definition(s) _ ";" {{
+	"view" materialized:(_ "." _ "materialized")? _ name:def_name(s) _ "=" _ definition:definition(s) _ ";" {{
 	View::new(
 		docs,
 		attrlist,
 		ViewDefName::alloc(name),
+		materialized.is_some(),
 		definition,
 	)
 }};
