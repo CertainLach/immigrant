@@ -3,3 +3,5 @@
 /log.html
 /src
 /test
+/node_modules
+/yarn.lock
