@@ -26,6 +26,10 @@ enum Subcommand {
 		after_down_sql: Option<String>,
 		#[clap(long)]
 		dry_run: bool,
+		/// If true - migration should be saved to disk.
+		/// Always set if not in dry-run mode, in dry-run it is disabled by default.
+		#[clap(long)]
+		write: bool,
 	},
 }
 #[derive(Parser)]
@@ -122,6 +126,7 @@ async fn main() -> Result<()> {
 			before_down_sql,
 			after_down_sql,
 			dry_run,
+			write,
 		} => {
 			// TODO: Option to disable top-level transaction
 			let mut tx = conn.begin().await?;
@@ -213,9 +218,10 @@ async fn main() -> Result<()> {
 				return Err(e);
 			};
 
-			if !dry_run {
-				let mut dir = root;
-				dir.push(&id.dirname);
+			let mut dir = root.clone();
+			dir.push(&id.dirname);
+
+			if !dry_run || write {
 				fs::create_dir(&dir).context("creating migration directory")?;
 
 				{
@@ -223,10 +229,14 @@ async fn main() -> Result<()> {
 					schema_update.push("db.update");
 					fs::write(schema_update, migration.to_string()).context("writing db.update")?;
 				}
+			}
+			if !dry_run {
 				tx.commit().await?;
-				generate_sql(&migration, &original, &current, &rn, &dir)?;
 			} else {
 				println!("Dry-run succeeded");
+			}
+			if !dry_run || write {
+				generate_sql(&migration, &original, &current, &rn, &dir)?;
 			}
 		}
 	}
