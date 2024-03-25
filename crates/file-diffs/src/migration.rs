@@ -93,6 +93,13 @@ impl Migration {
 			&& self.before_down_sql.is_empty()
 			&& self.after_down_sql.is_empty()
 	}
+	pub fn schema_check_string(&self) -> String {
+		match &self.schema_diff {
+			MigrationSchemaDiff::None => "<noop>".to_string(),
+			MigrationSchemaDiff::Reset(s) => format!("<reset>{s}"),
+			MigrationSchemaDiff::Diff(d) => format!("<diff>{d}"),
+		}
+	}
 }
 impl FromStr for Migration {
 	type Err = Error;

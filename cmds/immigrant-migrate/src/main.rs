@@ -40,11 +40,15 @@ async fn run_migrations(
 	id: u32,
 	migration: String,
 	migrations_table: &str,
+	schema_str: &str,
 ) -> Result<()> {
 	let mut tx = conn.begin().await?;
-	
-	tx.execute(format!("INSERT INTO {migrations_table}(version) VALUES ({id});").as_str())
-		.await?;
+
+	tx.execute(
+		format!("INSERT INTO {migrations_table}(version, schema) VALUES ({id}, {schema_str});")
+			.as_str(),
+	)
+	.await?;
 	{
 		let mut executing = tx.execute_many(migration.as_str());
 		while let Some(v) = executing.next().await {
@@ -54,6 +58,12 @@ async fn run_migrations(
 
 	tx.commit().await?;
 	Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct RanMigration {
+	version: i32,
+	schema: Option<String>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -71,20 +81,33 @@ async fn main() -> Result<()> {
 			r#"
 				CREATE TABLE IF NOT EXISTS {migrations_table} (
 					version INTEGER NOT NULL PRIMARY KEY,
-					run_on TIMESTAMP NOT NULL DEFAULT NOW()
+					run_on TIMESTAMP NOT NULL DEFAULT NOW(),
+					-- Either <noop>, <reset>%fullImmigrantSchema, or <diff>%diffImmigrantSchema
+					schema TEXT,
 				);
+				ALTER TABLE {migrations_table} ADD COLUMN IF NOT EXISTS schema TEXT;
 			"#
 		)
 		.as_str(),
 	)
 	.await?;
-	let (last_ver,) = sqlx::query_as::<_, (i32,)>(
-		"SELECT COALESCE(MAX(version), -1) AS version FROM __immigrant_migrations",
+	let ran_migrations = sqlx::query_as::<_, RanMigration>(
+		"SELECT version, schema FROM __immigrant_migrations ORDER BY version",
 	)
-	.fetch_one(&mut *conn)
+	.fetch_all(&mut *conn)
 	.await?;
-	assert!(last_ver >= -1);
-	let last_ver = last_ver as i32;
+	for migration in ran_migrations.iter() {
+		assert!(migration.version >= 0);
+	}
+	let first_version = ran_migrations.first().map(|m| m.version as u32);
+	// Not all migrations might be recorded, but they must be continous
+	for (ran, expected) in ran_migrations
+		.iter()
+		.enumerate()
+		.map(|(i, m)| (m, i as u32 + first_version.expect("not empty")))
+	{
+		assert_eq!(ran.version as u32, expected, "unexpected migration version");
+	}
 
 	match opts.cmd {
 		Subcommand::Commit {
@@ -97,14 +120,35 @@ async fn main() -> Result<()> {
 			let root = find_root(&current_dir()?)?;
 			let list = list(&root)?;
 
-			for (id, _, path) in &list {
-				if id.id as i32 <= last_ver {
-					continue;
+			'next_migration: for (id, schema, path) in &list {
+				let check_str = schema.schema_check_string();
+				'run_migration: {
+					let Some(first_version) = first_version else {
+						// No migrations were ran yet,
+						break 'run_migration;
+					};
+					let Some(ran_id) = id.id.checked_sub(first_version) else {
+						// Migration version was removed from DB, yet it was run.
+						continue 'next_migration;
+					};
+					let Some(migration) = ran_migrations.get(ran_id as usize) else {
+						// This migration was not yet ran
+						break 'run_migration;
+					};
+					let Some(expected_schema) = &migration.schema else {
+						// No stored expected schema, continue with migration
+						continue 'next_migration;
+					};
+					assert_eq!(
+						expected_schema, &check_str,
+						"schema, stored in DB, doesn't match the schema stored locally"
+					);
+					continue 'next_migration;
 				}
 				let mut path = path.to_owned();
 				path.push("up.sql");
 				let sql = fs::read_to_string(&path).context("reading migration up.sql file")?;
-				run_migrations(&mut conn, id.id, sql, migrations_table).await?;
+				run_migrations(&mut conn, id.id, sql, migrations_table, &check_str).await?;
 			}
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
 
@@ -148,7 +192,15 @@ async fn main() -> Result<()> {
 			}
 
 			let (sql, _) = generate_sql_nowrite(&migration, &original, &current, &rn)?;
-			if let Err(e) = run_migrations(&mut conn, id.id, sql.clone(), migrations_table).await {
+			if let Err(e) = run_migrations(
+				&mut conn,
+				id.id,
+				sql.clone(),
+				migrations_table,
+				&migration.schema_check_string(),
+			)
+			.await
+			{
 				eprintln!("Won't commit failed migration:\n\n{sql}");
 				return Err(e);
 			};
