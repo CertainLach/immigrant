@@ -1,0 +1,18 @@
+!!!TEST
+scalar my_scalar = "INTEGER";
+table LongTableNameToMakeItTruncateFieldNameOnIndex {
+	long_field_name_to_trigger_truncation: my_scalar @index @primary_key;
+};
+!!!RESULT
+-- updated --
+CREATE DOMAIN my_scalar AS INTEGER;
+CREATE TABLE long_table_name_to_make_it_truncate_field_name_on_indices (
+	long_field_name_to_trigger_truncation my_scalar NOT NULL
+,	CONSTRAINT "long_table_name_to_make_it_truncate_field_name_on_i_27FSY1_pkey" PRIMARY KEY(long_field_name_to_trigger_truncation)
+);
+CREATE INDEX "long_table_name_to_make_it_truncate_field_name_on_in_27FSY1_idx" ON long_table_name_to_make_it_truncate_field_name_on_indices(
+	long_field_name_to_trigger_truncation
+);
+-- updated: cleanup schema changes --
+DROP TABLE long_table_name_to_make_it_truncate_field_name_on_indices;
+DROP DOMAIN my_scalar;
