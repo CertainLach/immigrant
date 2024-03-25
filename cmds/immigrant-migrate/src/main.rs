@@ -5,7 +5,7 @@ use clap::Parser;
 use cli::{current_schema, generate_sql, generate_sql_nowrite, stored_schema};
 use file_diffs::{find_root, list, Migration, MigrationId};
 use futures::StreamExt;
-use sqlx::{pool::PoolConnection, postgres::PgPoolOptions, Acquire, Executor, Postgres};
+use sqlx::{postgres::PgPoolOptions, Acquire, Executor, Postgres, Transaction};
 
 #[derive(Parser)]
 enum Subcommand {
@@ -24,6 +24,8 @@ enum Subcommand {
 		before_down_sql: Option<String>,
 		#[clap(long)]
 		after_down_sql: Option<String>,
+		#[clap(long)]
+		dry_run: bool,
 	},
 }
 #[derive(Parser)]
@@ -36,7 +38,7 @@ struct Opts {
 }
 
 async fn run_migrations(
-	conn: &mut PoolConnection<Postgres>,
+	conn: &mut Transaction<'_, Postgres>,
 	id: u32,
 	migration: String,
 	migrations_table: &str,
@@ -119,7 +121,10 @@ async fn main() -> Result<()> {
 			after_up_sql,
 			before_down_sql,
 			after_down_sql,
+			dry_run,
 		} => {
+			// TODO: Option to disable top-level transaction
+			let mut tx = conn.begin().await?;
 			let root = find_root(&current_dir()?)?;
 			let list = list(&root)?;
 
@@ -151,7 +156,7 @@ async fn main() -> Result<()> {
 				let mut path = path.to_owned();
 				path.push("up.sql");
 				let sql = fs::read_to_string(&path).context("reading migration up.sql file")?;
-				run_migrations(&mut conn, id.id, sql, migrations_table, &check_str).await?;
+				run_migrations(&mut tx, id.id, sql, migrations_table, &check_str).await?;
 			}
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
 
@@ -196,7 +201,7 @@ async fn main() -> Result<()> {
 
 			let (sql, _) = generate_sql_nowrite(&migration, &original, &current, &rn)?;
 			if let Err(e) = run_migrations(
-				&mut conn,
+				&mut tx,
 				id.id,
 				sql.clone(),
 				migrations_table,
@@ -208,17 +213,21 @@ async fn main() -> Result<()> {
 				return Err(e);
 			};
 
-			let mut dir = root;
-			dir.push(&id.dirname);
-			fs::create_dir(&dir).context("creating migration directory")?;
+			if !dry_run {
+				let mut dir = root;
+				dir.push(&id.dirname);
+				fs::create_dir(&dir).context("creating migration directory")?;
 
-			{
-				let mut schema_update = dir.to_owned();
-				schema_update.push("db.update");
-				fs::write(schema_update, migration.to_string()).context("writing db.update")?;
+				{
+					let mut schema_update = dir.to_owned();
+					schema_update.push("db.update");
+					fs::write(schema_update, migration.to_string()).context("writing db.update")?;
+				}
+				tx.commit().await?;
+				generate_sql(&migration, &original, &current, &rn, &dir)?;
+			} else {
+				println!("Dry-run succeeded");
 			}
-
-			generate_sql(&migration, &original, &current, &rn, &dir)?;
 		}
 	}
 	Ok(())
