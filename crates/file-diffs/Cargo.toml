@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-imara-diff = "0.1.5"
-ouroboros = "0.15.6"
-patch = "0.7.0"
-thiserror = "1.0.40"
+imara-diff.workspace = true
+ouroboros.workspace = true
+patch.workspace = true
+thiserror.workspace = true

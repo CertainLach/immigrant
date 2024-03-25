@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-anyhow = "1.0.71"
-ass-stroke = { git = "https://github.com/CertainLach/ass-stroke", version = "0.1.0" }
+anyhow.workspace = true
+ass-stroke.workspace = true
 file-diffs.workspace = true
 generator-postgres.workspace = true
-immigrant-schema = { version = "0.1.0", path = "../schema" }
+schema.workspace = true

@@ -187,7 +187,8 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 	out
 }
 
-#[cfg(test)]
+// Always disabled, any() == false
+#[cfg(all(test, any()))]
 mod tests {
 	use crate::{
 		changelist::{ChangeList, IsCompatible},

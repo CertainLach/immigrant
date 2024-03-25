@@ -7,8 +7,9 @@ use anyhow::anyhow;
 use ass_stroke::{SnippetBuilder, Text};
 use file_diffs::{Migration, MigrationId};
 use generator_postgres::Pg;
-use immigrant_schema::{
+use schema::{
 	parser,
+	process::NamingConvention,
 	root::{Schema, SchemaProcessOptions},
 	uid::RenameMap,
 };
@@ -18,7 +19,7 @@ pub fn parse_schema(schema: &str, rn: &mut RenameMap) -> anyhow::Result<Schema> 
 		schema,
 		&SchemaProcessOptions {
 			generator_supports_domain: true,
-			naming_convention: immigrant_schema::process::NamingConvention::Postgres,
+			naming_convention: NamingConvention::Postgres,
 		},
 		rn,
 	) {
