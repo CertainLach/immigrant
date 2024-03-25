@@ -21,6 +21,10 @@ use crate::{
 	w, HasIdent,
 };
 
+/// Can be updated in database source code, and some are already doing that,
+/// but for simplicity assuming default here.
+const MAX_IDENTIFIER_LEN: usize = 63;
+
 #[derive(Clone, Copy)]
 pub enum NamingConvention {
 	Postgres,
@@ -133,6 +137,21 @@ impl Pgnc<&mut Scalar> {
 		}
 		self.annotations = annotations;
 	}
+}
+
+fn truncate_auto_name(name: String, suf: &str) -> String {
+	use blake2::Digest;
+	// FIXME: MAX_IDENTIFIER_LEN should be provided from generator engine.
+	#[allow(clippy::int_plus_one)]
+	if name.len() + suf.len() + 1 <= MAX_IDENTIFIER_LEN {
+		return format!("{name}_{suf}");
+	}
+	let hash = blake2::Blake2s256::digest(name.as_bytes());
+	let hash = base32::encode(base32::Alphabet::Crockford, hash.as_slice());
+	let suf = format!("_{}_{suf}", &hash[0..6]);
+	// format!("", name[])
+	// FIXME: Technically, it is not valid to slice name, because it might be utf-8, but in reality it won't.
+	format!("{}{suf}", &name[..MAX_IDENTIFIER_LEN - suf.len()])
 }
 
 /// First merge constraints, to allow specifying partial primary keys, i.e
@@ -271,6 +290,7 @@ impl Pgnc<&mut Table> {
 						i.unique,
 						i.using.clone(),
 						i.default_opclass.clone(),
+						i.with.clone(),
 						i.db(rn),
 					),
 					i.fields().to_vec(),
@@ -279,13 +299,14 @@ impl Pgnc<&mut Table> {
 			.into_group_map()
 			.into_iter()
 			.collect::<BTreeMap<_, _>>();
-		for ((unique, using, default_opclass, name), fields) in named_idxs {
+		for ((unique, using, default_opclass, with, name), fields) in named_idxs {
 			annotations.push(TableAnnotation::Index(Index::new(
 				Some(name),
 				unique,
 				fields.into_iter().flatten().collect(),
 				using,
 				default_opclass,
+				with,
 			)))
 		}
 		for idx in unnamed_idxs {
@@ -299,43 +320,35 @@ impl Pgnc<&mut Table> {
 			match ann {
 				TableAnnotation::Index(i) if !i.db_assigned(rn) => {
 					let mut out = self.db(rn).raw().to_string();
-					w!(out, "_");
 					for column in self.db_names(i.fields().iter().map(|v| &v.0).cloned(), rn) {
-						w!(out, "{}_", column.raw());
+						w!(out, "_{}", column.raw());
 					}
-					if i.unique {
-						w!(out, "key")
-					} else {
-						w!(out, "idx")
-					}
-					decided_names.push(Some(out));
+
+					decided_names.push(Some(truncate_auto_name(
+						out,
+						if i.unique { "key" } else { "idx" },
+					)));
 				}
 				TableAnnotation::Check(c) if !c.db_assigned(rn) => {
 					let mut out = self.db(rn).raw().to_string();
-					w!(out, "_");
 					for ele in self.db_names(c.check.affected_columns(), rn) {
-						w!(out, "{}_", ele.raw());
+						w!(out, "_{}", ele.raw());
 					}
-					w!(out, "check");
-					decided_names.push(Some(out));
+					decided_names.push(Some(truncate_auto_name(out, "check")));
 				}
 				TableAnnotation::Unique(u) if !u.db_assigned(rn) => {
 					let mut out = self.db(rn).raw().to_string();
-					w!(out, "_");
 					for ele in self.db_names(u.columns.iter().cloned(), rn) {
-						w!(out, "{}_", ele.raw());
+						w!(out, "_{}", ele.raw());
 					}
-					w!(out, "key");
-					decided_names.push(Some(out));
+					decided_names.push(Some(truncate_auto_name(out, "key")));
 				}
 				TableAnnotation::PrimaryKey(p) if !p.db_assigned(rn) => {
 					let mut out = self.db(rn).raw().to_string();
-					w!(out, "_");
 					for ele in self.db_names(p.columns.iter().cloned(), rn) {
-						w!(out, "{}_", ele.raw());
+						w!(out, "_{}", ele.raw());
 					}
-					w!(out, "pkey");
-					decided_names.push(Some(out));
+					decided_names.push(Some(truncate_auto_name(out, "pkey")));
 				}
 				_ => decided_names.push(None),
 			}
@@ -361,17 +374,15 @@ impl Pgnc<&mut Table> {
 		}
 		for fk in self.foreign_keys.iter() {
 			let mut out = self.db(rn).raw().to_string();
-			w!(out, "_");
 			let fields = fk
 				.source_fields
 				.as_ref()
 				.or(fk.target_fields.as_ref())
 				.expect("source or target should be set");
 			for ele in self.db_names(fields.iter().cloned(), rn) {
-				w!(out, "{}_", ele.raw());
+				w!(out, "_{}", ele.raw());
 			}
-			w!(out, "fk");
-			fk.set_db(rn, DbIdent::new(&out));
+			fk.set_db(rn, DbIdent::new(&truncate_auto_name(out, "fk")));
 		}
 	}
 }
