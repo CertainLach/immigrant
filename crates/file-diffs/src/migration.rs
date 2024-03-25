@@ -96,8 +96,8 @@ impl Migration {
 	pub fn schema_check_string(&self) -> String {
 		match &self.schema_diff {
 			MigrationSchemaDiff::None => "<noop>".to_string(),
-			MigrationSchemaDiff::Reset(s) => format!("<reset>{s}"),
-			MigrationSchemaDiff::Diff(d) => format!("<diff>{d}"),
+			MigrationSchemaDiff::Reset(s) => format!("<reset>\n{s}"),
+			MigrationSchemaDiff::Diff(d) => format!("<diff>\n{d}"),
 		}
 	}
 }
