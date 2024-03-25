@@ -7,7 +7,7 @@ use crate::{
 	column::{Column, ColumnAnnotation, PartialForeignKey},
 	composite::{Composite, CompositeAnnotation, Field, FieldAnnotation},
 	ids::{in_allocator, DbIdent},
-	index::{Check, Index, OpClass, PrimaryKey, UniqueConstraint, Using},
+	index::{Check, Index, OpClass, PrimaryKey, UniqueConstraint, Using, With},
 	names::{
 		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, TableDefName, TableIdent,
 		TypeDefName, TypeIdent, ViewDefName,
@@ -209,13 +209,16 @@ rule index(s:S) -> Index
 	unq:("." _ "unique" _)?
 	default_opclass:("." _ "opclass" _ "(" _ opclass:code_ident(s) _ ")" _ {OpClass(opclass.1.to_owned())})?
 	using:("." _ "using" _ "(" _ using:code_ident(s) _ ")" _ {Using(using.1.to_owned())})?
-	name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default().into_iter().map(|v| (v, None)).collect(), using, default_opclass)}
+	with:("." _ "with" _ "(" _ with:str_escaping() _ ")" _ {With(with)})?
+	name:db_ident()? _ f:index_fields(s)? {Index::new(name.map(DbIdent::new), unq.is_some(), f.unwrap_or_default().into_iter().map(|v| (v, None)).collect(), using, default_opclass, with)}
 
 rule index_fields(s:S) -> Vec<ColumnIdent> = "(" _ i:code_ident(s)**comma() trailing_comma() ")" {i.into_iter().map(ColumnIdent::alloc).collect()}
 
 rule code_ident(s:S) -> (SimpleSpan, &'input str) = b:position!() n:$(['a'..='z' | 'A'..='Z'] ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*) e:position!() {(SimpleSpan::new(s, b as u32, e as u32), n)};
 rule db_ident() -> &'input str = str()
+// TODO: Replce all usages of str with str_escaping
 rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
+rule str_escaping() -> String = "\"" v:$((!['"'] ("\\\"" / [_]))*) "\"" {v.replace("\\\"", "\"")}
 
 rule sqlexpr(s:S) -> Sql = "(" s:sql(s) ")" {s};
 rule sql(s:S) -> Sql

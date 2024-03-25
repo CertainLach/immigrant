@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 Inflector = "0.11.4"
+base32 = "0.4.0"
+blake2 = "0.10.6"
 derivative = "2.2.0"
 itertools = "0.11.0"
 paste = "1.0.12"

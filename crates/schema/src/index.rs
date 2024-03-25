@@ -95,6 +95,8 @@ impl PrimaryKey {
 pub struct Using(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OpClass(pub String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct With(pub String);
 
 /// Can appear on columns, scalars, and tables.
 ///
@@ -108,6 +110,7 @@ pub struct Index {
 	fields: Vec<(ColumnIdent, Option<OpClass>)>,
 	pub using: Option<Using>,
 	pub default_opclass: Option<OpClass>,
+	pub with: Option<With>,
 }
 db_name_impls!(Index, IndexKind);
 impl Index {
@@ -117,6 +120,7 @@ impl Index {
 		fields: Vec<(ColumnIdent, Option<OpClass>)>,
 		using: Option<Using>,
 		default_opclass: Option<OpClass>,
+		with: Option<With>,
 	) -> Self {
 		Self {
 			uid: next_uid(),
@@ -128,6 +132,7 @@ impl Index {
 				.collect(),
 			using,
 			default_opclass,
+			with,
 		}
 	}
 	pub fn propagate_to_table(mut self, column: ColumnIdent) -> Self {

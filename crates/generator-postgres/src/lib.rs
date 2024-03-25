@@ -549,7 +549,11 @@ impl Pg<TableIndex<'_>> {
 			}
 			w!(sql, "\n");
 		}
-		w!(sql, ");\n");
+		w!(sql, ")");
+		if let Some(with) = &self.with {
+			w!(sql, " WITH ({})", with.0);
+		}
+		wl!(sql, ";");
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
 		let name = Id(self.db(rn));
