@@ -1,5 +1,5 @@
 {
-  description = "Auth service";
+  description = "Immigrant: Database schema description language";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";

@@ -201,6 +201,10 @@ async fn main() -> Result<()> {
 
 			if migration.is_noop() {
 				println!("No changes found");
+				// Still need to preserve previous migrations state.
+				if !dry_run {
+					tx.commit().await?;
+				}
 				return Ok(());
 			}
 
