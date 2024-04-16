@@ -28,6 +28,6 @@ CREATE TABLE examples (
 );
 -- updated: cleanup schema changes --
 DROP TABLE examples;
-DROP TYPE a;
 DROP TYPE b;
+DROP TYPE a;
 DROP DOMAIN test;

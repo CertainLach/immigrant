@@ -709,9 +709,58 @@ impl Pg<SchemaDiff<'_>> {
 			fksd.push(changelist);
 		}
 
-		// Drop old views
-		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_view) {
-			Pg(ele).drop(sql, rn);
+		// Drop old views, in toposorted order
+		{
+			let mut remaining_views = changelist
+				.dropped
+				.iter()
+				.filter_map(SchemaItem::as_view)
+				.collect_vec();
+			if !remaining_views.is_empty() {
+				let mut sorted = vec![];
+				let mut dependencies = remaining_views
+					.iter()
+					.map(|c| c.id())
+					.collect::<HashSet<_>>();
+				loop {
+					let (ready, pending) = remaining_views
+						.iter()
+						.partition::<Vec<SchemaView<'_>>, _>(|c| {
+							for def in &c.definition.0 {
+								match def {
+									DefinitionPart::Raw(_) => {}
+									DefinitionPart::TableRef(t) => {
+										if dependencies.contains(&Ident::unchecked_cast(*t)) {
+											return false;
+										}
+									}
+									DefinitionPart::ColumnRef(t, _) => {
+										if dependencies.contains(&Ident::unchecked_cast(*t)) {
+											return false;
+										}
+									}
+								}
+							}
+							true
+						});
+					assert!(
+						!ready.is_empty(),
+						"i'm stuck (circular view dependency?) with {} left: {pending:?}",
+						pending.len()
+					);
+					for ele in ready.into_iter().rev() {
+						sorted.push(ele);
+						dependencies.remove(&ele.id());
+					}
+					if pending.is_empty() {
+						break;
+					}
+					remaining_views = pending;
+				}
+				for e in sorted.into_iter().rev() {
+					Pg(e).drop(sql, rn);
+				}
+			}
 		}
 
 		let mut fkss = vec![];
@@ -827,6 +876,7 @@ impl Pg<SchemaDiff<'_>> {
 				.filter_map(SchemaItem::as_composite)
 				.collect_vec();
 			if !remaining_composites.is_empty() {
+				let mut sorted = vec![];
 				let mut dependencies = remaining_composites
 					.iter()
 					.map(|c| c.id())
@@ -842,14 +892,17 @@ impl Pg<SchemaDiff<'_>> {
 						"i'm stuck (circular composite dependency?) with {} left: {pending:?}",
 						pending.len()
 					);
-					for ele in ready {
-						Pg(ele).drop(sql, rn);
+					for ele in ready.into_iter().rev() {
+						sorted.push(ele);
 						dependencies.remove(&ele.id());
 					}
 					if pending.is_empty() {
 						break;
 					}
 					remaining_composites = pending;
+				}
+				for e in sorted.into_iter().rev() {
+					Pg(e).drop(sql, rn);
 				}
 			}
 		};

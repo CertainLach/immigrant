@@ -1,0 +1,43 @@
+!!!TEST when dropping both table and view, shich uses this table, view should be dropped first.
+scalar foo = "INTEGER";
+struct a {
+	foo;
+};
+struct b {
+	a;
+};
+
+table Bar {
+	foo;
+};
+view Baz = $$
+	SELECT * FROM ${Bar}
+$$;
+view Qux = $$
+	SELECT * FROM ${Baz}
+$$;
+!!!RESULT
+-- updated: when dropping both table and view, shich uses this table, view should be dropped first. --
+CREATE DOMAIN foo AS INTEGER;
+CREATE TYPE a AS (
+	foo foo
+);
+CREATE TYPE b AS (
+	a a
+);
+CREATE TABLE bars (
+	foo foo NOT NULL
+);
+CREATE VIEW bazs AS
+	SELECT * FROM bars
+;
+CREATE VIEW quxes AS
+	SELECT * FROM bazs
+;
+-- updated: cleanup schema changes --
+DROP VIEW quxes;
+DROP VIEW bazs;
+DROP TABLE bars;
+DROP TYPE b;
+DROP TYPE a;
+DROP DOMAIN foo;
