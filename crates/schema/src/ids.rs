@@ -9,7 +9,7 @@ use std::{
 
 use derivative::Derivative;
 
-use crate::span::SimpleSpan;
+use crate::{names::UnknownKind, span::SimpleSpan};
 
 #[derive(Default)]
 pub struct CodeIdentAllocator {
@@ -121,6 +121,15 @@ impl<K: Kind> Ident<K> {
 			kind: v.kind,
 			id: v.id,
 			span: v.span,
+			_marker: PhantomData,
+		}
+	}
+	pub fn to_unknown(self) -> Ident<UnknownKind> {
+		// Not using unchecked_cast to skip compatibility check
+		Ident {
+			kind: UnknownKind::id(),
+			id: self.id,
+			span: self.span,
 			_marker: PhantomData,
 		}
 	}

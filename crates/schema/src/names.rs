@@ -33,6 +33,8 @@ def_kind!(
 	ViewKind(9),
 	FieldKind(10),
 	TriggerKind(9),
+
+	UnknownKind(20),
 );
 
 pub struct DefName<K> {

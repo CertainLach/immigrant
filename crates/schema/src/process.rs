@@ -1,5 +1,6 @@
 use std::{
 	collections::BTreeMap,
+	collections::HashSet,
 	mem,
 	ops::{Deref, DerefMut},
 	str::FromStr,
@@ -10,15 +11,16 @@ use itertools::{Either, Itertools};
 
 use crate::{
 	composite::Composite,
-	ids::DbIdent,
+	ids::{DbIdent, Ident},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
+	names::UnknownKind,
 	root::{Item, Schema},
 	scalar::{Enum, Scalar, ScalarAnnotation},
 	sql::Sql,
 	table::{Table, TableAnnotation},
 	uid::{RenameExt, RenameMap},
 	view::View,
-	w, HasIdent,
+	w, HasIdent, SchemaComposite, SchemaEnum, SchemaItem, SchemaTable, SchemaTableOrView,
 };
 
 /// Can be updated in database source code, and some are already doing that,
@@ -439,5 +441,68 @@ impl Pgnc<&mut View> {
 			to_plural(&id)
 		};
 		self.set_db(rn, DbIdent::new(&id));
+	}
+}
+
+pub fn check_unique_in_table(table: &SchemaTable) {
+	let mut seen = HashSet::new();
+	let mut check_unique = |id: Ident<UnknownKind>| {
+		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	};
+	for column in table.columns() {
+		check_unique(column.id().to_unknown());
+	}
+}
+pub fn check_unique_in_enum(en: &SchemaEnum) {
+	let mut seen = HashSet::new();
+	let mut check_unique = |id: Ident<UnknownKind>| {
+		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	};
+	for item in en.items() {
+		check_unique(item.id().to_unknown());
+	}
+}
+pub fn check_unique_in_composite(comp: &SchemaComposite) {
+	let mut seen = HashSet::new();
+	let mut check_unique = |id: Ident<UnknownKind>| {
+		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	};
+	for field in comp.fields() {
+		check_unique(field.id().to_unknown());
+	}
+}
+
+/// Basic check if there is any definition with duplicate identifier
+/// Database identifiers are not checked here, because they might be only available after naming convention processing,
+/// and there is some variance between different database implementations.
+/// E.g some databases allow domain and table types to be conflicting, and some not, there is different behavior for
+/// truncation, there might be forbidden system tables, and so on.
+/// Identifiers are unique to immigrant, so checking of them is trivial.
+pub fn check_unique_identifiers(schema: &Schema) {
+	let mut seen = HashSet::new();
+	let mut check_unique = |id: Ident<UnknownKind>| {
+		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	};
+	for item in &schema.items() {
+		match item {
+			SchemaItem::Table(t) => {
+				check_unique(t.id().to_unknown());
+				check_unique_in_table(t);
+			}
+			SchemaItem::Enum(e) => {
+				check_unique(e.id().to_unknown());
+				check_unique_in_enum(e);
+			}
+			SchemaItem::Scalar(s) => {
+				check_unique(s.id().to_unknown());
+			}
+			SchemaItem::Composite(c) => {
+				check_unique(c.id().to_unknown());
+				check_unique_in_composite(c);
+			}
+			SchemaItem::View(v) => {
+				check_unique(v.id().to_unknown());
+			}
+		}
 	}
 }

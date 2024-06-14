@@ -10,7 +10,7 @@ use crate::{
 	ids::Ident,
 	mk_change_list,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
-	process::{NamingConvention, Pgnc},
+	process::{check_unique_identifiers, NamingConvention, Pgnc},
 	scalar::PropagatedScalarData,
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
@@ -117,6 +117,10 @@ impl Schema {
 			Item::Composite(_) => 9998,
 			Item::View(_) => 9999,
 		});
+
+		// Currently, no passes generate new items, nor
+		// alter identifiers, it should be moved to the end.
+		check_unique_identifiers(self);
 
 		let mut propagated_scalars = HashMap::new();
 		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
