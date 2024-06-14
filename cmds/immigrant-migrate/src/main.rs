@@ -153,7 +153,7 @@ async fn main() -> Result<()> {
 						continue 'next_migration;
 					};
 					assert_eq!(
-						expected_schema, &check_str,
+						expected_schema.trim(), check_str.trim(),
 						"schema, stored in DB, doesn't match the schema stored locally"
 					);
 					continue 'next_migration;
