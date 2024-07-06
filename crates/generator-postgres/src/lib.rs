@@ -125,7 +125,7 @@ impl Pg<TableColumn<'_>> {
 		out.push(alt_group!("ADD COLUMN {inl}"));
 		if let Some(initialize_as) = self.initialize_as() {
 			let name = Id(self.db(rn));
-			let db_type = Id(self.db_type(rn));
+			let db_type = self.db_type(rn);
 			let sql = format_sql(
 				initialize_as,
 				self.table.schema,
@@ -135,7 +135,8 @@ impl Pg<TableColumn<'_>> {
 			// Technically groupable, yet postgres bails with error: column "column" of relation "tests" does not exist,
 			// if appears with the same statement ad ADD COLUMN.
 			out.push(alt_ungroup_up!(
-				"ALTER COLUMN {name} SET DATA TYPE {db_type} USING {sql}"
+				"ALTER COLUMN {name} SET DATA TYPE {} USING {sql}",
+				db_type.raw(),
 			));
 			if !self.nullable {
 				out.push(alt_group!("ALTER COLUMN {name} SET NOT NULL"));
