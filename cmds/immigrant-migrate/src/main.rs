@@ -130,8 +130,8 @@ async fn main() -> Result<()> {
 		} => {
 			// TODO: Option to disable top-level transaction
 			let mut tx = conn.begin().await?;
-			let root = find_root(&current_dir()?)?;
-			let list = list(&root)?;
+			let root = find_root(&current_dir()?).context("failed to discover root")?;
+			let list = list(&root).context("failed to list migrations")?;
 
 			'next_migration: for (id, schema, path) in &list {
 				let check_str = schema.schema_check_string();
@@ -153,7 +153,8 @@ async fn main() -> Result<()> {
 						continue 'next_migration;
 					};
 					assert_eq!(
-						expected_schema.trim(), check_str.trim(),
+						expected_schema.trim(),
+						check_str.trim(),
 						"schema, stored in DB, doesn't match the schema stored locally"
 					);
 					continue 'next_migration;

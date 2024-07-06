@@ -57,6 +57,9 @@ pub enum Error {
 		#[source]
 		error: migration::Error,
 	},
+
+	#[error("failed to read db.update")]
+	MigrationReadError(io::Error),
 }
 pub type Result<T, E = Error> = result::Result<T, E>;
 
@@ -122,7 +125,7 @@ pub fn list(root: &Path) -> Result<Vec<(MigrationId, Migration, PathBuf)>> {
 		let migration_dir = path.to_owned();
 		path.push("db.update");
 
-		let update = fs::read_to_string(&path)?;
+		let update = fs::read_to_string(&path).map_err(Error::MigrationReadError)?;
 		let migration =
 			Migration::from_str(&update).map_err(|error| MigrationParse { id: slug, error })?;
 		out.push((id, migration, migration_dir));
