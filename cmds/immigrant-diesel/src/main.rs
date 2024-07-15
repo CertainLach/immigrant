@@ -14,7 +14,7 @@ use schema::{
 	composite::CompositeField, process::NamingConvention, scalar::EnumItem, table::Cardinality,
 	uid::RenameExt, HasIdent, SchemaComposite, SchemaEnum, SchemaTable, SchemaType, TableColumn,
 };
-use syn::{Ident, Index, Path};
+use syn::{Ident, Index, Path, Type};
 
 #[derive(PartialEq, Clone, Copy)]
 enum TableKind {
@@ -197,11 +197,11 @@ fn column_ty_name(jojo_reference: bool, ty: &SchemaType) -> TokenStream {
 			if let Some(s) = native {
 				match native_ref {
 					Some(native_ref) if jojo_reference => {
-						let v: Path = syn::parse_str(&native_ref).expect("invalid ty");
+						let v: Type = syn::parse_str(&native_ref).expect("invalid ty");
 						quote!(#v)
 					}
 					_ => {
-						let v: Path = syn::parse_str(&s).expect("invalid ty");
+						let v: Type = syn::parse_str(&s).expect("invalid ty");
 						quote!(#v)
 					}
 				}
