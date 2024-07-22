@@ -1311,32 +1311,32 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Table(t) => t.docs.clone(),
 			SchemaItem::Enum(e) => {
 				let mut docs = cleanup_docs(e.docs.clone());
-				// Postgres enums have no way to associate comment with value, unfortunately.				
+				// Postgres enums have no way to associate comment with value, unfortunately.
 				for ele in e.items() {
 					let edocs = cleanup_docs(ele.docs.clone());
 					if !edocs.is_empty() {
 						let name = ele.id().name();
 						let edocs = wrap_docs(edocs, format!("Value {name}:"));
-		docs.push(String::new());
-			docs.extend(edocs);
+						docs.push(String::new());
+						docs.extend(edocs);
 					}
 				}
-	docs
-			},
+				docs
+			}
 			SchemaItem::Scalar(s) => s.docs.clone(),
 			SchemaItem::Composite(c) => {
 				let mut docs = cleanup_docs(c.docs.clone());
-				// Postgres composites have no way to associate comment with value, unfortunately.				
+				// Postgres composites have no way to associate comment with value, unfortunately.
 				for ele in c.fields() {
 					let edocs = cleanup_docs(ele.docs.clone());
 					if !edocs.is_empty() {
 						let name = ele.id().name();
 						let edocs = wrap_docs(edocs, format!("Field {name}:"));
-		docs.push(String::new());
-			docs.extend(edocs);
+						docs.push(String::new());
+						docs.extend(edocs);
 					}
 				}
-	docs
+				docs
 			}
 			SchemaItem::View(v) => v.docs.clone(),
 		};

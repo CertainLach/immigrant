@@ -65,7 +65,12 @@ pub struct Enum {
 	pub items: Vec<EnumItem>,
 }
 impl Enum {
-	pub fn new(docs: Vec<String>, attrlist: AttributeList, name: TypeDefName, items: Vec<EnumItem>) -> Self {
+	pub fn new(
+		docs: Vec<String>,
+		attrlist: AttributeList,
+		name: TypeDefName,
+		items: Vec<EnumItem>,
+	) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
