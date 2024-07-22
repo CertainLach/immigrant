@@ -112,6 +112,7 @@ module.exports = grammar({
 			';'
 		),
 		table_field: $ => seq(
+			repeat($.attribute),
 			field('name', $.field_identifier),
 			optional(field('type', seq(
 				':',
