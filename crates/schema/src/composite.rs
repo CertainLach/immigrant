@@ -42,6 +42,7 @@ impl FieldAnnotation {
 pub struct Field {
 	uid: OwnUid,
 	name: CompositeItemDefName,
+	pub docs: Vec<String>,
 	pub nullable: bool,
 	pub ty: TypeIdent,
 	pub annotations: Vec<FieldAnnotation>,
@@ -51,6 +52,7 @@ derive_is_isomorph_by_id_name!(Field);
 
 impl Field {
 	pub fn new(
+		docs: Vec<String>,
 		name: CompositeItemDefName,
 		nullable: bool,
 		ty: TypeIdent,
@@ -58,6 +60,7 @@ impl Field {
 	) -> Self {
 		Self {
 			uid: next_uid(),
+			docs,
 			name,
 			nullable,
 			ty,

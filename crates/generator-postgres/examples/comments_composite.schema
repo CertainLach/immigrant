@@ -1,0 +1,20 @@
+!!!TEST init
+scalar test = "INTEGER";
+// Comment on composite
+struct ty {
+	// Comment on composite field
+	a: test;
+};
+!!!RESULT
+-- updated: init --
+CREATE DOMAIN test AS INTEGER;
+CREATE TYPE ty AS (
+	a test
+);
+COMMENT ON TYPE ty IS 'Comment on composite
+
+Field a:
+    Comment on composite field';
+-- updated: cleanup schema changes --
+DROP TYPE ty;
+DROP DOMAIN test;

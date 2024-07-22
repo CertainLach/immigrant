@@ -1,0 +1,99 @@
+!!!TEST init
+// Comment on enum
+enum enumeration {
+	// Comment on enum item
+	a;
+};
+enum enumeration_to_extend {
+	a;
+};
+// Comment on enum
+enum enumeration_to_shrink {
+	// Comment on enum item
+	a;
+	// Comment on enum item to be removed
+	b;
+};
+!!!UPDATE
+// Updated comment on enum
+enum enumeration {
+	// Updated comment on enum item
+	a;
+};
+enum enumeration_to_extend {
+	a;
+	// Comment on added enum item
+	b;
+};
+// Comment on enum
+enum enumeration_to_shrink {
+	// Comment on enum item
+	a;
+};
+!!!UPDATE
+enum enumeration {
+	a;
+};
+enum enumeration_to_extend {
+	a;
+	b;
+};
+enum enumeration_to_shrink {
+	a;
+};
+!!!RESULT
+-- updated: init --
+CREATE TYPE enumeration AS ENUM (
+	'a'
+);
+
+CREATE TYPE enumeration_to_extend AS ENUM (
+	'a'
+);
+
+CREATE TYPE enumeration_to_shrink AS ENUM (
+	'a'
+,	'b'
+);
+
+COMMENT ON TYPE enumeration IS 'Comment on enum
+
+Value a:
+    Comment on enum item';
+COMMENT ON TYPE enumeration_to_shrink IS 'Comment on enum
+
+Value a:
+    Comment on enum item
+
+Value b:
+    Comment on enum item to be removed';
+-- updated --
+ALTER TYPE enumeration_to_shrink
+	RENAME TO moveaway_1
+;
+ALTER TYPE enumeration_to_extend
+	ADD VALUE 'b'
+;
+CREATE TYPE enumeration_to_shrink AS ENUM (
+	'a'
+);
+
+DROP TYPE moveaway_1;
+COMMENT ON TYPE enumeration_to_shrink IS 'Comment on enum
+
+Value a:
+    Comment on enum item';
+COMMENT ON TYPE enumeration IS 'Updated comment on enum
+
+Value a:
+    Updated comment on enum item';
+COMMENT ON TYPE enumeration_to_extend IS 'Value b:
+    Comment on added enum item';
+-- updated --
+COMMENT ON TYPE enumeration IS NULL;
+COMMENT ON TYPE enumeration_to_extend IS NULL;
+COMMENT ON TYPE enumeration_to_shrink IS NULL;
+-- updated: cleanup schema changes --
+DROP TYPE enumeration;
+DROP TYPE enumeration_to_extend;
+DROP TYPE enumeration_to_shrink;

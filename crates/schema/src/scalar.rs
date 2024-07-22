@@ -18,12 +18,14 @@ use crate::{
 #[derive(Debug)]
 pub struct EnumItem {
 	uid: OwnUid,
+	pub docs: Vec<String>,
 	name: EnumItemDefName,
 }
 impl EnumItem {
-	pub fn new(name: EnumItemDefName) -> Self {
+	pub fn new(docs: Vec<String>, name: EnumItemDefName) -> Self {
 		Self {
 			uid: next_uid(),
+			docs,
 			name,
 		}
 	}

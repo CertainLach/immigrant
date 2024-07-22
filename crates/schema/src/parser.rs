@@ -81,8 +81,13 @@ rule view(s:S) -> View =
 rule enum(s:S) -> Enum =
 	docs:docs()
 	attrlist:attribute_list(s) _
-	"enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
-	Enum::new(docs, attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
+	"enum" _ name:def_name(s) _ "{" _ items:(
+		docs:docs()
+		name:def_name(s)
+	{(docs, name)})++(_ ";" _) _ ";"? _ "}" _ ";" {
+	Enum::new(docs, attrlist, TypeDefName::alloc(name), items.into_iter()
+		.map(|(docs, name)| EnumItem::new(docs, EnumItemDefName::alloc(name))).collect()
+	)
 };
 rule scalar(s:S) -> Scalar =
 	docs:docs()
@@ -100,11 +105,13 @@ rule composite(s:S) -> Composite =
 	Composite::new(docs, attrlist, TypeDefName::alloc(name), fields, annotations)
 }
 rule field(s:S) -> Field =
+	docs:docs()
 	name:def_name(s) _
 	t:(":" _ i:code_ident(s) _ {i})?
 	n:("?" _)?
 	annotations:field_annotation(s)**_ {
 	Field::new(
+		docs,
 		DefName::alloc(name),
 		n.is_some(),
 		TypeIdent::alloc(t.unwrap_or((name.0, name.1))),

@@ -1251,13 +1251,31 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 	}
 }
 
-fn docs_to_string(mut docs: Vec<String>) -> String {
+fn cleanup_docs(mut docs: Vec<String>) -> Vec<String> {
 	if docs.iter().all(|v| v.starts_with(' ')) {
 		for ele in docs.iter_mut() {
 			ele.remove(0);
+			*ele = ele.trim_end().to_owned();
 		}
 	}
-	docs.join("\n").trim_matches('\n').to_string()
+	while matches!(docs.first(), Some(v) if v.is_empty()) {
+		docs.remove(0);
+	}
+	while matches!(docs.last(), Some(v) if v.is_empty()) {
+		docs.pop();
+	}
+	docs
+}
+fn wrap_docs(mut docs: Vec<String>, header: String) -> Vec<String> {
+	for ele in docs.iter_mut() {
+		ele.insert_str(0, "    ");
+	}
+	docs.insert(0, header);
+	docs
+}
+fn docs_to_string(mut docs: Vec<String>) -> String {
+	docs = cleanup_docs(docs);
+	docs.join("\n")
 }
 
 impl Pg<SchemaItem<'_>> {
@@ -1291,9 +1309,35 @@ impl Pg<SchemaItem<'_>> {
 	pub fn docs(&self) -> String {
 		let docs = match self.0 {
 			SchemaItem::Table(t) => t.docs.clone(),
-			SchemaItem::Enum(e) => e.docs.clone(),
+			SchemaItem::Enum(e) => {
+				let mut docs = cleanup_docs(e.docs.clone());
+				// Postgres enums have no way to associate comment with value, unfortunately.				
+				for ele in e.items() {
+					let edocs = cleanup_docs(ele.docs.clone());
+					if !edocs.is_empty() {
+						let name = ele.id().name();
+						let edocs = wrap_docs(edocs, format!("Value {name}:"));
+		docs.push(String::new());
+			docs.extend(edocs);
+					}
+				}
+	docs
+			},
 			SchemaItem::Scalar(s) => s.docs.clone(),
-			SchemaItem::Composite(c) => c.docs.clone(),
+			SchemaItem::Composite(c) => {
+				let mut docs = cleanup_docs(c.docs.clone());
+				// Postgres composites have no way to associate comment with value, unfortunately.				
+				for ele in c.fields() {
+					let edocs = cleanup_docs(ele.docs.clone());
+					if !edocs.is_empty() {
+						let name = ele.id().name();
+						let edocs = wrap_docs(edocs, format!("Field {name}:"));
+		docs.push(String::new());
+			docs.extend(edocs);
+					}
+				}
+	docs
+			}
 			SchemaItem::View(v) => v.docs.clone(),
 		};
 		docs_to_string(docs)
