@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1718078026,
-        "narHash": "sha256-LbQabH6h86ZzTvDnaZHmMwedRZNB2jYtUQzmoqWQoJ8=",
+        "lastModified": 1721322122,
+        "narHash": "sha256-a0G1NvyXGzdwgu6e1HQpmK5R5yLsfxeBe07nNDyYd+g=",
         "owner": "ipetkov",
         "repo": "crane",
-        "rev": "a3f0c63eed74a516298932b9b1627dd80b9c3892",
+        "rev": "8a68b987c476a33e90f203f0927614a75c3f47ea",
         "type": "github"
       },
       "original": {
@@ -20,31 +20,33 @@
         "type": "github"
       }
     },
-    "flake-utils": {
+    "flake-parts": {
       "inputs": {
-        "systems": "systems"
+        "nixpkgs-lib": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1710146030,
-        "narHash": "sha256-SZ5L6eA7HJ/nmkzGG7/ISclqe6oZdOZTNoesiInkXPQ=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "b1d9ab70662946ef0850d488da1c9019f3a9752a",
+        "lastModified": 1719994518,
+        "narHash": "sha256-pQMhCCHyQGRzdfAkdJ4cIWiw+JNuWsTX7f0ZYSyz0VY=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "9227223f6d922fee3c7b190b2cc238a99527bbb7",
         "type": "github"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1718318537,
-        "narHash": "sha256-4Zu0RYRcAY/VWuu6awwq4opuiD//ahpc2aFHg2CWqFY=",
+        "lastModified": 1721676431,
+        "narHash": "sha256-gLzoqRn4AOhBy4v4HZBekUjJM2rtz0xMKLs+7A6Ixf0=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "e9ee548d90ff586a6471b4ae80ae9cfcbceb3420",
+        "rev": "dbb6ecc6535eb0295e167643fa2e3244d98cdde0",
         "type": "github"
       },
       "original": {
@@ -56,46 +58,52 @@
     "root": {
       "inputs": {
         "crane": "crane",
-        "flake-utils": "flake-utils",
+        "flake-parts": "flake-parts",
         "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay"
+        "rust-overlay": "rust-overlay",
+        "shelly": "shelly"
       }
     },
     "rust-overlay": {
       "inputs": {
-        "flake-utils": [
-          "flake-utils"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1721614891,
+        "narHash": "sha256-1yGOh8w/yhWAZ2NJR9N/shQ1tx2n9fmGe0XrDE00i9U=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "424a759557ed4c01cf9dbbf79a714150d64a90ad",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "shelly": {
+      "inputs": {
+        "flake-parts": [
+          "flake-parts"
         ],
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1718245100,
-        "narHash": "sha256-ETm3A2nUVEUwVQ30fj3ePK4rqsSbSnY4uP4LYrFrDNE=",
-        "owner": "oxalica",
-        "repo": "rust-overlay",
-        "rev": "4cbc2810d1dfb5960791be92df6a5f842a79bdfb",
+        "lastModified": 1718420551,
+        "narHash": "sha256-NU8NBXVPj0KuY4Tl/LtZPrbX3PmmmgPuhk/1pzm9cyk=",
+        "owner": "CertainLach",
+        "repo": "shelly",
+        "rev": "4f70221f3f9ad9058f590eefb25251b6760aaa47",
         "type": "github"
       },
       "original": {
-        "owner": "oxalica",
-        "repo": "rust-overlay",
-        "type": "github"
-      }
-    },
-    "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
+        "owner": "CertainLach",
+        "repo": "shelly",
         "type": "github"
       }
     }

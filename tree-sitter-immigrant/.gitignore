@@ -5,3 +5,5 @@
 /test
 /node_modules
 /yarn.lock
+/build
+/.yarn
