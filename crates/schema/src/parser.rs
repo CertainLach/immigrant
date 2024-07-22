@@ -78,17 +78,26 @@ rule view(s:S) -> View =
 		definition,
 	)
 }};
-rule enum(s:S) -> Enum = attrlist:attribute_list(s) _ "enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
-	Enum::new(attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
+rule enum(s:S) -> Enum =
+	docs:docs()
+	attrlist:attribute_list(s) _
+	"enum" _ name:def_name(s) _ "{" _ items:def_name(s)++(_ ";" _) _ ";"? _ "}" _ ";" {
+	Enum::new(docs, attrlist, TypeDefName::alloc(name), items.into_iter().map(EnumItemDefName::alloc).map(EnumItem::new).collect())
 };
-rule scalar(s:S) -> Scalar = attrlist:attribute_list(s) _ "scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
-	Scalar::new(attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
+rule scalar(s:S) -> Scalar =
+	docs:docs()
+	attrlist:attribute_list(s) _
+	"scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
+	Scalar::new(docs, attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
 }
-rule composite(s:S) -> Composite = attrlist:attribute_list(s) _ "struct" _ name:def_name(s) _ "{" _
+rule composite(s:S) -> Composite =
+	docs:docs()
+	attrlist:attribute_list(s) _
+	"struct" _ name:def_name(s) _ "{" _
 		fields:(f:field(s) _ ";" {f})++_ _
 		annotations:(a:composite_annotation(s) _ ";" {a})**_ _
 	"}" _ ";" {
-	Composite::new(attrlist, TypeDefName::alloc(name), fields, annotations)
+	Composite::new(docs, attrlist, TypeDefName::alloc(name), fields, annotations)
 }
 rule field(s:S) -> Field =
 	name:def_name(s) _

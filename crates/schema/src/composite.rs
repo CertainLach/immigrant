@@ -108,6 +108,7 @@ impl CompositeAnnotation {
 pub struct Composite {
 	uid: OwnUid,
 	name: TypeDefName,
+	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
 	pub fields: Vec<Field>,
 	pub annotations: Vec<CompositeAnnotation>,
@@ -116,6 +117,7 @@ def_name_impls!(Composite, TypeKind);
 
 impl Composite {
 	pub fn new(
+		docs: Vec<String>,
 		attrlist: AttributeList,
 		name: TypeDefName,
 		fields: Vec<Field>,
@@ -148,6 +150,7 @@ impl Composite {
 		Self {
 			uid: next_uid(),
 			name,
+			docs,
 			attrlist,
 			fields,
 			annotations,

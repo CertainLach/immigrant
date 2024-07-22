@@ -1,0 +1,47 @@
+!!!TEST init
+// Comment on domain
+scalar test = "TEXT";
+// Comment on table
+table A {
+	// Comment on column
+	test;
+};
+!!!UPDATE
+// Updated comment on domain
+scalar test = "TEXT";
+// Updated comment on table
+table A {
+	// Updated comment on column
+	test;
+	// Comment on added column
+	test2: test;
+};
+!!!UPDATE
+scalar test = "TEXT";
+table A {
+	test;
+	test2: test;
+};
+!!!RESULT
+-- updated: init --
+CREATE DOMAIN test AS TEXT;
+CREATE TABLE "as" (
+	test test NOT NULL
+);
+COMMENT ON COLUMN "as".test IS 'Comment on column';
+COMMENT ON TABLE "as" IS 'Comment on table';
+COMMENT ON DOMAIN test IS 'Comment on domain';
+-- updated --
+ALTER TABLE "as" ADD COLUMN test2 test NOT NULL;
+COMMENT ON COLUMN "as".test2 IS 'Comment on added column';
+COMMENT ON COLUMN "as".test IS 'Updated comment on column';
+COMMENT ON TABLE "as" IS 'Updated comment on table';
+COMMENT ON DOMAIN test IS 'Updated comment on domain';
+-- updated --
+COMMENT ON COLUMN "as".test IS NULL;
+COMMENT ON COLUMN "as".test2 IS NULL;
+COMMENT ON TABLE "as" IS NULL;
+COMMENT ON DOMAIN test IS NULL;
+-- updated: cleanup schema changes --
+DROP TABLE "as";
+DROP DOMAIN test;

@@ -58,14 +58,16 @@ impl IsCompatible for EnumItemHandle<'_> {
 pub struct Enum {
 	uid: OwnUid,
 	name: TypeDefName,
+	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
 	pub items: Vec<EnumItem>,
 }
 impl Enum {
-	pub fn new(attrlist: AttributeList, name: TypeDefName, items: Vec<EnumItem>) -> Self {
+	pub fn new(docs: Vec<String>, attrlist: AttributeList, name: TypeDefName, items: Vec<EnumItem>) -> Self {
 		Self {
 			uid: next_uid(),
 			name,
+			docs,
 			attrlist,
 			items,
 		}
@@ -110,6 +112,7 @@ impl PropagatedScalarData {
 pub struct Scalar {
 	uid: OwnUid,
 	name: TypeDefName,
+	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
 	/// TODO: There is no support for making one scalar depend on other scalar/enum.
 	/// Should this support be implemented? Should there be dedicated syntax for SQL types?
@@ -120,6 +123,7 @@ pub struct Scalar {
 def_name_impls!(Scalar, TypeKind);
 impl Scalar {
 	pub fn new(
+		docs: Vec<String>,
 		attrlist: AttributeList,
 		name: TypeDefName,
 		native: DbNativeType,
@@ -128,6 +132,7 @@ impl Scalar {
 		Self {
 			uid: next_uid(),
 			name,
+			docs,
 			attrlist,
 			native,
 			annotations,

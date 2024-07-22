@@ -219,6 +219,24 @@ impl Pg<SchemaTable<'_>> {
 		for idx in self.indexes() {
 			Pg(idx).create(sql, rn);
 		}
+
+		// Add comments
+		for column in self.columns() {
+			let column_name = Id(column.db(rn));
+			let new_c = docs_to_string(column.docs.clone());
+
+			if !new_c.is_empty() {
+				let doc = new_c.replace('\'', "\\'");
+				wl!(
+					sql,
+					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
+				);
+			}
+		}
+	}
+	pub fn comment_id(&self, rn: &RenameMap) -> String {
+		let table_name = Id(self.db(rn));
+		format!("TABLE {table_name}")
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
 		let table_name = Id(self.db(rn));
@@ -476,6 +494,41 @@ impl Pg<TableDiff<'_>> {
 
 		if !external {
 			Pg(self.new).print_alternations(&out, sql, rn);
+		}
+
+		// Reconcile comments on table items
+		// Note that comments on table creation are not handled here, see `Pg::<SchemaTable>::create`
+		for ele in column_changes.created {
+			let table_name = Id(self.old.db(rn));
+			let column_name = Id(ele.db(rn));
+			let new_c = docs_to_string(ele.docs.clone());
+
+			if !new_c.is_empty() {
+				let doc = new_c.replace('\'', "\\'");
+				wl!(
+					sql,
+					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
+				);
+			}
+		}
+		for ele in column_changes.updated {
+			let table_name = Id(self.old.db(rn));
+			let column_name = Id(ele.old.db(rn));
+			let old_c = docs_to_string(ele.old.docs.clone());
+			let new_c = docs_to_string(ele.new.docs.clone());
+
+			if old_c == new_c {
+				continue;
+			}
+			if new_c.is_empty() {
+				wl!(sql, "COMMENT ON COLUMN {table_name}.{column_name} IS NULL;");
+			} else {
+				let doc = new_c.replace('\'', "\\'");
+				wl!(
+					sql,
+					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
+				);
+			}
 		}
 	}
 }
@@ -918,6 +971,32 @@ impl Pg<SchemaDiff<'_>> {
 			}
 			Pg(ele).drop(sql, rn);
 		}
+
+		// Reconcile comments on schema items
+		for ele in changelist.created {
+			let id = Pg(ele).comment_id(rn);
+			let new_c = Pg(ele).docs();
+
+			if !new_c.is_empty() {
+				let doc = new_c.replace('\'', "\\'");
+				wl!(sql, "COMMENT ON {id} IS '{doc}';");
+			}
+		}
+		for ele in changelist.updated {
+			let id = Pg(ele.old).comment_id(rn);
+			let old_c = Pg(ele.old).docs();
+			let new_c = Pg(ele.new).docs();
+
+			if old_c == new_c {
+				continue;
+			}
+			if new_c.is_empty() {
+				wl!(sql, "COMMENT ON {id} IS NULL;");
+			} else {
+				let doc = new_c.replace('\'', "\\'");
+				wl!(sql, "COMMENT ON {id} IS '{doc}';");
+			}
+		}
 	}
 }
 impl Pg<&Schema> {
@@ -1172,6 +1251,15 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 	}
 }
 
+fn docs_to_string(mut docs: Vec<String>) -> String {
+	if docs.iter().all(|v| v.starts_with(' ')) {
+		for ele in docs.iter_mut() {
+			ele.remove(0);
+		}
+	}
+	docs.join("\n").trim_matches('\n').to_string()
+}
+
 impl Pg<SchemaItem<'_>> {
 	pub fn rename(&self, to: DbItem, sql: &mut String, rn: &mut RenameMap, external: bool) {
 		match self.0 {
@@ -1198,6 +1286,25 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Scalar(s) => Pg(s).drop(sql, rn),
 			SchemaItem::Composite(c) => Pg(c).drop(sql, rn),
 			SchemaItem::View(c) => Pg(c).drop(sql, rn),
+		}
+	}
+	pub fn docs(&self) -> String {
+		let docs = match self.0 {
+			SchemaItem::Table(t) => t.docs.clone(),
+			SchemaItem::Enum(e) => e.docs.clone(),
+			SchemaItem::Scalar(s) => s.docs.clone(),
+			SchemaItem::Composite(c) => c.docs.clone(),
+			SchemaItem::View(v) => v.docs.clone(),
+		};
+		docs_to_string(docs)
+	}
+	pub fn comment_id(&self, rn: &RenameMap) -> String {
+		let name = Id(self.db(rn));
+		match self.0 {
+			SchemaItem::Table(_) => format!("TABLE {name}"),
+			SchemaItem::Scalar(_) => format!("DOMAIN {name}"),
+			SchemaItem::Enum(_) | SchemaItem::Composite(_) => format!("TYPE {name}"),
+			SchemaItem::View(_) => format!("VIEW {name}"),
 		}
 	}
 }
