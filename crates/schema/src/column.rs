@@ -154,6 +154,9 @@ impl<'a> TableColumn<'a> {
 	pub fn ty(&'a self) -> SchemaType<'a> {
 		self.table.schema.schema_ty(self.ty)
 	}
+	/// Only returns column default, if the underlying type has default value -
+	/// it needs to be handled manually.
+	/// If you only want to check if default exists - use has_default.
 	pub fn default(&self) -> Option<&Sql> {
 		self.annotations
 			.iter()

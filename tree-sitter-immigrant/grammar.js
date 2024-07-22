@@ -37,6 +37,7 @@ module.exports = grammar({
 			repeat($.attribute),
 			'scalar',
 			field('name', $.type_identifier),
+			'=',
 			$.string,
 			optional($.field_annotation),
 			';',

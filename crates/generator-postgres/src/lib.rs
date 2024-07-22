@@ -7,7 +7,7 @@ use std::{
 use itertools::Itertools;
 use schema::{
 	ids::{DbIdent, Ident},
-	index::{Check, Using},
+	index::Check,
 	mk_change_list,
 	names::{
 		ConstraintKind, DbColumn, DbConstraint, DbEnumItem, DbIndex, DbItem, DbTable, DbType,
@@ -15,7 +15,7 @@ use schema::{
 	},
 	renamelist::RenameOp,
 	root::Schema,
-	scalar::{EnumItem, EnumItemHandle, ScalarAnnotation},
+	scalar::{EnumItemHandle, ScalarAnnotation},
 	sql::{Sql, SqlOp},
 	uid::{RenameExt, RenameMap},
 	view::DefinitionPart,

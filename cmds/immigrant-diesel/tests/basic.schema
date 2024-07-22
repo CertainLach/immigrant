@@ -1,0 +1,19 @@
+#diesel(type = "dt::Integer", native = "i32", copy)
+scalar int = "INTEGER";
+
+#diesel(type = "dt::Timestamp", custom)
+scalar datetime = "TIMESTAMPTZ" @default(now());
+
+table Test {
+	pk: int @primary_key;
+	field: int;
+	enumeration;
+	#diesel(immutable)
+	created_at: datetime;
+	manual_date: datetime;
+};
+
+enum enumeration {
+	a;
+	b;
+};
