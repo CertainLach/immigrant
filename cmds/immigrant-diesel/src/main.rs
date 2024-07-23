@@ -240,7 +240,7 @@ fn column_ty_name(jojo_reference: bool, ty: &SchemaType) -> TokenStream {
 		}
 		SchemaType::Composite(_) => {
 			// Always copy
-			quote!(ut::#id)
+			quote!(composite_types::#id)
 		}
 	}
 }
@@ -346,12 +346,16 @@ fn generate_schema(schema: Schema, rn: &RenameMap) -> anyhow::Result<String> {
 			let id = enum_item_ident(i);
 			let name = i.db(rn);
 			let name = name.raw();
+			let docs = &i.docs;
 			quote! {
 				#[db_rename = #name]
+				#(#[doc = #docs])*
 				#id
 			}
 		});
+		let docs = &en.docs;
 		enums.append_all(quote! {
+			#(#[doc = #docs])*
 			#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq, Eq, Clone, Copy, Hash #(, #derives)*)]
 			#[ExistingTypePath = #name]
 			pub enum #id {
@@ -389,7 +393,9 @@ fn generate_schema(schema: Schema, rn: &RenameMap) -> anyhow::Result<String> {
 				}
 				let id = field_ident(&f);
 				let ty = field_ty(f);
+				let docs = &f.docs;
 				quote! {
+					#(#[doc = #docs])*
 					pub #id: #ty,
 				}
 			})
@@ -414,7 +420,9 @@ fn generate_schema(schema: Schema, rn: &RenameMap) -> anyhow::Result<String> {
 
 		let sql_type = quote!(crate::sql_types::#id);
 
+		let docs = &composite.docs;
 		composites.append_all(quote! {
+			#(#[doc = #docs])*
 			#[derive(Debug, PartialEq, Eq, Clone, Hash, diesel::expression::AsExpression, diesel::deserialize::FromSqlRow #(, #derives)*)]
 			#[diesel(sql_type = #sql_type)]
 			pub struct #id {
@@ -497,8 +505,6 @@ fn generate_schema(schema: Schema, rn: &RenameMap) -> anyhow::Result<String> {
 			columns.push(quote! {
 				#(#[doc = #docs])*
 				#doc_sep
-				// #[doc = "`" #table_name "`.`" #name "` column"]
-				// #[doc = "The SQL type is `" #db_ty "`"]
 				#[doc = #column_doc]
 				#[doc = #ty_doc]
 				#sql_name_attr
