@@ -133,7 +133,7 @@ impl Pg<TableColumn<'_>> {
 				rn,
 			);
 			// Technically groupable, yet postgres bails with error: column "column" of relation "tests" does not exist,
-			// if appears with the same statement ad ADD COLUMN.
+			// if appears with the same statement as ADD COLUMN.
 			out.push(alt_ungroup_up!(
 				"ALTER COLUMN {name} SET DATA TYPE {} USING {sql}",
 				db_type.raw(),
@@ -226,7 +226,7 @@ impl Pg<SchemaTable<'_>> {
 			let new_c = docs_to_string(column.docs.clone());
 
 			if !new_c.is_empty() {
-				let doc = new_c.replace('\'', "\\'");
+				let doc = new_c.replace('\'', "''");
 				wl!(
 					sql,
 					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
@@ -289,10 +289,23 @@ impl Pg<ColumnDiff<'_>> {
 		let name = Id(self.new.db(rn));
 		let new_ty = self.new.db_type(rn);
 		if self.old.db_type(rn) != new_ty {
-			out.push(alt_group!(
-				"ALTER COLUMN {name} SET DATA TYPE {}",
-				new_ty.raw()
-			));
+			if let Some(initialize_as) = self.new.initialize_as() {
+				let sql = format_sql(
+					initialize_as,
+					self.new.table.schema,
+					SchemaItem::Table(self.new.table),
+					rn,
+				);
+				out.push(alt_group!(
+					"ALTER COLUMN {name} SET DATA TYPE {} USING {sql}",
+					new_ty.raw()
+				));
+			} else {
+				out.push(alt_group!(
+					"ALTER COLUMN {name} SET DATA TYPE {}",
+					new_ty.raw()
+				));
+			}
 		}
 		let new_nullable = self.new.nullable;
 		if self.old.nullable != new_nullable {
@@ -504,7 +517,7 @@ impl Pg<TableDiff<'_>> {
 			let new_c = docs_to_string(ele.docs.clone());
 
 			if !new_c.is_empty() {
-				let doc = new_c.replace('\'', "\\'");
+				let doc = new_c.replace('\'', "''");
 				wl!(
 					sql,
 					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
@@ -523,7 +536,7 @@ impl Pg<TableDiff<'_>> {
 			if new_c.is_empty() {
 				wl!(sql, "COMMENT ON COLUMN {table_name}.{column_name} IS NULL;");
 			} else {
-				let doc = new_c.replace('\'', "\\'");
+				let doc = new_c.replace('\'', "''");
 				wl!(
 					sql,
 					"COMMENT ON COLUMN {table_name}.{column_name} IS '{doc}';"
@@ -978,7 +991,7 @@ impl Pg<SchemaDiff<'_>> {
 			let new_c = Pg(ele).docs();
 
 			if !new_c.is_empty() {
-				let doc = new_c.replace('\'', "\\'");
+				let doc = new_c.replace('\'', "''");
 				wl!(sql, "COMMENT ON {id} IS '{doc}';");
 			}
 		}
@@ -993,7 +1006,7 @@ impl Pg<SchemaDiff<'_>> {
 			if new_c.is_empty() {
 				wl!(sql, "COMMENT ON {id} IS NULL;");
 			} else {
-				let doc = new_c.replace('\'', "\\'");
+				let doc = new_c.replace('\'', "''");
 				wl!(sql, "COMMENT ON {id} IS '{doc}';");
 			}
 		}

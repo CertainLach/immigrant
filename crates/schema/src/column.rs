@@ -34,6 +34,14 @@ pub enum ColumnAnnotation {
 	/// DEFAULT value.
 	/// It can be implemented as an UPDATE statement, or with SET TYPE ... USING, but not as one-time DEFAULT, because
 	/// it can reference other columns.
+	///
+	/// If column is updated, then it is just passed to USING expression, allowing to refernce older column value,
+	/// just be careful with that. Initially this expression was only usable for new column creation, but
+	/// after further consideration I decided there is no harm of allowing it for upgrades.
+	/// Yes, this is a semi-imperative action, however it is pretty isolated and subtle to make it actually work.
+	///
+	/// After all, it doesn't allow access to old schema version fields directly (except for the current field),
+	/// thus not breaking isolation of a standalone schema definition.
 	InitializeAs(Sql),
 }
 impl ColumnAnnotation {
