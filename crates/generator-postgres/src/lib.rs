@@ -21,8 +21,8 @@ use schema::{
 	view::DefinitionPart,
 	w, wl, ChangeList, ColumnDiff, Diff, EnumDiff, HasDefaultDbName, HasIdent, HasUid,
 	IsCompatible, IsIsomorph, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
-	SchemaSql, SchemaTable, SchemaTableOrView, SchemaView, TableCheck, TableColumn, TableDiff,
-	TableForeignKey, TableIndex, TablePrimaryKey, TableSql, TableUniqueConstraint,
+	SchemaSql, SchemaTable, SchemaTableOrView, SchemaType, SchemaView, TableCheck, TableColumn,
+	TableDiff, TableForeignKey, TableIndex, TablePrimaryKey, TableSql, TableUniqueConstraint,
 };
 
 use crate::escape::escape_identifier;
@@ -673,47 +673,39 @@ impl Pg<SchemaDiff<'_>> {
 			Pg(ele).print_renamed_added(sql, rn);
 		}
 
-		// Create new enums/scalars
 		let mut initialized_tys = HashSet::new();
-		for ele in changelist.created.iter().filter_map(SchemaItem::as_enum) {
-			initialized_tys.insert(ele.id());
-			Pg(ele).create(sql, rn);
-		}
-		for ele in changelist.created.iter().filter_map(SchemaItem::as_scalar) {
-			initialized_tys.insert(ele.id());
-			if ele.is_external() {
-				continue;
-			}
-			Pg(ele).create(sql, rn);
-		}
 		for ele in &changelist.updated {
+			// If item is updated - it must be already initialized
 			initialized_tys.insert(Ident::unchecked_cast(ele.new.id()));
 		}
 
-		// Inlined scalars are always initialized
+		// Inlined/external scalars are always initialized
 		for ele in self
 			.new
 			.items()
 			.iter()
 			.filter_map(SchemaItem::as_scalar)
-			.filter(|s| s.inlined())
+			.filter(|s| s.inlined() || s.is_external())
 		{
-			initialized_tys.insert(Ident::unchecked_cast(ele.id()));
+			initialized_tys.insert(ele.id());
 		}
 
-		// Create new composites, in toposorted order
+		// Create new types, in toposorted order
 		{
-			let mut remaining_composites = changelist
+			let mut remaining_types = changelist
 				.created
 				.iter()
-				.filter_map(SchemaItem::as_composite)
+				.filter_map(SchemaItem::as_type)
+				.filter(|t| !initialized_tys.contains(&t.ident()))
 				.collect_vec();
-			if !remaining_composites.is_empty() {
+			if !remaining_types.is_empty() {
 				loop {
-					let (ready, pending) = remaining_composites
+					let (ready, pending) = remaining_types
 						.iter()
-						.partition::<Vec<SchemaComposite<'_>>, _>(|c| {
-							c.fields().all(|f| initialized_tys.contains(&f.ty))
+						.partition::<Vec<SchemaType<'_>>, _>(|c| {
+							let mut deps = Vec::new();
+							c.type_dependencies(&mut deps);
+							deps.iter().all(|f| initialized_tys.contains(f))
 						});
 					assert!(
 						!ready.is_empty(),
@@ -722,12 +714,12 @@ impl Pg<SchemaDiff<'_>> {
 					);
 					for ele in ready {
 						Pg(ele).create(sql, rn);
-						initialized_tys.insert(ele.id());
+						initialized_tys.insert(ele.ident());
 					}
 					if pending.is_empty() {
 						break;
 					}
-					remaining_composites = pending;
+					remaining_types = pending;
 				}
 			}
 		}
@@ -935,24 +927,31 @@ impl Pg<SchemaDiff<'_>> {
 			Pg(ele).drop(sql, rn);
 		}
 
-		// Drop old composites, in toposorted order
+		// Drop old types, in toposorted order
 		{
-			let mut remaining_composites = changelist
+			let mut remaining_types = changelist
 				.dropped
 				.iter()
-				.filter_map(SchemaItem::as_composite)
+				.filter_map(SchemaItem::as_type)
+				.filter(|v| match v {
+					// Do not drop external scalars
+					SchemaType::Scalar(s) => !s.is_external(),
+					_ => true,
+				})
 				.collect_vec();
-			if !remaining_composites.is_empty() {
+			if !remaining_types.is_empty() {
 				let mut sorted = vec![];
-				let mut dependencies = remaining_composites
+				let mut dependencies = remaining_types
 					.iter()
-					.map(|c| c.id())
+					.map(|c| c.ident())
 					.collect::<HashSet<_>>();
 				loop {
-					let (ready, pending) = remaining_composites
+					let (ready, pending) = remaining_types
 						.iter()
-						.partition::<Vec<SchemaComposite<'_>>, _>(|c| {
-							c.fields().all(|f| !dependencies.contains(&f.ty))
+						.partition::<Vec<SchemaType<'_>>, _>(|c| {
+							let mut deps = Vec::new();
+							c.type_dependencies(&mut deps);
+							deps.iter().all(|f| !dependencies.contains(&f))
 						});
 					assert!(
 						!ready.is_empty(),
@@ -961,29 +960,18 @@ impl Pg<SchemaDiff<'_>> {
 					);
 					for ele in ready.into_iter().rev() {
 						sorted.push(ele);
-						dependencies.remove(&ele.id());
+						dependencies.remove(&ele.ident());
 					}
 					if pending.is_empty() {
 						break;
 					}
-					remaining_composites = pending;
+					remaining_types = pending;
 				}
 				for e in sorted.into_iter().rev() {
 					Pg(e).drop(sql, rn);
 				}
 			}
 		};
-
-		// Drop old enums/scalars
-		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_enum) {
-			Pg(ele).drop(sql, rn);
-		}
-		for ele in changelist.dropped.iter().filter_map(SchemaItem::as_scalar) {
-			if ele.is_external() {
-				continue;
-			}
-			Pg(ele).drop(sql, rn);
-		}
 
 		// Reconcile comments on schema items
 		for ele in changelist.created {
@@ -1173,7 +1161,7 @@ impl Pg<SchemaScalar<'_>> {
 	}
 	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
 		let name = Id(self.db(rn));
-		let ty = self.scalar.inner_type();
+		let ty = self.inner_type(rn);
 		w!(sql, "CREATE DOMAIN {name} AS {}", ty.raw());
 		for ele in &self.annotations {
 			match ele {
@@ -1202,10 +1190,28 @@ impl Pg<SchemaScalar<'_>> {
 		wl!(sql, ";");
 	}
 	pub fn drop(&self, sql: &mut String, rn: &RenameMap) {
+		assert!(!self.is_external(), "should not drop external scalars");
 		let name = Id(self.db(rn));
 		wl!(sql, "DROP DOMAIN {name};");
 	}
 }
+impl Pg<SchemaType<'_>> {
+	fn create(self, sql: &mut String, rn: &RenameMap) {
+		match self.0 {
+			SchemaType::Enum(e) => Pg(e).create(sql, rn),
+			SchemaType::Scalar(s) => Pg(s).create(sql, rn),
+			SchemaType::Composite(c) => Pg(c).create(sql, rn),
+		}
+	}
+	fn drop(self, sql: &mut String, rn: &RenameMap) {
+		match self.0 {
+			SchemaType::Enum(e) => Pg(e).drop(sql, rn),
+			SchemaType::Scalar(s) => Pg(s).drop(sql, rn),
+			SchemaType::Composite(c) => Pg(c).drop(sql, rn),
+		}
+	}
+}
+
 impl Pg<&Check> {
 	fn rename_alter(&self, to: DbConstraint, out: &mut Vec<String>, rn: &mut RenameMap) {
 		let db = Id(self.db(rn));
@@ -1998,6 +2004,7 @@ impl Pg<SchemaDiff<'_>> {
 mod tests {
 	use std::{fs, io::Write, path::PathBuf};
 
+	use schema::diagnostics::Report;
 	use schema::{
 		parser::parse, process::NamingConvention, root::SchemaProcessOptions, uid::RenameMap, wl,
 		Diff,
@@ -2077,7 +2084,13 @@ mod tests {
 		let examples = examples
 			.iter()
 			.map(|example| {
-				let schema = match parse(example.schema.as_str(), &default_options(), &mut rn) {
+				let mut report = Report::new();
+				let schema = match parse(
+					example.schema.as_str(),
+					&default_options(),
+					&mut rn,
+					&mut report,
+				) {
 					Ok(s) => s,
 					Err(e) => {
 						for e in &e {
@@ -2093,6 +2106,9 @@ mod tests {
 						panic!("failed to parse schema:\n{}\n\n{e:#?}", example.schema);
 					}
 				};
+				if report.is_error() {
+					panic!("error found in report");
+				}
 				(example.description.clone(), schema)
 			})
 			.collect::<Vec<_>>();

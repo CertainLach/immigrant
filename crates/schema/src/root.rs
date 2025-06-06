@@ -298,7 +298,13 @@ impl Schema {
 		for item in self.0.iter() {
 			match item {
 				Item::Enum(e) if &e.id() == name => return e.db_type(rn),
-				Item::Scalar(v) if &v.id() == name => return v.native(rn),
+				Item::Scalar(v) if &v.id() == name => {
+					return SchemaScalar {
+						schema: self,
+						scalar: v,
+					}
+					.native(rn)
+				}
 				Item::Composite(c) if &c.id() == name => return c.db_type(rn),
 				_ => continue,
 			}

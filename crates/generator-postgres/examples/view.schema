@@ -33,6 +33,7 @@ CREATE VIEW tests AS
 CREATE MATERIALIZED VIEW test_materializeds AS
 	SELECT * FROM foos
 ;
+COMMENT ON VIEW test_materializeds IS 'Also materialized';
 -- updated: table changes will result in view metadata update --
 ALTER VIEW tests RENAME TO moveaway_1;
 ALTER MATERIALIZED VIEW test_materializeds RENAME TO moveaway_2;

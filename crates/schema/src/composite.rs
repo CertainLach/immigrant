@@ -13,7 +13,7 @@ use crate::{
 	},
 	scalar::PropagatedScalarData,
 	sql::Sql,
-	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
+	uid::{next_uid, OwnUid, RenameExt, RenameMap},
 	HasIdent, IsCompatible, SchemaComposite, SchemaType,
 };
 

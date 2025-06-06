@@ -91,6 +91,18 @@ rule definition(s:S) -> Definition = "$$"
 "$$" {{
 	Definition(parts)
 }};
+rule inline_sql(s:S) -> InlineSqlType = "$$"
+	parts:(
+		raw:$((!"$$" !"${" [_])+)
+			{InlineSqlTypePart::Raw(raw.to_string())}
+	/	i:("${" _ i:code_ident(s) _ "}" {i})
+			{InlineSqlTypePart::TypeRef(TypeIdent::alloc(i))}
+	)+
+"$$" {{
+	InlineSqlType(parts)
+}}
+// TODO: Deprecate this syntax
+/ s:str() {InlineSqlType(vec![InlineSqlTypePart::Raw(s.to_string())])}
 rule view(s:S) -> View =
 	docs:docs()
 	attrlist:attribute_list(s) _
@@ -117,8 +129,8 @@ rule enum(s:S) -> Enum =
 rule scalar(s:S) -> Scalar =
 	docs:docs()
 	attrlist:attribute_list(s) _
-	"scalar" _ name:def_name(s) _ "=" _ native:str() _ annotations:scalar_annotation(s)**_ ";" {
-	Scalar::new(docs, attrlist, TypeDefName::alloc(name), DbIdent::new(native), annotations)
+	"scalar" _ name:def_name(s) _ "=" _ native:inline_sql(s) _ annotations:scalar_annotation(s)**_ ";" {
+	Scalar::new(docs, attrlist, TypeDefName::alloc(name), native, annotations)
 }
 rule composite(s:S) -> Composite =
 	docs:docs()

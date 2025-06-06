@@ -251,6 +251,14 @@ impl SchemaItem<'_> {
 			_ => None,
 		}
 	}
+	pub fn as_type(&self) -> Option<SchemaType> {
+		Some(match self {
+			SchemaItem::Enum(e) => SchemaType::Enum(*e),
+			SchemaItem::Scalar(s) => SchemaType::Scalar(*s),
+			SchemaItem::Composite(c) => SchemaType::Composite(*c),
+			_ => return None,
+		})
+	}
 	pub fn as_view(&self) -> Option<SchemaView> {
 		match self {
 			Self::View(e) => Some(*e),
@@ -373,6 +381,33 @@ impl SchemaType<'_> {
 			SchemaType::Scalar(s) => &s.attrlist,
 			SchemaType::Enum(e) => &e.attrlist,
 			SchemaType::Composite(c) => &c.attrlist,
+		}
+	}
+	pub fn depend_on(&self, out: &mut Vec<TypeIdent>) {
+		match self {
+			SchemaType::Enum(e) => out.push(e.id()),
+			SchemaType::Scalar(s) => s.depend_on(out),
+			SchemaType::Composite(c) => {
+				// Composites can be inlined... How that should be handled?
+				out.push(c.id());
+			}
+		}
+	}
+	pub fn type_dependencies(&self, out: &mut Vec<TypeIdent>) {
+		match self {
+			SchemaType::Enum(_e) => {
+				// Enums are just strings
+			}
+			SchemaType::Scalar(s) => {
+				// Scalars have inline sql, and we need to recurse in case if scalar is inlined
+				s.type_dependencies(out);
+			}
+			SchemaType::Composite(c) => {
+				// Composites depend on types of their fields (composites/scalars)
+				for f in c.fields() {
+					f.ty().depend_on(out);
+				}
+			}
 		}
 	}
 }
