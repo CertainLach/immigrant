@@ -29,6 +29,7 @@ def_kind!(
 	NativeTypeKind(8),
 	ItemKind(9),
 	TableKind(9),
+	MixinKind(9),
 	TypeKind(9),
 	ViewKind(9),
 	FieldKind(10),
@@ -108,6 +109,7 @@ pub type TriggerIdent = Ident<TriggerKind>;
 pub type ColumnIdent = Ident<ColumnKind>;
 pub type TypeIdent = Ident<TypeKind>;
 pub type FieldIdent = Ident<FieldKind>;
+pub type MixinIdent = Ident<MixinKind>;
 
 pub type DbTable = DbIdent<TableKind>;
 pub type DbView = DbIdent<ViewKind>;

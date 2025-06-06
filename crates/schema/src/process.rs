@@ -1,6 +1,5 @@
 use std::{
-	collections::BTreeMap,
-	collections::HashSet,
+	collections::{BTreeMap, HashMap, HashSet},
 	mem,
 	ops::{Deref, DerefMut},
 	str::FromStr,
@@ -13,7 +12,7 @@ use crate::{
 	composite::Composite,
 	ids::{DbIdent, Ident},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::UnknownKind,
+	names::{MixinIdent, UnknownKind},
 	root::{Item, Schema},
 	scalar::{Enum, Scalar, ScalarAnnotation},
 	sql::Sql,
@@ -87,6 +86,7 @@ impl Pgnc<&mut Schema> {
 					let c = Pgnc(v);
 					c.generate_name(rn);
 				}
+				Item::Mixin(_) => unreachable!("mixins are assimilated"),
 			}
 		}
 	}
@@ -196,7 +196,7 @@ impl Pgnc<&mut Table> {
 		}
 	}
 	/// Merge annotations:
-	/// - Primary keys are always merged, it is assumed at most only name will be set.
+	/// - Primary keys are always merged, it is assumed at most only name will be set. TODO: It gets weird in presence of mixins, e.g mixin can add another primary key, how that should be handled?
 	/// - Checks with the same name (+all unnamed) are merged using AND
 	/// - Unique constraints are merged the same way as the primary key, but unnamed uniques are not merged
 	/// - Indexes are merged the same way as unique constraints, except accounting for the uniqueness flag
@@ -469,6 +469,19 @@ pub fn check_unique_in_composite(comp: &SchemaComposite) {
 	};
 	for field in comp.fields() {
 		check_unique(field.id().to_unknown());
+	}
+}
+
+pub fn check_unique_mixin_identifiers(schema: &Schema) {
+	let mut seen = HashSet::new();
+	let mut check_unique = |id: MixinIdent| {
+		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	};
+	for mixin in &schema.0 {
+		let Item::Mixin(mixin) = mixin else {
+			continue;
+		};
+		check_unique(mixin.id());
 	}
 }
 

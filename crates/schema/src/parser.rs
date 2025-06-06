@@ -8,9 +8,10 @@ use crate::{
 	composite::{Composite, CompositeAnnotation, Field, FieldAnnotation},
 	ids::{in_allocator, DbIdent},
 	index::{Check, Index, OpClass, PrimaryKey, UniqueConstraint, Using, With},
+	mixin::Mixin,
 	names::{
-		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, TableDefName, TableIdent,
-		TypeDefName, TypeIdent, ViewDefName,
+		ColumnIdent, DbProcedure, DefName, EnumItemDefName, FieldIdent, MixinIdent, TableDefName,
+		TableIdent, TypeDefName, TypeIdent, ViewDefName,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
 	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
@@ -36,11 +37,33 @@ rule item(s:S) -> Item
 / t:enum(s) {Item::Enum(t)}
 / t:scalar(s) {Item::Scalar(t)}
 / t:composite(s) {Item::Composite(t)}
+/ t:mixin(s) {Item::Mixin(t)}
+
+rule mixin(s: S) -> Mixin =
+	docs:docs()
+	attrlist:attribute_list(s) _
+	"@mixin" _ name:code_ident(s) _ "{" _
+		mixins:("@mixin" _ f:code_ident(s) _ ";" {MixinIdent::alloc(f)})**_ _
+		fields:(f:table_field(s) _ ";" {f})++_ _
+		annotations:(a:table_annotation(s) _ ";" {a})**_ _
+		foreign_keys:(f:foreign_key(s) _ ";" {f})**_ _
+	"}" _ ";" {{
+	Mixin::new(
+		docs,
+		attrlist,
+		MixinIdent::alloc(name),
+		fields,
+		annotations,
+		foreign_keys,
+		mixins,
+	)
+}};
 
 rule table(s:S) -> Table =
 	docs:docs()
 	attrlist:attribute_list(s) _
 	"table" _ name:def_name(s) _ "{" _
+		mixins:("@mixin" _ f:code_ident(s) _ ";" {MixinIdent::alloc(f)})**_ _
 		fields:(f:table_field(s) _ ";" {f})++_ _
 		annotations:(a:table_annotation(s) _ ";" {a})**_ _
 		foreign_keys:(f:foreign_key(s) _ ";" {f})**_ _
@@ -52,6 +75,7 @@ rule table(s:S) -> Table =
 		fields,
 		annotations,
 		foreign_keys,
+		mixins,
 	)
 }};
 rule definition(s:S) -> Definition = "$$"
@@ -299,7 +323,11 @@ pub enum ParsingError {
 }
 
 type Result<T> = result::Result<T, Vec<ParsingError>>;
-pub fn parse(v: &str, opts: &SchemaProcessOptions, rn: &mut RenameMap) -> Result<Schema> {
+pub fn parse(
+	v: &str,
+	opts: &SchemaProcessOptions,
+	rn: &mut RenameMap,
+) -> Result<Schema> {
 	let span = register_source(v.to_string());
 	let mut s =
 		in_allocator(|| schema_parser::root(v, span).map_err(|e| vec![ParsingError::from(e)]))?;

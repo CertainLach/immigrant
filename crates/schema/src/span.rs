@@ -7,8 +7,8 @@ pub(crate) struct SourceId(u32);
 #[allow(dead_code)]
 pub struct SimpleSpan {
 	source_id: SourceId,
-	start: u32,
-	end: u32,
+	pub start: u32,
+	pub end: u32,
 }
 impl SimpleSpan {
 	pub(crate) fn new(source_id: SourceId, start: u32, end: u32) -> Self {

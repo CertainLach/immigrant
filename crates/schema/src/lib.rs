@@ -2,7 +2,6 @@ use std::ops::Deref;
 
 use derivative::Derivative;
 use ids::DbIdent;
-use itertools::Itertools;
 
 use self::{
 	attribute::AttributeList,
@@ -22,6 +21,7 @@ use self::{
 pub mod column;
 pub mod composite;
 pub mod index;
+pub mod mixin;
 pub mod process;
 pub mod root;
 pub mod scalar;
@@ -477,7 +477,7 @@ where
 macro_rules! def_name_impls {
 	($t:ty, $k:ident) => {
 		impl $crate::uid::HasUid for $t {
-			fn uid(&self) -> Uid {
+			fn uid(&self) -> $crate::uid::Uid {
 				$crate::uid::HasUid::uid(&self.uid)
 			}
 		}
@@ -510,7 +510,7 @@ macro_rules! delegate_name_impls {
 				self.value.id()
 			}
 		}
-		impl $crate::HasDefaultDbName for $t {
+		impl $crate::HasDefaultDbName for $t {uiaa matrix
 			type Kind = $k;
 			fn default_db(&self) -> Option<$crate::ids::DbIdent<Self::Kind>> {
 				self.value.default_db()
@@ -530,6 +530,23 @@ macro_rules! db_name_impls {
 		impl $crate::HasDefaultDbName for $t {
 			type Kind = $k;
 			fn default_db(&self) -> Option<$crate::ids::DbIdent<Self::Kind>> {
+				self.name.clone()
+			}
+		}
+	};
+}
+
+#[macro_export]
+macro_rules! id_impls {
+	($t:ty, $k:ident) => {
+		impl $crate::uid::HasUid for $t {
+			fn uid(&self) -> $crate::uid::Uid {
+				$crate::uid::HasUid::uid(&self.uid)
+			}
+		}
+		impl $crate::HasIdent for $t {
+			type Kind = $k;
+			fn id(&self) -> $crate::ids::Ident<Self::Kind> {
 				self.name.clone()
 			}
 		}

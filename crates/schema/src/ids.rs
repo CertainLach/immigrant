@@ -103,6 +103,9 @@ impl<K> Ident<K> {
 	pub fn name(&self) -> String {
 		ALLOCATOR.with(|a| a.1.name(self.id))
 	}
+	pub fn span(&self) -> SimpleSpan {
+		self.span
+	}
 }
 impl<K: Kind> Ident<K> {
 	pub fn alloc((span, name): (SimpleSpan, &str)) -> Self {

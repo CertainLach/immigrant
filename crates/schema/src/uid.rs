@@ -33,6 +33,9 @@ pub(crate) fn next_uid() -> OwnUid {
 #[derive(Default, Clone)]
 pub struct RenameMap(HashMap<Uid, String>);
 impl RenameMap {
+	pub fn new() -> Self {
+		Self::default()
+	}
 	pub fn merge(&mut self, other: RenameMap) {
 		for (k, v) in other.0 {
 			assert!(

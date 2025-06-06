@@ -68,6 +68,9 @@ impl ColumnAnnotation {
 			_ => return Either::Right(self),
 		})
 	}
+	fn clone_for_mixin(&self) -> Self {
+		self.clone_for_propagate()
+	}
 	fn clone_for_propagate(&self) -> Self {
 		match self {
 			ColumnAnnotation::Check(c) => Self::Check(c.clone_for_propagate()),
@@ -125,6 +128,13 @@ impl IsCompatible for Column {
 pub struct PartialForeignKey {
 	pub fk: ForeignKey,
 }
+impl PartialForeignKey {
+	fn clone_for_mixin(&self) -> Self {
+		Self {
+			fk: self.fk.clone_for_mixin(),
+		}
+	}
+}
 
 impl Column {
 	pub(crate) fn propagate_scalar_data(
@@ -152,6 +162,25 @@ impl Column {
 		let mut fk = self.foreign_key.take()?;
 		fk.fk.source_fields = Some(vec![self.id()]);
 		Some(fk.fk)
+	}
+
+	pub fn clone_for_mixin(&self) -> Column {
+		Column::new(
+			DefName::unchecked_new(
+				self.name.code,
+				// Makes little sense to support RenameMap here, columns renamed in Mixins are not propagated.
+				self.name.db.clone(),
+			),
+			self.docs.clone(),
+			self.attrs.clone(),
+			self.nullable,
+			self.ty,
+			self.annotations
+				.iter()
+				.map(|a| a.clone_for_mixin())
+				.collect(),
+			self.foreign_key.as_ref().map(|fk| fk.clone_for_mixin()),
+		)
 	}
 }
 

@@ -8,7 +8,7 @@ use crate::{
 	changelist::ChangeList,
 	composite::Composite,
 	ids::Ident,
-	mk_change_list,
+	mixin::Mixin,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{check_unique_identifiers, NamingConvention, Pgnc},
 	scalar::PropagatedScalarData,
@@ -24,6 +24,8 @@ use crate::{
 pub enum Item {
 	#[derivative(Debug = "transparent")]
 	Table(Table),
+	#[derivative(Debug = "transparent")]
+	Mixin(Mixin),
 	#[derivative(Debug = "transparent")]
 	Enum(Enum),
 	#[derivative(Debug = "transparent")]
@@ -109,14 +111,57 @@ pub struct SchemaProcessOptions {
 #[derive(Debug, Default)]
 pub struct Schema(pub Vec<Item>);
 impl Schema {
-	pub fn process(&mut self, options: &SchemaProcessOptions, rn: &mut RenameMap) {
+	pub fn process(
+		&mut self,
+		options: &SchemaProcessOptions,
+		rn: &mut RenameMap,
+	) {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
 			Item::Enum(_) => 0,
 			Item::Scalar(_) => 9997,
 			Item::Composite(_) => 9998,
 			Item::View(_) => 9999,
+			Item::Mixin(_) => 10000,
 		});
+
+		// Mixins have their own identifier namespace due to
+		// special definiton and reference syntax.
+		check_unique_mixin_identifiers(self);
+
+		let (_mixins, items): (Vec<Mixin>, Vec<Item>) = mem::take(&mut self.0)
+			.into_iter()
+			.partition_map(|v| match v {
+				Item::Mixin(m) => itertools::Either::Left(m),
+				i => itertools::Either::Right(i),
+			});
+		self.0 = items;
+
+		let mut mixins = HashMap::new();
+		for mixin in _mixins {
+			mixins.insert_unique(mixin.id(), mixin);
+		}
+
+		for table in self.0.iter_mut().filter_map(Item::as_table_mut) {
+			loop {
+				let mut assimilated_mixins = HashSet::new();
+				let table_mixins = std::mem::take(&mut table.mixins);
+				if table_mixins.is_empty() {
+					break;
+				}
+				for mixin in table_mixins {
+					if !assimilated_mixins.insert(mixin) {
+						panic!(
+							"mixin {} was applied twice to table {}",
+							mixin.name(),
+							table.id().name()
+						);
+					}
+					let mixin = mixins.get(&mixin).expect("unknown mixin identifier");
+					table.assimilate_mixin(mixin);
+				}
+			}
+		}
 
 		// Currently, no passes generate new items, nor
 		// alter identifiers, it should be moved to the end.
@@ -224,6 +269,7 @@ impl Schema {
 					composite,
 				}),
 				Item::View(view) => SchemaItem::View(SchemaView { schema: self, view }),
+				Item::Mixin(_) => unreachable!("mixins are assimilted at the earliest stage"),
 			})
 			.collect()
 	}

@@ -10,9 +10,12 @@ use crate::{
 	composite::FieldAnnotation,
 	def_name_impls, derive_is_isomorph_by_id_name,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::{DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeKind},
-	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
-	SchemaEnum,
+	names::{
+		DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeIdent, TypeKind,
+	},
+	root::Schema,
+	uid::{next_uid, OwnUid, RenameExt, RenameMap},
+	HasIdent, SchemaEnum, SchemaScalar,
 };
 
 #[derive(Debug)]
@@ -112,6 +115,35 @@ impl PropagatedScalarData {
 	}
 }
 
+#[derive(Debug, Clone)]
+pub enum InlineSqlTypePart {
+	Raw(String),
+	TypeRef(TypeIdent),
+}
+#[derive(Debug, Clone)]
+pub struct InlineSqlType(pub Vec<InlineSqlTypePart>);
+impl InlineSqlType {
+	fn expand(&self, rn: &RenameMap, schema: &Schema) -> DbNativeType {
+		let mut out = String::new();
+		for p in &self.0 {
+			match p {
+				InlineSqlTypePart::Raw(r) => out.push_str(r),
+				InlineSqlTypePart::TypeRef(ident) => {
+					out.push_str(schema.native_type(ident, rn).raw())
+				}
+			}
+		}
+		DbNativeType::new(&out)
+	}
+	fn dependencies(&self, schema: &Schema, out: &mut Vec<TypeIdent>) {
+		for v in &self.0 {
+			if let InlineSqlTypePart::TypeRef(t) = v {
+				schema.schema_ty(*t).depend_on(out);
+			}
+		}
+	}
+}
+
 /// Even though CREATE DOMAIN allows domains to be constrained as non-nulls, currently it is not possible to make
 /// scalar non-null, you should create a constraint, and then make a column not null, because non-null domain
 /// might work not as user would expect. I.e it allows value to be null in case of outer joins.
@@ -121,9 +153,7 @@ pub struct Scalar {
 	name: TypeDefName,
 	pub docs: Vec<String>,
 	pub attrlist: AttributeList,
-	/// TODO: There is no support for making one scalar depend on other scalar/enum.
-	/// Should this support be implemented? Should there be dedicated syntax for SQL types?
-	native: DbNativeType,
+	native: InlineSqlType,
 	pub annotations: Vec<ScalarAnnotation>,
 	inlined: bool,
 }
@@ -133,7 +163,7 @@ impl Scalar {
 		docs: Vec<String>,
 		attrlist: AttributeList,
 		name: TypeDefName,
-		native: DbNativeType,
+		native: InlineSqlType,
 		annotations: Vec<ScalarAnnotation>,
 	) -> Self {
 		Self {
@@ -177,8 +207,29 @@ impl Scalar {
 	pub fn inlined(&self) -> bool {
 		self.inlined
 	}
-	pub fn inner_type(&self) -> DbNativeType {
-		self.native.clone()
+}
+
+impl SchemaScalar<'_> {
+	pub fn depend_on(&self, out: &mut Vec<TypeIdent>) {
+		assert!(
+			!self.is_always_inline() || self.inlined,
+			"always-inline type was not inlined"
+		);
+		if self.inlined() {
+			self.type_dependencies(out);
+		} else {
+			out.push(self.id());
+		}
+	}
+	pub fn type_dependencies(&self, out: &mut Vec<TypeIdent>) {
+		assert!(
+			!self.is_always_inline() || self.inlined,
+			"always-inline type was not inlined"
+		);
+		self.native.dependencies(self.schema, out);
+	}
+	pub fn inner_type(&self, rn: &RenameMap) -> DbNativeType {
+		self.native.expand(rn, self.schema)
 	}
 	pub fn native(&self, rn: &RenameMap) -> DbNativeType {
 		assert!(
@@ -193,7 +244,7 @@ impl Scalar {
 					.any(ScalarAnnotation::is_inline_target),
 				"inlined scalars may not have inline target scalars"
 			);
-			self.native.clone()
+			self.native.expand(rn, self.schema)
 		} else {
 			DbNativeType::unchecked_from(self.db(rn))
 		}

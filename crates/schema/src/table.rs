@@ -7,9 +7,10 @@ use crate::{
 	attribute::AttributeList,
 	db_name_impls, def_name_impls,
 	index::{Check, PrimaryKey, UniqueConstraint},
+	mixin::Mixin,
 	names::{
-		ColumnIdent, DbColumn, DbForeignKey, DbNativeType, ForeignKeyKind, TableDefName,
-		TableIdent, TableKind, TypeIdent,
+		ColumnIdent, DbColumn, DbForeignKey, DbNativeType, DefName, ForeignKeyKind, MixinIdent,
+		TableDefName, TableIdent, TableKind, TypeIdent,
 	},
 	scalar::PropagatedScalarData,
 	uid::{next_uid, OwnUid, RenameExt, RenameMap, Uid},
@@ -25,6 +26,7 @@ pub struct Table {
 	pub columns: Vec<Column>,
 	pub annotations: Vec<TableAnnotation>,
 	pub foreign_keys: Vec<ForeignKey>,
+	pub mixins: Vec<MixinIdent>,
 }
 def_name_impls!(Table, TableKind);
 impl Table {
@@ -35,6 +37,7 @@ impl Table {
 		columns: Vec<Column>,
 		annotations: Vec<TableAnnotation>,
 		foreign_keys: Vec<ForeignKey>,
+		mixins: Vec<MixinIdent>,
 	) -> Self {
 		Self {
 			uid: next_uid(),
@@ -44,6 +47,7 @@ impl Table {
 			columns,
 			annotations,
 			foreign_keys,
+			mixins,
 		}
 	}
 	pub fn primary_key(&self) -> Option<&PrimaryKey> {
@@ -58,6 +62,26 @@ impl Table {
 			.iter()
 			.any(|a| matches!(a, TableAnnotation::External))
 	}
+	pub(crate) fn assimilate_mixin(&mut self, mixin: &Mixin) {
+		let Mixin {
+			docs,
+			attrlist,
+			columns,
+			annotations,
+			foreign_keys,
+			mixins,
+			..
+		} = mixin;
+		self.docs.extend_from_slice(docs);
+		self.attrlist.0.extend_from_slice(&attrlist.0);
+		self.columns
+			.extend(columns.iter().map(|c| c.clone_for_mixin()));
+		self.annotations
+			.extend(annotations.iter().map(|a| a.clone_for_mixin()));
+		self.foreign_keys
+			.extend(foreign_keys.iter().map(|fk| fk.clone_for_mixin()));
+		self.mixins.extend(mixins.clone());
+	}
 }
 #[derive(Debug)]
 pub enum TableAnnotation {
@@ -68,7 +92,7 @@ pub enum TableAnnotation {
 	External,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum OnDelete {
 	SetNull,
 	SetDefault,
@@ -115,6 +139,16 @@ impl ForeignKey {
 			on_delete,
 		}
 	}
+
+	pub fn clone_for_mixin(&self) -> Self {
+		Self::new(
+			self.name.clone(),
+			self.source_fields.clone(),
+			self.target.clone(),
+			self.target_fields.clone(),
+			self.on_delete,
+		)
+	}
 }
 
 impl TableAnnotation {
@@ -146,6 +180,16 @@ impl TableAnnotation {
 			Some(u)
 		} else {
 			None
+		}
+	}
+
+	pub fn clone_for_mixin(&self) -> Self {
+		match self {
+			TableAnnotation::Check(c) => Self::Check(c.clone_for_propagate()),
+			TableAnnotation::Unique(u) => Self::Unique(u.clone_for_propagate()),
+			TableAnnotation::PrimaryKey(p) => Self::PrimaryKey(p.clone_for_propagate()),
+			TableAnnotation::Index(i) => Self::Index(i.clone_for_propagate()),
+			TableAnnotation::External => Self::External,
 		}
 	}
 }

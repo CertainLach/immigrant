@@ -110,6 +110,7 @@ fn main() -> anyhow::Result<()> {
 			Item::Scalar(_) => {}
 			Item::Composite(_) => {}
 			Item::View(_) => {}
+			Item::Mixin(_) => unreachable!("mixins are assimilated"),
 		}
 	}
 	Ok(())
