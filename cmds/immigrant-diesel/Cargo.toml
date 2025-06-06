@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-clap = { version = "4.3.8", features = ["derive"] }
+clap.workspace = true
 schema.workspace = true
 cli.workspace = true
-Inflector = "0.11.4"
 file-diffs.workspace = true
-anyhow = "1.0.71"
+anyhow.workspace = true
 quote = "1.0.33"
 syn = "2.0.38"
 proc-macro2 = "1.0.69"
 prettyplease = "0.2.15"
 rust-format = { version = "0.3.4", features = ["token_stream", "post_process", "pretty_please"] }
+Inflector.workspace = true

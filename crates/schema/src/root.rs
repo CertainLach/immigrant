@@ -1,22 +1,27 @@
-use std::collections::HashMap;
+use itertools::Itertools;
+use std::{
+	collections::{HashMap, HashSet},
+	mem,
+};
 
 use super::{
 	scalar::{Enum, Scalar},
 	table::Table,
 };
 use crate::{
-	changelist::ChangeList,
 	composite::Composite,
+	diagnostics::{self, Report},
 	ids::Ident,
 	mixin::Mixin,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
-	process::{check_unique_identifiers, NamingConvention, Pgnc},
+	process::{check_unique_identifiers, check_unique_mixin_identifiers, NamingConvention, Pgnc},
 	scalar::PropagatedScalarData,
 	sql::Sql,
 	uid::{RenameExt, RenameMap},
+	util::UniqueMap as _,
 	view::View,
-	HasIdent, IsCompatible, SchemaComposite, SchemaDiff, SchemaEnum, SchemaItem, SchemaScalar,
-	SchemaSql, SchemaTable, SchemaTableOrView, SchemaType, SchemaView,
+	HasIdent, SchemaComposite, SchemaEnum, SchemaItem, SchemaScalar, SchemaSql, SchemaTable,
+	SchemaTableOrView, SchemaType, SchemaView,
 };
 
 #[derive(derivative::Derivative)]
@@ -115,6 +120,7 @@ impl Schema {
 		&mut self,
 		options: &SchemaProcessOptions,
 		rn: &mut RenameMap,
+		report: &mut Report,
 	) {
 		self.0.sort_by_key(|i| match i {
 			Item::Table(_) => 1,
@@ -165,16 +171,13 @@ impl Schema {
 
 		// Currently, no passes generate new items, nor
 		// alter identifiers, it should be moved to the end.
-		check_unique_identifiers(self);
+		check_unique_identifiers(self, report);
 
 		let mut propagated_scalars = HashMap::new();
 		for s in self.0.iter_mut().filter_map(Item::as_scalar_mut) {
 			let inline = s.is_always_inline() || !options.generator_supports_domain;
 			let data = s.propagate(inline);
-			assert!(
-				propagated_scalars.insert(s.id(), data).is_none(),
-				"duplicate scalar?"
-			);
+			propagated_scalars.insert_unique(s.id(), data);
 		}
 
 		// Propagate scalar annotations to fields

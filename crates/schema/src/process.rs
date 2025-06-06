@@ -10,6 +10,7 @@ use itertools::{Either, Itertools};
 
 use crate::{
 	composite::Composite,
+	diagnostics::Report,
 	ids::{DbIdent, Ident},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{MixinIdent, UnknownKind},
@@ -491,30 +492,38 @@ pub fn check_unique_mixin_identifiers(schema: &Schema) {
 /// E.g some databases allow domain and table types to be conflicting, and some not, there is different behavior for
 /// truncation, there might be forbidden system tables, and so on.
 /// Identifiers are unique to immigrant, so checking of them is trivial.
-pub fn check_unique_identifiers(schema: &Schema) {
+pub fn check_unique_identifiers(schema: &Schema, diagnostics: &mut Report) {
 	let mut seen = HashSet::new();
-	let mut check_unique = |id: Ident<UnknownKind>| {
-		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
+	let mut check_unique = |id: Ident<UnknownKind>, diagnostics: &mut Report| {
+		if !seen.insert(id) {
+			let old = seen.get(&id).expect("exists");
+
+			// old.span()
+			diagnostics
+				.error("duplicate identifier")
+				.annotate("declared here", id.span())
+				.annotate("previously declared here", old.span());
+		}
 	};
 	for item in &schema.items() {
 		match item {
 			SchemaItem::Table(t) => {
-				check_unique(t.id().to_unknown());
+				check_unique(t.id().to_unknown(), diagnostics);
 				check_unique_in_table(t);
 			}
 			SchemaItem::Enum(e) => {
-				check_unique(e.id().to_unknown());
+				check_unique(e.id().to_unknown(), diagnostics);
 				check_unique_in_enum(e);
 			}
 			SchemaItem::Scalar(s) => {
-				check_unique(s.id().to_unknown());
+				check_unique(s.id().to_unknown(), diagnostics);
 			}
 			SchemaItem::Composite(c) => {
-				check_unique(c.id().to_unknown());
+				check_unique(c.id().to_unknown(), diagnostics);
 				check_unique_in_composite(c);
 			}
 			SchemaItem::View(v) => {
-				check_unique(v.id().to_unknown());
+				check_unique(v.id().to_unknown(), diagnostics);
 			}
 		}
 	}

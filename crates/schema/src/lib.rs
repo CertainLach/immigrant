@@ -46,6 +46,10 @@ mod span;
 pub mod uid;
 pub use uid::HasUid;
 
+pub mod diagnostics;
+
+mod util;
+
 #[macro_export]
 macro_rules! w {
     ($out:expr, $($tt:tt)*) => {{

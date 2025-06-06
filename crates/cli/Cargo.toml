@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-ass-stroke.workspace = true
+hi-doc.workspace = true
 file-diffs.workspace = true
 generator-postgres.workspace = true
 schema.workspace = true

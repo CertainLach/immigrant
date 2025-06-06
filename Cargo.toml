@@ -15,8 +15,11 @@ file-diffs = { package = "immigrant-file-diffs", path = "crates/file-diffs" }
 cli = { package = "immigrant-cli", path = "crates/cli" }
 generator-postgres = { package = "immigrant-generator-postgres", path = "crates/generator-postgres" }
 anyhow = "1.0.71"
-ass-stroke = { git = "https://github.com/CertainLach/ass-stroke", version = "0.1.0" }
+hi-doc = { git = "https://github.com/CertainLach/ass-stroke" }
 imara-diff = "0.1.5"
 ouroboros = "0.15.6"
 patch = "0.7.0"
 thiserror = "1.0.40"
+clap = { version = "4.4.18", features = ["derive"] }
+Inflector = "0.11.4"
+tempfile = "3.7.1"

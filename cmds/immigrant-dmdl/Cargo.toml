@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-anyhow = "1.0.71"
-clap = { version = "4.3.3", features = ["derive"] }
+anyhow.workspace = true
+clap.workspace = true
 file-diffs.workspace = true
 schema.workspace = true
 cli.workspace = true

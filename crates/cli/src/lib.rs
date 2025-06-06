@@ -4,10 +4,11 @@ use std::{
 };
 
 use anyhow::anyhow;
-use ass_stroke::{SnippetBuilder, Text};
 use file_diffs::{Migration, MigrationId};
 use generator_postgres::Pg;
+use hi_doc::{SnippetBuilder, Text};
 use schema::{
+	diagnostics::Report,
 	parser,
 	process::NamingConvention,
 	root::{Schema, SchemaProcessOptions},
@@ -15,35 +16,42 @@ use schema::{
 };
 
 pub fn parse_schema(schema: &str, rn: &mut RenameMap) -> anyhow::Result<Schema> {
-	match parser::parse(
+	let mut report = Report::new();
+	let s = match parser::parse(
 		schema,
 		&SchemaProcessOptions {
 			generator_supports_domain: true,
 			naming_convention: NamingConvention::Postgres,
 		},
 		rn,
+		&mut report,
 	) {
-		Ok(s) => Ok(s),
+		Ok(s) => s,
 		Err(e) => {
 			let mut builder = SnippetBuilder::new(schema);
 			for e in e {
 				match e {
 					parser::ParsingError::Peg(peg) => {
 						builder
-							.error(Text::single(
-								format!("parsing error: {peg}").chars(),
-								Default::default(),
-							))
+							.error(Text::default_fragment(format!("parsing error: {peg}")))
 							.range(peg.location.offset..=peg.location.offset)
 							.build();
 					}
 				}
 			}
 			eprintln!("schema parsing ended with failure:");
-			eprint!("{}", ass_stroke::source_to_ansi(&builder.build()));
-			Err(anyhow!("failed to parse schema"))
+			eprint!("{}", hi_doc::source_to_ansi(&builder.build()));
+			return Err(anyhow!("failed to parse schema"));
 		}
+	};
+	if report.is_error() {
+		eprintln!("schema parsing ended with failure:");
+		for s in report.to_hi_doc(schema) {
+			eprint!("{}", hi_doc::source_to_ansi(&s));
+		}
+		return Err(anyhow!("failed to parse schema"));
 	}
+	Ok(s)
 }
 
 pub fn current_schema(dir: &Path) -> anyhow::Result<(String, Schema, RenameMap)> {

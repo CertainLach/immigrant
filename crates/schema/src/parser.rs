@@ -6,6 +6,7 @@ use crate::{
 	attribute::{Attribute, AttributeField, AttributeList, AttributeValue},
 	column::{Column, ColumnAnnotation, PartialForeignKey},
 	composite::{Composite, CompositeAnnotation, Field, FieldAnnotation},
+	diagnostics::Report,
 	ids::{in_allocator, DbIdent},
 	index::{Check, Index, OpClass, PrimaryKey, UniqueConstraint, Using, With},
 	mixin::Mixin,
@@ -14,7 +15,7 @@ use crate::{
 		TableIdent, TypeDefName, TypeIdent, ViewDefName,
 	},
 	root::{Item, Schema, SchemaProcessOptions},
-	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation},
+	scalar::{Enum, EnumItem, Scalar, ScalarAnnotation, InlineSqlType, InlineSqlTypePart},
 	span::{register_source, SimpleSpan, SourceId},
 	sql::{Sql, SqlOp, SqlUnOp},
 	table::{ForeignKey, OnDelete, Table, TableAnnotation},
@@ -327,10 +328,11 @@ pub fn parse(
 	v: &str,
 	opts: &SchemaProcessOptions,
 	rn: &mut RenameMap,
+	report: &mut Report,
 ) -> Result<Schema> {
 	let span = register_source(v.to_string());
 	let mut s =
 		in_allocator(|| schema_parser::root(v, span).map_err(|e| vec![ParsingError::from(e)]))?;
-	s.process(opts, rn);
+	s.process(opts, rn, report);
 	Ok(s)
 }
