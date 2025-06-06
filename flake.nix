@@ -1,26 +1,17 @@
 {
   description = "Immigrant: Database schema description language";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/release-24.11";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    crane = {
-      url = "github:ipetkov/crane";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
-    shelly = {
-      url = "github:CertainLach/shelly";
-      inputs = {
-        flake-parts.follows = "flake-parts";
-        nixpkgs.follows = "nixpkgs";
-      };
-    };
+    crane.url = "github:ipetkov/crane";
+    shelly.url = "github:CertainLach/shelly";
   };
   outputs = inputs @ {
     nixpkgs,
@@ -51,7 +42,6 @@
         _module.args.pkgs = import nixpkgs {
           inherit system;
           overlays = [rust-overlay.overlays.default];
-          config.allowUnfree = true;
         };
         packages = {
           default = packages.immigrant;
@@ -70,8 +60,7 @@
               just
 
               tree-sitter
-              (yarn-berry.override {nodejs = nodejs_latest;})
-              nodejs_latest
+              (yarn-berry.override {nodejs = nodejs;})
               # Wanted by node-nan, which is used by tree-sitter, even if js binding is not actually used.
               python3
             ]
