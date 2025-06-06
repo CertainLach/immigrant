@@ -6,6 +6,7 @@ use cli::{current_schema, generate_sql, generate_sql_nowrite, stored_schema};
 use file_diffs::{find_root, list, Migration, MigrationId};
 use futures::StreamExt;
 use sqlx::{postgres::PgPoolOptions, Acquire, Executor, Postgres, Transaction};
+use tracing::{error, warn};
 
 #[derive(Parser)]
 enum Subcommand {
@@ -26,6 +27,8 @@ enum Subcommand {
 		after_down_sql: Option<String>,
 		#[clap(long)]
 		dry_run: bool,
+		#[clap(long)]
+		unsafe_override_mismatched: Vec<u32>,
 		/// If true - migration should be saved to disk.
 		/// Always set if not in dry-run mode, in dry-run it is disabled by default.
 		#[clap(long)]
@@ -100,7 +103,7 @@ async fn main() -> Result<()> {
 		.as_str(),
 	)
 	.await?;
-	let ran_migrations = sqlx::query_as::<_, RanMigration>(
+	let mut ran_migrations = sqlx::query_as::<_, RanMigration>(
 		"SELECT version, schema FROM __immigrant_migrations ORDER BY version",
 	)
 	.fetch_all(&mut *conn)
@@ -118,6 +121,9 @@ async fn main() -> Result<()> {
 		assert_eq!(ran.version as u32, expected, "unexpected migration version");
 	}
 
+	let mut had_mismatched_migrations = false;
+	let mut mismatched_ids = vec![];
+
 	match opts.cmd {
 		Subcommand::Commit {
 			message,
@@ -127,6 +133,7 @@ async fn main() -> Result<()> {
 			after_down_sql,
 			dry_run,
 			write,
+			unsafe_override_mismatched,
 		} => {
 			// TODO: Option to disable top-level transaction
 			let mut tx = conn.begin().await?;
@@ -144,7 +151,7 @@ async fn main() -> Result<()> {
 						// Migration version was removed from DB, yet it was run.
 						continue 'next_migration;
 					};
-					let Some(migration) = ran_migrations.get(ran_id as usize) else {
+					let Some(migration) = ran_migrations.get_mut(ran_id as usize) else {
 						// This migration was not yet ran
 						break 'run_migration;
 					};
@@ -152,17 +159,37 @@ async fn main() -> Result<()> {
 						// No stored expected schema, continue with migration
 						continue 'next_migration;
 					};
-					assert_eq!(
-						expected_schema.trim(),
-						check_str.trim(),
-						"schema, stored in DB, doesn't match the schema stored locally"
-					);
+					if expected_schema.trim() != check_str.trim() {
+						if unsafe_override_mismatched.contains(&id.id) {
+							warn!("overriding migration {id:?}");
+							sqlx::query(
+								"UPDATE __immigrant_migrations SET schema = $1 WHERE version = $2",
+							)
+							.bind(&check_str)
+							.bind(id.id as i32)
+							.execute(&mut *tx)
+							.await?;
+							migration.schema = Some(check_str);
+						} else {
+							had_mismatched_migrations = true;
+							mismatched_ids.push(id.id);
+							error!("schema, stored in DB, doesn't match the schema stored locally!\n\nLocal\n=====\n{check_str}\n\n\n\nRemote\n======\n{expected_schema}");
+						}
+					} else if unsafe_override_mismatched.contains(&id.id) {
+						bail!("migration is valid, but it is specified in --unsafe-override-mismatched")
+					}
 					continue 'next_migration;
+				}
+				if had_mismatched_migrations {
+					bail!("mismatched migrations found, can't continue with applying rest of local-only migrations\nMismatched: {mismatched_ids:?}");
 				}
 				let mut path = path.to_owned();
 				path.push("up.sql");
 				let sql = fs::read_to_string(&path).context("reading migration up.sql file")?;
 				run_migrations(&mut tx, id.id, sql, migrations_table, &check_str).await?;
+			}
+			if had_mismatched_migrations {
+				bail!("mismatched migrations found, can't continue with new migration generation\nMismatched: {mismatched_ids:?}");
 			}
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
 
