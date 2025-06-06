@@ -341,25 +341,48 @@ fn generate_schema(schema: Schema, rn: &RenameMap) -> anyhow::Result<String> {
 			.into_iter()
 			.map(|v| syn::parse_str::<Path>(&v).unwrap());
 
+		let serde: bool = en
+			.attrlist
+			.get_single("diesel", "serde")
+			.expect("diesel serde");
+
+		let serde_derive = serde.then(|| quote!(, serde::Serialize, serde::Deserialize));
+
 		let name = format!("crate::sql_types::{id}");
 		let items = en.items.iter().map(|i| {
 			let id = enum_item_ident(i);
 			let name = i.db(rn);
 			let name = name.raw();
 			let docs = &i.docs;
+			let serde_rename = serde.then(|| quote!(#[serde(rename = #name)]));
 			quote! {
 				#[db_rename = #name]
+				#serde_rename
 				#(#[doc = #docs])*
 				#id
 			}
 		});
+
+		let values = en.items.iter().map(|i| {
+			let name = i.db(rn);
+			let name = name.raw();
+			quote!{#name}
+		});
+		let value_count = en.items.len();
+
 		let docs = &en.docs;
 		enums.append_all(quote! {
 			#(#[doc = #docs])*
-			#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq, Eq, Clone, Copy, Hash #(, #derives)*)]
+			#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq, Eq, Clone, Copy, Hash #serde_derive #(, #derives)*)]
 			#[ExistingTypePath = #name]
 			pub enum #id {
 				#(#items,)*
+			}
+
+			impl #id {
+				pub const VALUES: [&str; #value_count] = [
+					#(#values,)*
+				];
 			}
 		});
 	}
