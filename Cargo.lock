@@ -348,6 +348,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1049,11 +1059,9 @@ name = "immigrant-generator-postgres"
 version = "0.1.2"
 dependencies = [
  "blake2",
- "hi-doc",
  "immigrant-schema",
  "itertools 0.11.0",
  "permutation",
- "rand",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -1089,7 +1097,6 @@ dependencies = [
  "itertools 0.11.0",
  "paste",
  "peg",
- "rand",
  "replace_with",
  "thiserror",
  "tracing",
@@ -2724,6 +2731,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a05d73b933a847d6cccdda8f838a22ff101ad9bf93e33684f39c1f5f0eece3d"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "web"
+version = "0.1.2"
+dependencies = [
+ "console_error_panic_hook",
+ "immigrant-generator-postgres",
+ "immigrant-schema",
+ "wasm-bindgen",
 ]
 
 [[package]]

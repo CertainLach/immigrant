@@ -6,6 +6,7 @@ use std::{
 
 use itertools::Itertools;
 use schema::{
+	diagnostics::Report,
 	ids::{DbIdent, Ident},
 	index::Check,
 	mk_change_list,
@@ -98,10 +99,16 @@ macro_rules! alt_ungroup_up {
 }
 
 impl Pg<TableColumn<'_>> {
-	pub fn create_inline(&self, sql: &mut String, rn: &RenameMap) {
-		self.create_inline_inner(sql, rn, false);
+	pub fn create_inline(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
+		self.create_inline_inner(sql, rn, false, report);
 	}
-	fn create_inline_inner(&self, sql: &mut String, rn: &RenameMap, force_nullable: bool) {
+	fn create_inline_inner(
+		&self,
+		sql: &mut String,
+		rn: &RenameMap,
+		force_nullable: bool,
+		report: &mut Report,
+	) {
 		let name = Id(self.db(rn));
 		let db_type = self.db_type(rn);
 		let nullability = if self.nullable || force_nullable {
@@ -110,7 +117,7 @@ impl Pg<TableColumn<'_>> {
 			" NOT NULL"
 		};
 		let defaultability = self.default().map_or_else(String::new, |default| {
-			let sql = Pg(self.table).format_sql(default, rn);
+			let sql = Pg(self.table).format_sql(default, rn, report);
 			format!(" DEFAULT ({sql})")
 		});
 		w!(sql, "{name} {}{nullability}{defaultability}", db_type.raw());
@@ -119,9 +126,9 @@ impl Pg<TableColumn<'_>> {
 		let name = Id(self.db(rn));
 		out.push(alt_group!("DROP COLUMN {name}"));
 	}
-	pub fn create_alter(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+	pub fn create_alter(&self, out: &mut Vec<Alternation>, rn: &RenameMap, report: &mut Report) {
 		let mut inl = String::new();
-		self.create_inline_inner(&mut inl, rn, self.initialize_as().is_some());
+		self.create_inline_inner(&mut inl, rn, self.initialize_as().is_some(), report);
 		out.push(alt_group!("ADD COLUMN {inl}"));
 		if let Some(initialize_as) = self.initialize_as() {
 			let name = Id(self.db(rn));
@@ -131,6 +138,7 @@ impl Pg<TableColumn<'_>> {
 				self.table.schema,
 				SchemaItem::Table(self.table),
 				rn,
+				report,
 			);
 			// Technically groupable, yet postgres bails with error: column "column" of relation "tests" does not exist,
 			// if appears with the same statement as ADD COLUMN.
@@ -151,12 +159,13 @@ impl Pg<TableColumn<'_>> {
 	}
 }
 impl Pg<TableSql<'_>> {
-	pub fn print(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn print(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let o = format_sql(
 			&self.0,
 			self.table.schema,
 			SchemaItem::Table(self.0.table),
 			rn,
+			report,
 		);
 		sql.push_str(&o);
 	}
@@ -180,12 +189,12 @@ fn pg_constraints<'v>(t: &'v SchemaTable) -> Vec<PgTableConstraint<'v>> {
 }
 
 impl Pg<SchemaTable<'_>> {
-	fn format_sql(&self, sql: &Sql, rn: &RenameMap) -> String {
+	fn format_sql(&self, sql: &Sql, rn: &RenameMap, report: &mut Report) -> String {
 		let mut out = String::new();
-		Pg(self.sql(sql)).print(&mut out, rn);
+		Pg(self.sql(sql)).print(&mut out, rn, report);
 		out
 	}
-	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let table_name = Id(self.db(rn));
 		wl!(sql, "CREATE TABLE {table_name} (");
 		let mut had = false;
@@ -196,7 +205,7 @@ impl Pg<SchemaTable<'_>> {
 				had = true;
 			};
 			w!(sql, "\t");
-			Pg(v).create_inline(sql, rn);
+			Pg(v).create_inline(sql, rn, report);
 			// assert!(
 			// 	v.initialize_as().is_none(),
 			// 	"@initialize_as may only appear when field is added, not when the table is created"
@@ -205,7 +214,7 @@ impl Pg<SchemaTable<'_>> {
 		}
 		let constraints = pg_constraints(self);
 		for constraint in constraints {
-			let Some(inline) = constraint.create_inline_non_fk(rn) else {
+			let Some(inline) = constraint.create_inline_non_fk(rn, report) else {
 				continue;
 			};
 			if had {
@@ -285,7 +294,13 @@ impl Pg<SchemaTable<'_>> {
 }
 
 impl Pg<ColumnDiff<'_>> {
-	pub fn print_alter(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+	pub fn print_alter(
+		&self,
+		out: &mut Vec<Alternation>,
+		rn: &RenameMap,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) {
 		let name = Id(self.new.db(rn));
 		let new_ty = self.new.db_type(rn);
 		if self.old.db_type(rn) != new_ty {
@@ -295,6 +310,7 @@ impl Pg<ColumnDiff<'_>> {
 					self.new.table.schema,
 					SchemaItem::Table(self.new.table),
 					rn,
+					report_new,
 				);
 				out.push(alt_group!(
 					"ALTER COLUMN {name} SET DATA TYPE {} USING {sql}",
@@ -321,12 +337,12 @@ impl Pg<ColumnDiff<'_>> {
 		match (old_default, new_default) {
 			(None, Some(new_default)) => out.push(alt_group!(
 				"ALTER COLUMN {name} SET DEFAULT {}",
-				Pg(self.new.table).format_sql(new_default, rn)
+				Pg(self.new.table).format_sql(new_default, rn, report_new)
 			)),
 			(Some(_), None) => out.push(alt_group!("ALTER COLUMN {name} DROP DEFAULT")),
 			(Some(old_default), Some(new_default)) => {
-				let old_default = Pg(self.old.table).format_sql(old_default, rn);
-				let new_default = Pg(self.new.table).format_sql(new_default, rn);
+				let old_default = Pg(self.old.table).format_sql(old_default, rn, report_old);
+				let new_default = Pg(self.new.table).format_sql(new_default, rn, report_new);
 				if new_default != old_default {
 					out.push(alt_group!("ALTER COLUMN {name} SET DEFAULT {new_default}",));
 				}
@@ -351,12 +367,21 @@ impl Pg<TableDiff<'_>> {
 		sql: &mut String,
 		rn: &mut RenameMap,
 		external: bool,
+		report_old: &mut Report,
+		report_new: &mut Report,
 	) -> ChangeList<TableColumn<'_>> {
 		let mut out = Vec::new();
 
 		let old_columns = self.old.columns().collect::<Vec<_>>();
 		let new_columns = self.new.columns().collect::<Vec<_>>();
-		let column_changes = mk_change_list(rn, &old_columns, &new_columns, |v| v);
+		let column_changes = mk_change_list(
+			rn,
+			&old_columns,
+			&new_columns,
+			|v| v,
+			report_old,
+			report_new,
+		);
 		// Rename/moveaway columns
 		{
 			let mut updated = HashMap::new();
@@ -391,12 +416,21 @@ impl Pg<TableDiff<'_>> {
 		sql: &mut String,
 		rn: &RenameMap,
 		external: bool,
+		report_old: &mut Report,
+		report_new: &mut Report,
 	) -> ChangeList<PgTableConstraint<'_>> {
 		let mut out = vec![];
 		// Drop fks
 		let old_constraints = pg_constraints(&self.old);
 		let new_constraints = pg_constraints(&self.new);
-		let constraint_changes = mk_change_list(rn, &old_constraints, &new_constraints, |v| v);
+		let constraint_changes = mk_change_list(
+			rn,
+			&old_constraints,
+			&new_constraints,
+			|v| v,
+			report_old,
+			report_new,
+		);
 		for constraint in &constraint_changes.dropped {
 			constraint.drop_alter_fk(&mut out, rn);
 		}
@@ -413,6 +447,8 @@ impl Pg<TableDiff<'_>> {
 		column_changes: &ChangeList<TableColumn<'_>>,
 		constraint_changes: ChangeList<PgTableConstraint<'_>>,
 		external: bool,
+		report_old: &mut Report,
+		report_new: &mut Report,
 	) -> Vec<Alternation> {
 		let mut out = Vec::new();
 
@@ -446,25 +482,32 @@ impl Pg<TableDiff<'_>> {
 		// Drop old indexes
 		let old_indexes = self.old.indexes().map(Pg).collect_vec();
 		let new_indexes = self.new.indexes().map(Pg).collect_vec();
-		let index_changes = mk_change_list(rn, &old_indexes, &new_indexes, |v| v);
+		let index_changes = mk_change_list(
+			rn,
+			&old_indexes,
+			&new_indexes,
+			|v| v,
+			report_old,
+			report_new,
+		);
 		for index in index_changes.dropped {
 			index.drop(sql, rn);
 		}
 
 		// Create new columns
 		for ele in &column_changes.created {
-			Pg(*ele).create_alter(&mut out, rn);
+			Pg(*ele).create_alter(&mut out, rn, report_new);
 		}
 
 		// Update columns
 		for ele in &column_changes.updated {
-			Pg(*ele).print_alter(&mut out, rn);
+			Pg(*ele).print_alter(&mut out, rn, report_old, report_new);
 		}
 
 		// Update/create constraints except for foreign keys
 		let mut fks = vec![];
 		for constraint in constraint_changes.created {
-			constraint.create_alter_non_fk(&mut out, rn);
+			constraint.create_alter_non_fk(&mut out, rn, report_new);
 			constraint.create_alter_fk(&mut fks, rn);
 		}
 
@@ -574,7 +617,13 @@ impl Pg<TableForeignKey<'_>> {
 	}
 }
 impl IsIsomorph for Pg<TableIndex<'_>> {
-	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+	fn is_isomorph(
+		&self,
+		other: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_other: &mut Report,
+	) -> bool {
 		let old_fields = self.db_columns(rn).collect_vec();
 		let new_fields = other.db_columns(rn).collect_vec();
 		// TODO: Is it allowed to change column types, if there is an active index exists?
@@ -583,7 +632,13 @@ impl IsIsomorph for Pg<TableIndex<'_>> {
 	}
 }
 impl IsCompatible for Pg<TableIndex<'_>> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(
+		&self,
+		new: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_other: &mut Report,
+	) -> bool {
 		let old_column_opclass = self.db_columns_opclass(rn).collect_vec();
 		let new_column_opclass = new.db_columns_opclass(rn).collect_vec();
 		// We can't update unique flag, so they are not compatible and need to be recreated
@@ -638,8 +693,14 @@ impl Pg<TableIndex<'_>> {
 }
 impl Pg<SchemaDiff<'_>> {
 	#[allow(clippy::too_many_lines)]
-	pub(crate) fn print(&self, sql: &mut String, rn: &mut RenameMap) {
-		let changelist = self.changelist(rn);
+	pub(crate) fn print(
+		&self,
+		sql: &mut String,
+		rn: &mut RenameMap,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) {
+		let changelist = self.changelist(rn, report_old, report_new);
 
 		// Rename/moveaway everything
 		for ele in changelist.renamed {
@@ -670,7 +731,7 @@ impl Pg<SchemaDiff<'_>> {
 				let new = ele.new.as_enum().expect("enum");
 				Diff { old, new }
 			}) {
-			Pg(ele).print_renamed_added(sql, rn);
+			Pg(ele).print_renamed_added(sql, rn, report_old, report_new);
 		}
 
 		let mut initialized_tys = HashSet::new();
@@ -707,13 +768,16 @@ impl Pg<SchemaDiff<'_>> {
 							c.type_dependencies(&mut deps);
 							deps.iter().all(|f| initialized_tys.contains(f))
 						});
-					assert!(
-						!ready.is_empty(),
-						"i'm stuck (circular composite dependency?) with {} left: {pending:?}",
-						pending.len()
-					);
+					if ready.is_empty() {
+						let mut e =
+							report_new.error("circular dependency while creating new types");
+						for ele in pending {
+							e.annotate("cycle part", ele.ident().span());
+						}
+						break;
+					}
 					for ele in ready {
-						Pg(ele).create(sql, rn);
+						Pg(ele).create(sql, rn, report_new);
 						initialized_tys.insert(ele.ident());
 					}
 					if pending.is_empty() {
@@ -735,7 +799,7 @@ impl Pg<SchemaDiff<'_>> {
 				Pg(Diff { old, new })
 			}) {
 			let is_external = ele.new.is_external();
-			Pg(ele).print(sql, rn, is_external);
+			Pg(ele).print(sql, rn, is_external, report_old, report_new);
 		}
 
 		// Create new tables
@@ -743,7 +807,7 @@ impl Pg<SchemaDiff<'_>> {
 			if ele.is_external() {
 				continue;
 			}
-			Pg(ele).create(sql, rn);
+			Pg(ele).create(sql, rn, report_new);
 		}
 
 		// Update tables
@@ -759,12 +823,14 @@ impl Pg<SchemaDiff<'_>> {
 			.collect_vec();
 		let mut changes = vec![];
 		for diff in &diffs {
-			let changelist = diff.print_stage1(sql, rn, diff.new.is_external());
+			let changelist =
+				diff.print_stage1(sql, rn, diff.new.is_external(), report_old, report_new);
 			changes.push(changelist);
 		}
 		let mut fksd = vec![];
 		for diff in &diffs {
-			let changelist = diff.print_stage1_5(sql, rn, diff.new.is_external());
+			let changelist =
+				diff.print_stage1_5(sql, rn, diff.new.is_external(), report_old, report_new);
 			fksd.push(changelist);
 		}
 
@@ -802,11 +868,14 @@ impl Pg<SchemaDiff<'_>> {
 							}
 							true
 						});
-					assert!(
-						!ready.is_empty(),
-						"i'm stuck (circular view dependency?) with {} left: {pending:?}",
-						pending.len()
-					);
+					if ready.is_empty() {
+						let mut e =
+							report_new.error("circular dependency while dropping old views");
+						for ele in pending {
+							e.annotate("cycle part", ele.id().span());
+						}
+						break;
+					}
 					for ele in ready.into_iter().rev() {
 						sorted.push(ele);
 						dependencies.remove(&ele.id());
@@ -832,6 +901,8 @@ impl Pg<SchemaDiff<'_>> {
 				column_changes,
 				constraint_changes,
 				diff.new.is_external(),
+				report_old,
+				report_new,
 			);
 			fkss.push(fks);
 		}
@@ -873,13 +944,16 @@ impl Pg<SchemaDiff<'_>> {
 							}
 							true
 						});
-					assert!(
-						!ready.is_empty(),
-						"i'm stuck (circular view dependency?) with {} left: {pending:?}",
-						pending.len()
-					);
+					if ready.is_empty() {
+						let mut e =
+							report_new.error("circular dependency while creating new views");
+						for ele in pending {
+							e.annotate("cycle part", ele.id().span());
+						}
+						break;
+					}
 					for ele in ready {
-						Pg(ele).create(sql, rn);
+						Pg(ele).create(sql, rn, report_new);
 						dependencies.remove(&ele.id());
 					}
 					if pending.is_empty() {
@@ -951,13 +1025,16 @@ impl Pg<SchemaDiff<'_>> {
 						.partition::<Vec<SchemaType<'_>>, _>(|c| {
 							let mut deps = Vec::new();
 							c.type_dependencies(&mut deps);
-							deps.iter().all(|f| !dependencies.contains(&f))
+							deps.iter().all(|f| !dependencies.contains(f))
 						});
-					assert!(
-						!ready.is_empty(),
-						"i'm stuck (circular composite dependency?) with {} left: {pending:?}",
-						pending.len()
-					);
+					if ready.is_empty() {
+						let mut e =
+							report_new.error("circular dependency while dropping old types");
+						for ele in pending {
+							e.annotate("cycle part", ele.ident().span());
+						}
+						break;
+					}
 					for ele in ready.into_iter().rev() {
 						sorted.push(ele);
 						dependencies.remove(&ele.ident());
@@ -1001,18 +1078,21 @@ impl Pg<SchemaDiff<'_>> {
 	}
 }
 impl Pg<&Schema> {
-	pub fn diff(&self, target: &Self, sql: &mut String, rn: &mut RenameMap) {
-		Pg(SchemaDiff {
-			old: target,
-			new: self,
-		})
-		.print(sql, rn);
+	pub fn diff(
+		&self,
+		old: &Self,
+		sql: &mut String,
+		rn: &mut RenameMap,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) {
+		Pg(SchemaDiff { old, new: self }).print(sql, rn, report_old, report_new);
 	}
-	pub fn create(&self, sql: &mut String, rn: &mut RenameMap) {
-		self.diff(&Pg(&Schema::default()), sql, rn);
+	pub fn create(&self, sql: &mut String, rn: &mut RenameMap, report: &mut Report) {
+		self.diff(&Pg(&Schema::default()), sql, rn, &mut Report::new(), report);
 	}
-	pub fn drop(&self, sql: &mut String, rn: &mut RenameMap) {
-		Pg(&Schema::default()).diff(self, sql, rn);
+	pub fn drop(&self, sql: &mut String, rn: &mut RenameMap, report: &mut Report) {
+		Pg(&Schema::default()).diff(self, sql, rn, report, &mut Report::new());
 	}
 }
 impl Pg<SchemaEnum<'_>> {
@@ -1061,12 +1141,20 @@ impl Pg<EnumItemHandle<'_>> {
 	}
 }
 impl Pg<EnumDiff<'_>> {
-	pub fn print_renamed_added(&self, sql: &mut String, rn: &mut RenameMap) {
+	pub fn print_renamed_added(
+		&self,
+		sql: &mut String,
+		rn: &mut RenameMap,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) {
 		let changelist = schema::mk_change_list(
 			rn,
 			&self.0.old.items().collect_vec(),
 			&self.0.new.items().collect_vec(),
 			|v| v,
+			report_old,
+			report_new,
 		);
 		let mut changes = vec![];
 		for el in changelist.renamed.iter().cloned() {
@@ -1159,7 +1247,7 @@ impl Pg<SchemaScalar<'_>> {
 		}
 		wl!(sql, ";");
 	}
-	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let name = Id(self.db(rn));
 		let ty = self.inner_type(rn);
 		w!(sql, "CREATE DOMAIN {name} AS {}", ty.raw());
@@ -1167,14 +1255,19 @@ impl Pg<SchemaScalar<'_>> {
 			match ele {
 				ScalarAnnotation::Default(d) => {
 					w!(sql, "\n\tDEFAULT ");
-					let formatted = Pg(self.schema).format_sql(d, SchemaItem::Scalar(self.0), rn);
+					let formatted =
+						Pg(self.schema).format_sql(d, SchemaItem::Scalar(self.0), rn, report);
 					w!(sql, "{formatted}");
 				}
 				ScalarAnnotation::Check(check) => {
 					let name = Id(check.db(rn));
 					w!(sql, "\n\tCONSTRAINT {name} CHECK (");
-					let formatted =
-						Pg(self.schema).format_sql(&check.check, SchemaItem::Scalar(self.0), rn);
+					let formatted = Pg(self.schema).format_sql(
+						&check.check,
+						SchemaItem::Scalar(self.0),
+						rn,
+						report,
+					);
 					w!(sql, "{formatted})");
 				}
 				ScalarAnnotation::Inline | ScalarAnnotation::External => {
@@ -1196,10 +1289,10 @@ impl Pg<SchemaScalar<'_>> {
 	}
 }
 impl Pg<SchemaType<'_>> {
-	fn create(self, sql: &mut String, rn: &RenameMap) {
+	fn create(self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		match self.0 {
 			SchemaType::Enum(e) => Pg(e).create(sql, rn),
-			SchemaType::Scalar(s) => Pg(s).create(sql, rn),
+			SchemaType::Scalar(s) => Pg(s).create(sql, rn, report),
 			SchemaType::Composite(c) => Pg(c).create(sql, rn),
 		}
 	}
@@ -1224,7 +1317,14 @@ impl Pg<&Check> {
 	}
 }
 impl Pg<Diff<SchemaScalar<'_>>> {
-	pub fn print(&self, sql: &mut String, rn: &mut RenameMap, external: bool) {
+	pub fn print(
+		&self,
+		sql: &mut String,
+		rn: &mut RenameMap,
+		external: bool,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) {
 		let mut new = self
 			.new
 			.annotations
@@ -1232,7 +1332,12 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 			.filter_map(ScalarAnnotation::as_check)
 			.map(|c| {
 				let mut sql = String::new();
-				Pg(self.new.schema.sql(&c.check)).print(&mut sql, SchemaItem::Scalar(self.new), rn);
+				Pg(self.new.schema.sql(&c.check)).print(
+					&mut sql,
+					SchemaItem::Scalar(self.new),
+					rn,
+					report_new,
+				);
 				(c, sql)
 			})
 			.collect::<Vec<_>>();
@@ -1245,7 +1350,12 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 		let mut out = Vec::new();
 		for ann in &old {
 			let mut sql = String::new();
-			Pg(self.old.schema.sql(&ann.check)).print(&mut sql, SchemaItem::Scalar(self.old), rn);
+			Pg(self.old.schema.sql(&ann.check)).print(
+				&mut sql,
+				SchemaItem::Scalar(self.old),
+				rn,
+				report_old,
+			);
 
 			if let Some((i, (c, _))) = new.iter().find_position(|(_, nsql)| nsql == &sql) {
 				Pg(*ann).rename_alter(c.db(rn), &mut out, rn);
@@ -1259,7 +1369,12 @@ impl Pg<Diff<SchemaScalar<'_>>> {
 		for (check, _) in &new {
 			let db = Id(check.db(rn));
 			let mut sql = format!("ADD CONSTRAINT {db} CHECK (");
-			Pg(self.new.schema.sql(&check.check)).print(&mut sql, SchemaItem::Scalar(self.new), rn);
+			Pg(self.new.schema.sql(&check.check)).print(
+				&mut sql,
+				SchemaItem::Scalar(self.new),
+				rn,
+				report_new,
+			);
 			w!(sql, ")");
 			out.push(sql);
 		}
@@ -1307,11 +1422,11 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::View(v) => Pg(v).rename(DbView::unchecked_from(to), sql, rn),
 		}
 	}
-	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		match self.0 {
-			SchemaItem::Table(t) => Pg(t).create(sql, rn),
+			SchemaItem::Table(t) => Pg(t).create(sql, rn, report),
 			SchemaItem::Enum(e) => Pg(e).create(sql, rn),
-			SchemaItem::Scalar(s) => Pg(s).create(sql, rn),
+			SchemaItem::Scalar(s) => Pg(s).create(sql, rn, report),
 			SchemaItem::Composite(c) => Pg(c).create(sql, rn),
 			SchemaItem::View(_) => todo!(),
 		}
@@ -1399,11 +1514,17 @@ fn sql_needs_parens(sql: &Sql, parent_binop: Option<SqlOp>) -> bool {
 		Sql::UnOp(_, _) | Sql::BinOp(_, _, _) | Sql::If(_, _, _) => true,
 	}
 }
-fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMap) -> String {
+fn format_sql(
+	sql: &Sql,
+	schema: &Schema,
+	context: SchemaItem<'_>,
+	rn: &RenameMap,
+	report: &mut Report,
+) -> String {
 	let mut out = String::new();
 	match sql {
 		Sql::Cast(expr, ty) => {
-			let expr = format_sql(expr, schema, context, rn);
+			let expr = format_sql(expr, schema, context, rn, report);
 			let native_ty = Id(schema.native_type(ty, rn));
 			w!(out, "({expr})::{native_ty}");
 		}
@@ -1414,7 +1535,7 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 				if i != 0 {
 					w!(out, ", ");
 				}
-				let arg = format_sql(arg, schema, context, rn);
+				let arg = format_sql(arg, schema, context, rn, report);
 				w!(out, "{arg}");
 			}
 			w!(out, ")");
@@ -1426,18 +1547,22 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 			w!(out, "{n}");
 		}
 		Sql::Ident(_) => {
-			let native_name = Id(sql.ident_name(&context, rn));
-			w!(out, "{native_name}");
+			if let Some(native_name) = sql.ident_name(&context, rn, report) {
+				let native_name = Id(native_name);
+				w!(out, "{native_name}");
+			} else {
+				w!(out, "ERROR")
+			}
 		}
 		Sql::UnOp(op, expr) => {
 			let op = op.format();
-			let expr = format_sql(expr, schema, context, rn);
+			let expr = format_sql(expr, schema, context, rn, report);
 			w!(out, "{op}({expr})");
 		}
 		Sql::BinOp(a, op, b) => {
 			let sop = op.format();
-			let va = format_sql(a, schema, context, rn);
-			let vb = format_sql(b, schema, context, rn);
+			let va = format_sql(a, schema, context, rn, report);
+			let vb = format_sql(b, schema, context, rn, report);
 			if sql_needs_parens(a, Some(*op)) {
 				w!(out, "({va})");
 			} else {
@@ -1458,7 +1583,7 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 			}
 		}
 		Sql::Parened(a) => {
-			let va = format_sql(a, schema, context, rn);
+			let va = format_sql(a, schema, context, rn, report);
 			if sql_needs_parens(a, None) {
 				w!(out, "({va})");
 			} else {
@@ -1475,7 +1600,7 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 		Sql::Placeholder => {
 			match context {
 				SchemaItem::Table(_) | SchemaItem::View(_) => {
-					panic!("placeholder should be replaced on this point")
+					unreachable!("placeholder should be replaced on this point")
 				}
 				SchemaItem::Enum(_) => panic!("enums have no sql items"),
 				SchemaItem::Scalar(_) => w!(out, "VALUE"),
@@ -1484,14 +1609,19 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 		}
 		Sql::Null => w!(out, "NULL"),
 		Sql::GetField(f, c) => {
-			let va = format_sql(f, schema, context, rn);
-			let name = Id(f.field_name(&context, *c, rn));
-			if sql_needs_parens(f, None) {
-				w!(out, "({va})")
+			let va = format_sql(f, schema, context, rn, report);
+			if let Some(id) = f.field_name(&context, *c, rn, report) {
+				let name = Id(id);
+				if sql_needs_parens(f, None) {
+					w!(out, "({va})")
+				} else {
+					w!(out, "{va}");
+				}
+				w!(out, ".{name}");
 			} else {
-				w!(out, "{va}");
+				assert!(report.is_error());
+				w!(out, "{va}(ERROR)")
 			}
-			w!(out, ".{name}");
 		}
 		Sql::Tuple(t) => {
 			w!(out, "ROW(");
@@ -1499,15 +1629,15 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 				if i != 0 {
 					w!(out, ", ");
 				}
-				let va = format_sql(v, schema, context, rn);
+				let va = format_sql(v, schema, context, rn, report);
 				w!(out, "{va}");
 			}
 			w!(out, ")");
 		}
 		Sql::If(cond, then, else_) => {
-			let cond = format_sql(cond, schema, context, rn);
-			let then = format_sql(then, schema, context, rn);
-			let else_ = format_sql(else_, schema, context, rn);
+			let cond = format_sql(cond, schema, context, rn, report);
+			let then = format_sql(then, schema, context, rn, report);
+			let else_ = format_sql(else_, schema, context, rn, report);
 			w!(out, "CASE WHEN ({cond}) THEN ({then}) ELSE ({else_}) END");
 		}
 	}
@@ -1515,15 +1645,27 @@ fn format_sql(sql: &Sql, schema: &Schema, context: SchemaItem<'_>, rn: &RenameMa
 }
 
 impl Pg<SchemaSql<'_>> {
-	pub fn print(&self, sql: &mut String, context: SchemaItem<'_>, rn: &RenameMap) {
-		let o = format_sql(&self.0, self.schema, context, rn);
+	pub fn print(
+		&self,
+		sql: &mut String,
+		context: SchemaItem<'_>,
+		rn: &RenameMap,
+		report: &mut Report,
+	) {
+		let o = format_sql(&self.0, self.schema, context, rn, report);
 		sql.push_str(&o);
 	}
 }
 impl Pg<&Schema> {
-	pub fn format_sql(&self, sql: &Sql, context: SchemaItem<'_>, rn: &RenameMap) -> String {
+	pub fn format_sql(
+		&self,
+		sql: &Sql,
+		context: SchemaItem<'_>,
+		rn: &RenameMap,
+		report: &mut Report,
+	) -> String {
 		let mut out = String::new();
-		Pg(self.sql(sql)).print(&mut out, context, rn);
+		Pg(self.sql(sql)).print(&mut out, context, rn, report);
 		out
 	}
 }
@@ -1558,7 +1700,13 @@ impl HasDefaultDbName for PgTableConstraint<'_> {
 	}
 }
 impl IsIsomorph for PgTableConstraint<'_> {
-	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
+	fn is_isomorph(
+		&self,
+		other: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_other: &mut Report,
+	) -> bool {
 		match (self, other) {
 			(PgTableConstraint::PrimaryKey(_), PgTableConstraint::PrimaryKey(_)) => {
 				// There is only one pk per table, its just makes sense
@@ -1575,9 +1723,9 @@ impl IsIsomorph for PgTableConstraint<'_> {
 			}
 			(PgTableConstraint::Check(a), PgTableConstraint::Check(b)) => {
 				let mut sql_a = String::new();
-				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn);
+				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn, report_self);
 				let mut sql_b = String::new();
-				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn);
+				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn, report_other);
 				a.db(rn) == b.db(rn) || sql_a == sql_b
 			}
 			(PgTableConstraint::ForeignKey(a), PgTableConstraint::ForeignKey(b)) => {
@@ -1619,7 +1767,13 @@ impl IsIsomorph for PgTableConstraint<'_> {
 }
 // Constraints are not updateable, except for foreign keys... But they are kinda special.
 impl IsCompatible for PgTableConstraint<'_> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(
+		&self,
+		new: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_new: &mut Report,
+	) -> bool {
 		match (self, new) {
 			(PgTableConstraint::PrimaryKey(a), PgTableConstraint::PrimaryKey(b)) => {
 				let a_columns = a.table.db_names(a.columns.clone(), rn);
@@ -1633,9 +1787,9 @@ impl IsCompatible for PgTableConstraint<'_> {
 			}
 			(PgTableConstraint::Check(a), PgTableConstraint::Check(b)) => {
 				let mut sql_a = String::new();
-				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn);
+				Pg(a.table.sql(&a.check)).print(&mut sql_a, rn, report_self);
 				let mut sql_b = String::new();
-				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn);
+				Pg(b.table.sql(&b.check)).print(&mut sql_b, rn, report_new);
 				sql_a == sql_b
 			}
 			(PgTableConstraint::ForeignKey(a), PgTableConstraint::ForeignKey(b)) => {
@@ -1689,11 +1843,16 @@ impl PgTableConstraint<'_> {
 		out.push(alt_ungroup!("RENAME CONSTRAINT {name} TO {new_name}"));
 		self.set_db(rn, new_name.0);
 	}
-	pub fn create_alter_non_fk(&self, out: &mut Vec<Alternation>, rn: &RenameMap) {
+	pub fn create_alter_non_fk(
+		&self,
+		out: &mut Vec<Alternation>,
+		rn: &RenameMap,
+		report: &mut Report,
+	) {
 		let text = match self {
 			PgTableConstraint::PrimaryKey(p) => Pg(*p).create_inline(rn),
 			PgTableConstraint::Unique(u) => Pg(*u).create_inline(rn),
-			PgTableConstraint::Check(c) => Pg(*c).create_inline(rn),
+			PgTableConstraint::Check(c) => Pg(*c).create_inline(rn, report),
 			PgTableConstraint::ForeignKey(_) => return,
 		};
 		out.push(alt_group!("ADD {text}"));
@@ -1703,11 +1862,11 @@ impl PgTableConstraint<'_> {
 			Pg(*f).create_alter(out, rn);
 		};
 	}
-	pub fn create_inline_non_fk(&self, rn: &RenameMap) -> Option<String> {
+	pub fn create_inline_non_fk(&self, rn: &RenameMap, report: &mut Report) -> Option<String> {
 		Some(match self {
 			PgTableConstraint::PrimaryKey(pk) => Pg(*pk).create_inline(rn),
 			PgTableConstraint::Unique(u) => Pg(*u).create_inline(rn),
-			PgTableConstraint::Check(c) => Pg(*c).create_inline(rn),
+			PgTableConstraint::Check(c) => Pg(*c).create_inline(rn, report),
 			PgTableConstraint::ForeignKey(_) => return None,
 		})
 	}
@@ -1748,10 +1907,10 @@ impl Pg<TableUniqueConstraint<'_>> {
 	}
 }
 impl Pg<TableCheck<'_>> {
-	pub fn create_inline(&self, rn: &RenameMap) -> String {
+	pub fn create_inline(&self, rn: &RenameMap, report: &mut Report) -> String {
 		let mut sql = String::new();
 		w!(sql, "CONSTRAINT {} CHECK (", Id(self.db(rn)));
-		Pg(self.table.sql(&self.check)).print(&mut sql, rn);
+		Pg(self.table.sql(&self.check)).print(&mut sql, rn, report);
 		w!(sql, ")");
 		sql
 	}
@@ -1761,7 +1920,7 @@ impl Pg<TableCheck<'_>> {
 }
 
 impl Pg<SchemaView<'_>> {
-	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let table_name = Id(self.db(rn));
 		w!(sql, "CREATE");
 		if self.materialized {
@@ -1788,8 +1947,14 @@ impl Pg<SchemaView<'_>> {
 				}
 				DefinitionPart::ColumnRef(t, c) => {
 					let table = self.schema.schema_table(t).expect("referenced");
-					let db = Id(Sql::context_ident_name(&SchemaItem::Table(table), *c, rn));
-					w!(sql, "{db}")
+					if let Some(db) =
+						Sql::context_ident_name(&SchemaItem::Table(table), *c, rn, report)
+					{
+						let db = Id(db);
+						w!(sql, "{db}")
+					} else {
+						w!(sql, "ERROR")
+					}
 				}
 			}
 		}
@@ -1897,7 +2062,13 @@ impl FingerprintBuilder {
 }
 
 impl IsCompatible for Pg<SchemaItem<'_>> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
+	fn is_compatible(
+		&self,
+		new: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_new: &mut Report,
+	) -> bool {
 		match (self.0, new.0) {
 			(SchemaItem::Table(_), SchemaItem::Table(_)) => true,
 			(SchemaItem::Enum(a), SchemaItem::Enum(b)) => {
@@ -1908,6 +2079,8 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 					&a.items().collect_vec(),
 					&b.items().collect_vec(),
 					|v| v,
+					report_self,
+					report_new,
 				)
 				.dropped
 				.is_empty()
@@ -1919,10 +2092,17 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 					&a.fields().collect_vec(),
 					&b.fields().collect_vec(),
 					|v| v,
+					report_self,
+					report_new,
 				);
 				changes.dropped.is_empty() && changes.created.is_empty()
 			}
-			(SchemaItem::Scalar(_), SchemaItem::Scalar(_)) => true,
+			(SchemaItem::Scalar(a), SchemaItem::Scalar(b)) => {
+				if a.is_external() || b.is_external() {
+					return true;
+				}
+				a.inner_type(rn) == b.inner_type(rn)
+			}
 			(SchemaItem::View(a), SchemaItem::View(b)) => {
 				fn fingerprint(view: SchemaView<'_>, rn: &RenameMap) -> FingerprintBuilder {
 					let mut fp = FingerprintBuilder::new();
@@ -1988,15 +2168,33 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 	}
 }
 impl IsIsomorph for Pg<SchemaItem<'_>> {
-	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
-		self.0.is_isomorph(&other.0, rn)
+	fn is_isomorph(
+		&self,
+		other: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_other: &mut Report,
+	) -> bool {
+		self.0.is_isomorph(&other.0, rn, report_self, report_other)
 	}
 }
 impl Pg<SchemaDiff<'_>> {
-	pub fn changelist(&self, rn: &RenameMap) -> ChangeList<SchemaItem<'_>> {
+	pub fn changelist(
+		&self,
+		rn: &RenameMap,
+		report_old: &mut Report,
+		report_new: &mut Report,
+	) -> ChangeList<SchemaItem<'_>> {
 		let old = self.old.material_items();
 		let new = self.new.material_items();
-		mk_change_list(rn, old.as_slice(), new.as_slice(), Pg)
+		mk_change_list(
+			rn,
+			old.as_slice(),
+			new.as_slice(),
+			Pg,
+			report_old,
+			report_new,
+		)
 	}
 }
 
@@ -2087,23 +2285,25 @@ mod tests {
 				let mut report = Report::new();
 				let schema = match parse(
 					example.schema.as_str(),
+					false,
 					&default_options(),
 					&mut rn,
 					&mut report,
 				) {
 					Ok(s) => s,
 					Err(e) => {
-						for e in &e {
-							match e {
-								schema::parser::ParsingError::Peg(e) => {
-									eprintln!(
-										"buffer start: {}",
-										&example.schema.as_str()[e.location.offset..]
-									);
-								}
-							}
-						}
-						panic!("failed to parse schema:\n{}\n\n{e:#?}", example.schema);
+						panic!()
+						// for e in &e {
+						// 	match e {
+						// 		schema::parser::ParsingError::Peg(e) => {
+						// 			eprintln!(
+						// 				"buffer start: {}",
+						// 				&example.schema.as_str()[e.location.offset..]
+						// 			);
+						// 		}
+						// 	}
+						// }
+						// panic!("failed to parse schema:\n{}\n\n{e:#?}", example.schema);
 					}
 				};
 				if report.is_error() {
@@ -2125,7 +2325,12 @@ mod tests {
 				old: &ele[0].1,
 				new: &ele[1].1,
 			})
-			.print(&mut out_tmp, &mut rn);
+			.print(
+				&mut out_tmp,
+				&mut rn,
+				&mut Report::new(),
+				&mut Report::new(),
+			);
 			out.push_str(out_tmp.trim());
 		}
 		let output = format!("{}\n!!!RESULT\n{}\n", data.trim(), out.trim());

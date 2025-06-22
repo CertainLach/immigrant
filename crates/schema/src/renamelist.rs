@@ -193,7 +193,7 @@ fn reorder_renames_inner<T: RenameExt + Clone>(
 		let temp = id.next_temp();
 		let target = replace_with_or_abort_and_return(looped.first_mut().unwrap(), |v| match v {
 			RenameOp::Rename(v, t, r) => ((t, r), RenameOp::Store(v, temp)),
-			_ => unreachable!(),
+			_ => unreachable!("just replaced"),
 		});
 		let mut fixed_loop = Vec::new();
 		reorder_renames_inner(rn, looped, &mut fixed_loop, id);

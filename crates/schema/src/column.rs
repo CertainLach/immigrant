@@ -8,14 +8,7 @@ use super::{
 	table::{ForeignKey, TableAnnotation},
 };
 use crate::{
-	attribute::AttributeList,
-	changelist::IsCompatible,
-	def_name_impls, derive_is_isomorph_by_id_name,
-	index::{Check, PrimaryKey, UniqueConstraint},
-	names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, DefName, TypeIdent},
-	scalar::PropagatedScalarData,
-	uid::{next_uid, OwnUid, RenameMap},
-	HasIdent, SchemaType, TableColumn,
+	attribute::AttributeList, changelist::IsCompatible, def_name_impls, derive_is_isomorph_by_id_name, diagnostics::Report, index::{Check, PrimaryKey, UniqueConstraint}, names::{ColumnDefName, ColumnIdent, ColumnKind, DbNativeType, DefName, TypeIdent}, scalar::PropagatedScalarData, uid::{next_uid, OwnUid, RenameMap}, HasIdent, SchemaType, TableColumn
 };
 
 #[derive(Debug)]
@@ -119,7 +112,7 @@ impl Column {
 	}
 }
 impl IsCompatible for Column {
-	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
+	fn is_compatible(&self, _new: &Self, _rn: &RenameMap, a: &mut Report, b: &mut Report) -> bool {
 		true
 	}
 }

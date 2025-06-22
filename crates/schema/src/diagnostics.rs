@@ -1,33 +1,35 @@
+#[cfg(feature = "hi-doc")]
 use hi_doc::{Formatting, SnippetBuilder, Text};
 
 use crate::span::SimpleSpan;
 
 #[derive(PartialEq, Eq)]
-enum Severity {
+pub enum Severity {
 	Warning,
 	Error,
 }
 
-struct ReportPart {
-	msg: String,
-	severity: Severity,
-	annotations: Vec<Annotation>,
+pub struct ReportPart {
+	pub msg: String,
+	pub severity: Severity,
+	pub annotations: Vec<Annotation>,
 }
 
-struct Annotation {
-	span: SimpleSpan,
-	msg: String,
+pub struct Annotation {
+	pub span: SimpleSpan,
+	pub msg: String,
 }
 
 #[derive(Default)]
 pub struct Report {
-	parts: Vec<ReportPart>,
+	pub parts: Vec<ReportPart>,
 }
 
 impl Report {
 	pub fn new() -> Self {
 		Self::default()
 	}
+	#[cfg(feature = "hi-doc")]
 	pub fn to_hi_doc(self, src: &str) -> Vec<hi_doc::Source> {
 		let mut out = Vec::new();
 
@@ -74,6 +76,7 @@ impl PartBuilder<'_> {
 }
 
 #[test]
+#[cfg(feature = "hi-doc")]
 fn diagnostics() {
 	use crate::process::NamingConvention;
 	use crate::root::SchemaProcessOptions;
@@ -94,6 +97,7 @@ fn diagnostics() {
 		"#;
 	crate::parser::parse(
 		src,
+		false,
 		&SchemaProcessOptions {
 			generator_supports_domain: true,
 			naming_convention: NamingConvention::Postgres,

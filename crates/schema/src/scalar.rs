@@ -9,6 +9,7 @@ use crate::{
 	column::ColumnAnnotation,
 	composite::FieldAnnotation,
 	def_name_impls, derive_is_isomorph_by_id_name,
+	diagnostics::Report,
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
 	names::{
 		DbEnumItem, DbNativeType, EnumItemDefName, EnumItemKind, TypeDefName, TypeIdent, TypeKind,
@@ -54,7 +55,13 @@ impl std::ops::Deref for EnumItemHandle<'_> {
 }
 
 impl IsCompatible for EnumItemHandle<'_> {
-	fn is_compatible(&self, _new: &Self, _rn: &RenameMap) -> bool {
+	fn is_compatible(
+		&self,
+		_new: &Self,
+		_rn: &RenameMap,
+		_a: &mut Report,
+		_b: &mut Report,
+	) -> bool {
 		true
 	}
 }

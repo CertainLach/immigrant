@@ -1,5 +1,5 @@
 use std::{
-	collections::{BTreeMap, HashMap, HashSet},
+	collections::{BTreeMap, HashSet},
 	mem,
 	ops::{Deref, DerefMut},
 	str::FromStr,
@@ -13,14 +13,13 @@ use crate::{
 	diagnostics::Report,
 	ids::{DbIdent, Ident},
 	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::{MixinIdent, UnknownKind},
 	root::{Item, Schema},
 	scalar::{Enum, Scalar, ScalarAnnotation},
 	sql::Sql,
 	table::{Table, TableAnnotation},
 	uid::{RenameExt, RenameMap},
 	view::View,
-	w, HasIdent, SchemaComposite, SchemaEnum, SchemaItem, SchemaTable, SchemaTableOrView,
+	w, HasIdent, SchemaComposite, SchemaEnum, SchemaItem, SchemaTable,
 };
 
 /// Can be updated in database source code, and some are already doing that,
@@ -445,44 +444,44 @@ impl Pgnc<&mut View> {
 	}
 }
 
-pub fn check_unique_in_table(table: &SchemaTable) {
-	let mut seen = HashSet::new();
-	let mut check_unique = |id: Ident<UnknownKind>| {
-		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
-	};
+pub fn check_unique_in_table(table: &SchemaTable, diagnostics: &mut Report) {
+	let seen = &mut HashSet::new();
 	for column in table.columns() {
-		check_unique(column.id().to_unknown());
+		check_unique(seen, column.id().to_unknown(), diagnostics);
 	}
 }
-pub fn check_unique_in_enum(en: &SchemaEnum) {
-	let mut seen = HashSet::new();
-	let mut check_unique = |id: Ident<UnknownKind>| {
-		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
-	};
+pub fn check_unique_in_enum(en: &SchemaEnum, diagnostics: &mut Report) {
+	let seen = &mut HashSet::new();
 	for item in en.items() {
-		check_unique(item.id().to_unknown());
+		check_unique(seen, item.id().to_unknown(), diagnostics);
 	}
 }
-pub fn check_unique_in_composite(comp: &SchemaComposite) {
-	let mut seen = HashSet::new();
-	let mut check_unique = |id: Ident<UnknownKind>| {
-		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
-	};
+pub fn check_unique_in_composite(comp: &SchemaComposite, diagnostics: &mut Report) {
+	let seen = &mut HashSet::new();
 	for field in comp.fields() {
-		check_unique(field.id().to_unknown());
+		check_unique(seen, field.id().to_unknown(), diagnostics);
 	}
 }
 
-pub fn check_unique_mixin_identifiers(schema: &Schema) {
-	let mut seen = HashSet::new();
-	let mut check_unique = |id: MixinIdent| {
-		assert!(seen.insert(id), "duplicate identifier: {}", id.name());
-	};
+pub fn check_unique_mixin_identifiers(schema: &Schema, diagnostics: &mut Report) {
+	let seen = &mut HashSet::new();
 	for mixin in &schema.0 {
 		let Item::Mixin(mixin) = mixin else {
 			continue;
 		};
-		check_unique(mixin.id());
+		check_unique(seen, mixin.id(), diagnostics);
+	}
+}
+
+fn check_unique<K>(seen: &mut HashSet<Ident<K>>, id: Ident<K>, diagnostics: &mut Report) {
+	if !seen.insert(id) {
+		let old = seen.get(&id).expect("exists");
+
+		// old.span()
+		diagnostics
+			.error("duplicate identifier")
+			.annotate("declared here", id.span())
+			.annotate("previously declared here", old.span());
 	}
 }
 
@@ -493,37 +492,26 @@ pub fn check_unique_mixin_identifiers(schema: &Schema) {
 /// truncation, there might be forbidden system tables, and so on.
 /// Identifiers are unique to immigrant, so checking of them is trivial.
 pub fn check_unique_identifiers(schema: &Schema, diagnostics: &mut Report) {
-	let mut seen = HashSet::new();
-	let mut check_unique = |id: Ident<UnknownKind>, diagnostics: &mut Report| {
-		if !seen.insert(id) {
-			let old = seen.get(&id).expect("exists");
-
-			// old.span()
-			diagnostics
-				.error("duplicate identifier")
-				.annotate("declared here", id.span())
-				.annotate("previously declared here", old.span());
-		}
-	};
+	let seen = &mut HashSet::new();
 	for item in &schema.items() {
 		match item {
 			SchemaItem::Table(t) => {
-				check_unique(t.id().to_unknown(), diagnostics);
-				check_unique_in_table(t);
+				check_unique(seen, t.id().to_unknown(), diagnostics);
+				check_unique_in_table(t, diagnostics);
 			}
 			SchemaItem::Enum(e) => {
-				check_unique(e.id().to_unknown(), diagnostics);
-				check_unique_in_enum(e);
+				check_unique(seen, e.id().to_unknown(), diagnostics);
+				check_unique_in_enum(e, diagnostics);
 			}
 			SchemaItem::Scalar(s) => {
-				check_unique(s.id().to_unknown(), diagnostics);
+				check_unique(seen, s.id().to_unknown(), diagnostics);
 			}
 			SchemaItem::Composite(c) => {
-				check_unique(c.id().to_unknown(), diagnostics);
-				check_unique_in_composite(c);
+				check_unique(seen, c.id().to_unknown(), diagnostics);
+				check_unique_in_composite(c, diagnostics);
 			}
 			SchemaItem::View(v) => {
-				check_unique(v.id().to_unknown(), diagnostics);
+				check_unique(seen, v.id().to_unknown(), diagnostics);
 			}
 		}
 	}

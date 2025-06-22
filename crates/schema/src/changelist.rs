@@ -9,9 +9,7 @@ use std::{collections::HashSet, fmt::Debug};
 use itertools::Itertools;
 
 use crate::{
-	renamelist::{reorder_renames, RenameMoveaway, RenameOp, RenameTempAllocator},
-	uid::{RenameExt, RenameMap},
-	Diff,
+	diagnostics::Report, renamelist::{reorder_renames, RenameMoveaway, RenameOp, RenameTempAllocator}, uid::{RenameExt, RenameMap}, Diff
 };
 
 #[derive(Debug, PartialEq)]
@@ -35,33 +33,33 @@ impl<T: RenameExt> ChangeList<T> {
 }
 
 pub trait IsCompatible {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool;
+	fn is_compatible(&self, new: &Self, rn: &RenameMap, report_self: &mut Report, report_new: &mut Report) -> bool;
 }
 impl<T> IsCompatible for &T
 where
 	T: IsCompatible,
 {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
-		(**self).is_compatible(*new, rn)
+	fn is_compatible(&self, new: &Self, rn: &RenameMap, report_self: &mut Report, report_new: &mut Report) -> bool {
+		(**self).is_compatible(*new, rn, report_self, report_new)
 	}
 }
 
 pub trait IsIsomorph {
-	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool;
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap, report_self: &mut Report, report_other: &mut Report) -> bool;
 }
 impl<T> IsIsomorph for &T
 where
 	T: IsIsomorph,
 {
-	fn is_isomorph(&self, new: &Self, rn: &RenameMap) -> bool {
-		(**self).is_isomorph(*new, rn)
+	fn is_isomorph(&self, new: &Self, rn: &RenameMap, report_self: &mut Report, report_other: &mut Report) -> bool {
+		(**self).is_isomorph(*new, rn, report_self, report_other)
 	}
 }
 #[macro_export]
 macro_rules! derive_is_isomorph_by_id_name {
 	($t:ty) => {
 		impl $crate::IsIsomorph for $t {
-			fn is_isomorph(&self, other: &Self, _rn: &$crate::RenameMap) -> bool {
+			fn is_isomorph(&self, other: &Self, _rn: &$crate::RenameMap, _report_self: &mut $crate::diagnostics::Report, _report_other: &mut $crate::diagnostics::Report) -> bool {
 				use $crate::HasIdent;
 				HasIdent::id(self).name() == HasIdent::id(other).name()
 			}
@@ -74,6 +72,8 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 	old: &[T],
 	new: &[T],
 	mapper: impl Fn(T) -> V,
+	report_old: &mut Report,
+	report_new: &mut Report,
 ) -> ChangeList<T> {
 	let mut out = <ChangeList<T>>::new();
 
@@ -86,7 +86,7 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 	for (oid, old) in old.iter().cloned().enumerate() {
 		let mut new_by_exact = new.iter().cloned().enumerate().filter(|(i, f)| {
 			!new_listed.contains(i)
-				&& mapper(*f).is_isomorph(&mapper(old), rn)
+				&& mapper(*f).is_isomorph(&mapper(old), rn, report_new, report_old)
 				&& f.db(rn) == old.db(rn)
 		});
 		if let Some((nid, new)) = new_by_exact.next() {
@@ -109,7 +109,7 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 		}
 		let mut new_by_code =
 			new.iter().cloned().enumerate().filter(|(i, f)| {
-				mapper(*f).is_isomorph(&mapper(old), rn) && !new_listed.contains(i)
+				mapper(*f).is_isomorph(&mapper(old), rn, report_new, report_old) && !new_listed.contains(i)
 			});
 		if let Some((nid, new)) = new_by_code.next() {
 			assert!(new_by_code.next().is_none());
@@ -150,14 +150,14 @@ pub fn mk_change_list<T: RenameExt + Clone + Copy + Debug, V: IsCompatible + IsI
 	for recreated in out
 		.updated
 		.iter()
-		.filter(|diff| !mapper(diff.old).is_compatible(&mapper(diff.new), rn))
+		.filter(|diff| !mapper(diff.old).is_compatible(&mapper(diff.new), rn, report_old, report_new))
 		.collect::<Vec<_>>()
 	{
 		out.created.push(recreated.new);
 		out_dropped.push((recreated.old, Some(allocator.next_moveaway())));
 	}
 	out.updated
-		.retain(|diff| mapper(diff.old).is_compatible(&mapper(diff.new), rn));
+		.retain(|diff| mapper(diff.old).is_compatible(&mapper(diff.new), rn, report_old, report_new));
 
 	for (_, new) in new
 		.iter()

@@ -4,18 +4,7 @@ use derivative::Derivative;
 use ids::DbIdent;
 
 use self::{
-	attribute::AttributeList,
-	column::Column,
-	composite::Composite,
-	ids::Ident,
-	index::{Check, Index, PrimaryKey, UniqueConstraint},
-	names::{ItemKind, TypeIdent},
-	root::Schema,
-	scalar::{Enum, Scalar, ScalarAnnotation},
-	sql::Sql,
-	table::{ForeignKey, Table, TableAnnotation},
-	uid::RenameMap,
-	view::View,
+	attribute::AttributeList, column::Column, composite::Composite, diagnostics::Report, ids::Ident, index::{Check, Index, PrimaryKey, UniqueConstraint}, names::{ItemKind, TypeIdent}, root::Schema, scalar::{Enum, Scalar, ScalarAnnotation}, sql::Sql, table::{ForeignKey, Table, TableAnnotation}, uid::RenameMap, view::View
 };
 
 pub mod column;
@@ -131,16 +120,16 @@ impl<T> IsCompatible for TableItem<'_, T>
 where
 	T: IsCompatible,
 {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap) -> bool {
-		self.value.is_compatible(new.value, rn)
+	fn is_compatible(&self, new: &Self, rn: &RenameMap, report_self: &mut Report, report_new: &mut Report) -> bool {
+		self.value.is_compatible(new.value, rn, report_self, report_new)
 	}
 }
 impl<T> IsIsomorph for TableItem<'_, T>
 where
 	T: IsIsomorph,
 {
-	fn is_isomorph(&self, other: &Self, rn: &RenameMap) -> bool {
-		self.value.is_isomorph(other.value, rn)
+	fn is_isomorph(&self, other: &Self, rn: &RenameMap, report_self: &mut Report, report_other: &mut Report) -> bool {
+		self.value.is_isomorph(other.value, rn, report_self, report_other)
 	}
 }
 impl<T> HasUid for TableItem<'_, T>
@@ -358,7 +347,7 @@ pub enum SchemaType<'a> {
 	Scalar(SchemaScalar<'a>),
 	Composite(SchemaComposite<'a>),
 }
-impl SchemaType<'_> {
+impl<'a> SchemaType<'a> {
 	pub fn ident(&self) -> TypeIdent {
 		match self {
 			SchemaType::Scalar(s) => s.id(),
@@ -408,6 +397,13 @@ impl SchemaType<'_> {
 					f.ty().depend_on(out);
 				}
 			}
+		}
+	}
+	pub fn as_schema_item(self) -> SchemaItem<'a> {
+		match self {
+			SchemaType::Enum(schema_enum) => SchemaItem::Enum(schema_enum),
+			SchemaType::Scalar(schema_scalar) => SchemaItem::Scalar(schema_scalar),
+			SchemaType::Composite(schema_composite) => SchemaItem::Composite(schema_composite),
 		}
 	}
 }

@@ -133,7 +133,7 @@ impl Schema {
 
 		// Mixins have their own identifier namespace due to
 		// special definiton and reference syntax.
-		check_unique_mixin_identifiers(self);
+		check_unique_mixin_identifiers(self, report);
 
 		let (_mixins, items): (Vec<Mixin>, Vec<Item>) = mem::take(&mut self.0)
 			.into_iter()

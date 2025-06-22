@@ -61,6 +61,7 @@
 
               tree-sitter
               (yarn-berry.override {nodejs = nodejs;})
+              nodejs
               # Wanted by node-nan, which is used by tree-sitter, even if js binding is not actually used.
               python3
             ]

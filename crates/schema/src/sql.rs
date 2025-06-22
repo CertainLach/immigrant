@@ -1,4 +1,5 @@
 use crate::{
+	diagnostics::Report,
 	ids::{DbIdent, Ident},
 	names::{ColumnIdent, DbProcedure, FieldIdent, FieldKind, TypeIdent, TypeKind},
 	uid::{RenameExt, RenameMap},
@@ -171,49 +172,84 @@ impl Sql {
 		context: &SchemaItem<'_>,
 		field: Ident<FieldKind>,
 		rn: &RenameMap,
-	) -> DbIdent<FieldKind> {
-		let this = self.type_ident_of_expr(context);
+		report: &mut Report,
+	) -> Option<DbIdent<FieldKind>> {
+		let this = self.type_ident_of_expr(context, report)?;
 		let ty = context.schema().schema_ty(this);
-		match ty {
-			SchemaType::Enum(_) => {
-				panic!("nothing in enum... or should the enum variant be returned here?")
+		Some(match ty {
+			SchemaType::Enum(e) => {
+				report
+					.error("enum variants can't be observed yet")
+					.annotate("happened here", field.span())
+					.annotate("enum defined here", e.id().span());
+				return None;
 			}
-			SchemaType::Scalar(_) => panic!("nothing in scalar: {ty:?}"),
+			SchemaType::Scalar(s) => {
+				report
+					.error("invalid field access")
+					.annotate("happened here", field.span())
+					.annotate("scalars can't have fields", s.id().span());
+				return None;
+			}
 			SchemaType::Composite(c) => c.field(field).db(rn),
-		}
+		})
 	}
 	pub fn context_ident_name<'s>(
 		context: &'s SchemaItem<'s>,
 		ident: ColumnIdent,
 		rn: &RenameMap,
-	) -> DbIdent<FieldKind> {
-		match context {
+		report: &mut Report,
+	) -> Option<DbIdent<FieldKind>> {
+		Some(match context {
 			SchemaItem::Table(t) => {
 				let column = t.schema_column(ident);
 				DbIdent::unchecked_from(column.db(rn))
 			}
-			SchemaItem::Enum(_) => panic!("nothing in enum"),
-			SchemaItem::Scalar(_) => panic!("nothing in scalar: {context:?}"),
+			SchemaItem::Enum(e) => {
+				report
+					.error("enum variants can't be observed yet")
+					.annotate("happened here", ident.span())
+					.annotate("enum defined here", e.id().span());
+				return None;
+			}
+			SchemaItem::Scalar(s) => {
+				report
+					.error("invalid field access")
+					.annotate("happened here", ident.span())
+					.annotate("scalars can't have fields", s.id().span());
+				return None;
+			}
 			SchemaItem::Composite(c) => {
 				let field = c.field(Ident::unchecked_cast(ident));
 				field.db(rn)
 			}
-			SchemaItem::View(_) => panic!("nothing in view"),
-		}
+			SchemaItem::View(v) => {
+				report
+					.error("invalid field access")
+					.annotate("happened here", ident.span())
+					.annotate("views are opaque", v.id().span());
+				return None;
+			}
+		})
 	}
 	/// If self == Sql::Ident(name), convert name to native
 	pub fn ident_name<'s>(
 		&self,
 		context: &'s SchemaItem<'s>,
 		rn: &RenameMap,
-	) -> DbIdent<FieldKind> {
+		report: &mut Report,
+	) -> Option<DbIdent<FieldKind>> {
 		let Sql::Ident(f) = self else {
 			panic!("not ident");
 		};
-		Self::context_ident_name(context, *f, rn)
+		Self::context_ident_name(context, *f, rn, report)
 	}
-	fn type_ident_of_expr<'s>(&self, context: &'s SchemaItem<'s>) -> Ident<TypeKind> {
-		match self {
+	fn type_ident_of_expr<'s>(
+		&self,
+		context: &'s SchemaItem<'s>,
+		report: &mut Report,
+	) -> Option<Ident<TypeKind>> {
+		Some(match self {
 			Sql::Cast(_, t) => *t,
 			Sql::UnOp(_, _)
 			| Sql::BinOp(_, _, _)
@@ -231,27 +267,39 @@ impl Sql {
 					let column = t.schema_column(*f);
 					column.ty
 				}
-				SchemaItem::Enum(_) => panic!("nothing in enum"),
-				SchemaItem::Scalar(_) => panic!("nothing in scalar: {self:?}"),
+				SchemaItem::Enum(e) => {
+					report
+						.error("invalid value reference")
+						.annotate("enums can't contain fields", f.span())
+						.annotate("enum defined here", e.id().span());
+					return None;
+				}
+				SchemaItem::Scalar(s) => {
+					report
+						.error("invalid value reference")
+						.annotate("scalars can't contain fields", f.span())
+						.annotate("scalar defined here", s.id().span());
+					return None;
+				}
 				SchemaItem::Composite(c) => {
 					let field = c.field(Ident::unchecked_cast(*f));
 					field.ty
 				}
-				SchemaItem::View(_) => panic!("nothing in view"),
+				SchemaItem::View(v) => {
+					report
+						.error("invalid value reference")
+						.annotate("views can't contain fields", f.span())
+						.annotate("scalar defined here", v.id().span());
+					return None;
+				}
 			},
 			Sql::GetField(f, t) => {
-				let ty_id = f.type_ident_of_expr(context);
+				let ty_id = f.type_ident_of_expr(context, report)?;
 				let ty = context.schema().schema_ty(ty_id);
-				match ty {
-					SchemaType::Enum(_) => panic!("nothing in enum"),
-					SchemaType::Scalar(_) => panic!("nothing in scalar: {ty:?}"),
-					SchemaType::Composite(c) => {
-						let field = c.field(*t);
-						field.ty
-					}
-				}
+				Sql::Ident(Ident::unchecked_cast(*t))
+					.type_ident_of_expr(&ty.as_schema_item(), report)?
 			}
-			Sql::Parened(v) => v.type_ident_of_expr(context),
+			Sql::Parened(v) => v.type_ident_of_expr(context, report)?,
 			Sql::Placeholder => match context {
 				SchemaItem::Table(_) | SchemaItem::View(_) => {
 					panic!("can't refer to table fields using this notation")
@@ -260,7 +308,7 @@ impl Sql {
 				SchemaItem::Scalar(s) => s.id(),
 				SchemaItem::Composite(c) => c.id(),
 			},
-		}
+		})
 	}
 }
 #[allow(unused_variables)]
