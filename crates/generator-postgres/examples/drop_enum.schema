@@ -4,7 +4,7 @@ a;
 b;
 };
 !!!UPDATE enum is dropped, scalar is created with the same name
-scalar a = "TEXT";
+scalar a = sql"TEXT";
 !!!RESULT
 -- updated: there is a enum --
 CREATE TYPE a AS ENUM (

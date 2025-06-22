@@ -30,9 +30,15 @@ fn h<T>(v: T) -> Box<T> {
 	Box::new(v)
 }
 
+enum InlinePart<T> {
+	Text(String),
+	Template(T),
+}
+
 struct S {
 	id: SourceId,
 	last_inline_scalar: AtomicUsize,
+	compat: bool,
 }
 impl S {
 	fn inline_scalar(&self, span: SimpleSpan, def: InlineSqlType) -> (TypeIdent, Option<Scalar>) {
@@ -112,30 +118,28 @@ rule table(s:&S) -> (Table, Vec<Scalar>) =
 		mixins,
 	), scalars.into_iter().flatten().collect())
 }};
-rule definition(s:&S) -> Definition = "$$"
-	parts:(
-		raw:$((!"$$" !"${" [_])+)
-			{DefinitionPart::Raw(raw.to_string())}
-	/	i:("${" _ i:code_ident(s) _ "}" {i})
-			{DefinitionPart::TableRef(TableIdent::alloc(i))}
-	/	i:("${" _ i:code_ident(s) _ "." _ j:code_ident(s) _ "}" {(i, j)})
-			{DefinitionPart::ColumnRef(TableIdent::alloc(i.0), ColumnIdent::alloc(i.1))}
-	)+
-"$$" {{
-	Definition(parts)
-}};
-rule inline_sql(s:&S) -> InlineSqlType = "$$"
-	parts:(
-		raw:$((!"$$" !"${" [_])+)
-			{InlineSqlTypePart::Raw(raw.to_string())}
-	/	i:("${" _ i:code_ident(s) _ "}" {i})
-			{InlineSqlTypePart::TypeRef(TypeIdent::alloc(i))}
-	)+
-"$$" {{
-	InlineSqlType(parts)
+
+rule definition_part(s:&S) -> DefinitionPart =
+	i:code_ident(s) _ "." _ j:code_ident(s) {DefinitionPart::ColumnRef(TableIdent::alloc(i), ColumnIdent::alloc(j))}
+/	i:code_ident(s) {DefinitionPart::TableRef(TableIdent::alloc(i))}
+rule definition(s:&S) -> Definition = parts:(
+	inline(<definition_part(s)>)
+/	compat_only(s, <custom_inline(<definition_part(s)>, <"$$">, <"$$">, <"${">, <"}">)>)
+) {
+	Definition(parts.into_iter().map(|v| match v {
+		InlinePart::Text(t) => DefinitionPart::Raw(t),
+		InlinePart::Template(t) => t,
+	}).collect())
+}
+rule inline_sql_part(s:&S) -> InlineSqlTypePart =
+	i:code_ident(s) {InlineSqlTypePart::TypeRef(TypeIdent::alloc(i))}
+rule inline_sql(s:&S) -> InlineSqlType = parts:inline(<inline_sql_part(s)>) {{
+	InlineSqlType(parts.into_iter().map(|v| match v {
+		InlinePart::Text(t) => InlineSqlTypePart::Raw(t),
+		InlinePart::Template(t) => t,
+	}).collect())
 }}
-// TODO: Deprecate this syntax
-/ s:str() {InlineSqlType(vec![InlineSqlTypePart::Raw(s.to_string())])}
+/ s:compat_only(s, <str()>) {InlineSqlType(vec![InlineSqlTypePart::Raw(s.to_string())])}
 rule view(s:&S) -> View =
 	docs:docs()
 	attrlist:attribute_list(s) _
@@ -190,11 +194,11 @@ rule field(s:&S) -> Field =
 }
 
 rule maybe_inline_scalar(s:&S) -> (TypeIdent, Option<Scalar>) =
-	i:code_ident(s) { (TypeIdent::alloc(i), None) }
-	/ b:position!() ty:inline_sql(s) e:position!() {s.inline_scalar(
+	b:position!() ty:inline_sql(s) e:position!() {s.inline_scalar(
 		SimpleSpan::new(s.id, b as u32, e as u32),
 		ty,
 	)}
+/	i:code_ident(s) { (TypeIdent::alloc(i), None) }
 
 rule table_field(s:&S) -> (Column, Option<Scalar>) =
 	docs:docs()
@@ -317,6 +321,26 @@ rule db_ident() -> &'input str = str()
 rule str() -> &'input str = "\"" v:$((!['"' | '\''] [_])*) "\"" {v}
 rule str_escaping() -> String = "\"" v:$((!['"'] ("\\\"" / [_]))*) "\"" {v.replace("\\\"", "\"")}
 
+rule inline_part<T>(x: rule<T>, tstart:rule<()>, tend:rule<()>, end:rule<()>) -> InlinePart<T> =
+	raw:$((!tstart() !tend() !end() [_])+) {InlinePart::Text(raw.to_string())}
+/	v:$(tstart()) tstart() {InlinePart::Text(v.to_string())}
+/	v:$(tend()) tend() {InlinePart::Text(v.to_string())}
+/	v:(tstart() v:x() tend() {v}) {InlinePart::Template(v)}
+/  (quiet!{tend()} / expected!("template or plain")) {unreachable!("unexpected inline part")}
+rule custom_inline<T>(x: rule<T>, start:rule<()>, end:rule<()>, tstart:rule<()>, tend:rule<()>) -> Vec<InlinePart<T>> =
+	start() parts:inline_part(<x()>, <tstart()>, <tend()>, <end()>)* end() { parts }
+
+rule inline<T>(x: rule<T>) -> Vec<InlinePart<T>> =
+	custom_inline(<x()>, <"sql\"\"\"">, <"\"\"\"">, <"<">, <">">)
+/	custom_inline(<x()>, <"sql\"">, <"\"">, <"<">, <">">)
+rule compat_only<T>(s:&S, x: rule<T>) -> T =
+	v:x() {? if s.compat {
+		Ok(v)
+	} else {
+		Err("syntax is deprecated and only allowed for old schemas")
+	}}
+
+
 rule sqlexpr(s:&S) -> Sql = "(" s:sql(s) ")" {s};
 rule sql(s:&S) -> Sql
 = precedence! {
@@ -379,9 +403,10 @@ pub enum ParsingError {
 	Peg(#[from] ParseError<LineCol>),
 }
 
-type Result<T> = result::Result<T, Vec<ParsingError>>;
+type Result<T> = result::Result<T, ()>;
 pub fn parse(
 	v: &str,
+	compat: bool,
 	opts: &SchemaProcessOptions,
 	rn: &mut RenameMap,
 	report: &mut Report,
@@ -393,10 +418,19 @@ pub fn parse(
 			&S {
 				id: span,
 				last_inline_scalar: AtomicUsize::default(),
+				compat,
 			},
 		)
-		.map_err(|e| vec![ParsingError::from(e)])
+		.map_err(|e| {
+			report.error("parse error").annotate(
+				e.to_string(),
+				SimpleSpan::new(span, e.location.offset as u32, e.location.offset as u32),
+			);
+		})
 	})?;
 	s.process(opts, rn, report);
+	if report.is_error() {
+		return Err(())
+	}
 	Ok(s)
 }

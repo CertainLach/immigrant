@@ -1,6 +1,6 @@
 !!!TEST fk removal should depend on unique removal
-scalar test1 = "INT";
-scalar test2 = "INT";
+scalar test1 = sql"INT";
+scalar test2 = sql"INT";
 
 table AA {
 	test1;
@@ -13,8 +13,8 @@ table BB {
 	(test1, test2) ~ AA;
 };
 !!!UPDATE both unique and fk are deleted, fk should be dropped first
-scalar test1 = "INT";
-scalar test2 = "INT";
+scalar test1 = sql"INT";
+scalar test2 = sql"INT";
 
 table AA {
 	test1;

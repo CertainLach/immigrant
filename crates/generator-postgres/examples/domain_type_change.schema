@@ -1,0 +1,15 @@
+!!!TEST we have a domain type
+scalar a = sql"INTEGER";
+!!!UPDATE and we change its type to other, it should be recreated
+scalar a = sql"TEXT";
+!!!RESULT
+-- updated: we have a domain type --
+CREATE DOMAIN a AS INTEGER;
+-- updated: and we change its type to other, it should be recreated --
+ALTER DOMAIN a
+	RENAME TO moveaway_1
+;
+CREATE DOMAIN a AS TEXT;
+DROP DOMAIN moveaway_1;
+-- updated: cleanup schema changes --
+DROP DOMAIN a;

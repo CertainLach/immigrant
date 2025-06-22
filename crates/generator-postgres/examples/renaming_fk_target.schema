@@ -1,5 +1,5 @@
 !!!TEST A
-scalar test = "INTEGER";
+scalar test = sql"INTEGER";
 
 table A {
 	test;
@@ -9,7 +9,7 @@ table B {
 	test ~ A;
 };
 !!!UPDATE
-scalar test = "INTEGER";
+scalar test = sql"INTEGER";
 
 table A {
 	test "test2";

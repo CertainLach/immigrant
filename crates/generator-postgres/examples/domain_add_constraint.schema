@@ -1,15 +1,15 @@
 !!!TEST plain scalar
-scalar a = "TEXT";
+scalar a = sql"TEXT";
 !!!UPDATE check is added to the scalar
-scalar a = "TEXT" @check(_ == "a");
+scalar a = sql"TEXT" @check(_ == "a");
 !!!UPDATE check is now named
-scalar a = "TEXT" @check "explicit_name" (_ == "a");
+scalar a = sql"TEXT" @check "explicit_name" (_ == "a");
 !!!UPDATE add another check
-scalar a = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d");
+scalar a = sql"TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d");
 !!!UPDATE scalar is renamed to b, and another check
-scalar a "b" = "TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d") @check "other" (_ != "dd") @check "third" (_ != "e");
+scalar a "b" = sql"TEXT" @check "explicit_name" (_ == "a") @check "other" (_ != "d") @check "other" (_ != "dd") @check "third" (_ != "e");
 !!!UPDATE then they all are gone
-scalar a "b" = "TEXT";
+scalar a "b" = sql"TEXT";
 !!!RESULT
 -- updated: plain scalar --
 CREATE DOMAIN a AS TEXT;

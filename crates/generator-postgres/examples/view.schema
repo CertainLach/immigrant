@@ -1,26 +1,27 @@
 !!!TEST views
-scalar example = "INTEGER";
+scalar example = sql"INTEGER";
 table Foo {
 	example;
 };
-view Test = $$
-	SELECT * FROM ${Foo}
-$$;
+view Test = sql"""
+	SELECT * FROM <Foo>
+""";
 // Also materialized
-view.materialized TestMaterialized = $$
-	SELECT * FROM ${Foo}
-$$;
+view.materialized TestMaterialized = sql"""
+	SELECT * FROM <Foo>
+""";
 !!!UPDATE table changes will result in view metadata update
-scalar example = "INTEGER";
+scalar example = sql"INTEGER";
 table Foo {
 	example "example2";
 };
-view Test = $$
-	SELECT *, (${Foo.example} + 2) AS ex2 FROM ${Foo}
-$$;
-view.materialized TestMaterialized "newname" = $$
-	SELECT * FROM ${Foo}
-$$;
+view Test = sql"""
+	SELECT *, (<Foo.example> + 2) AS ex2 FROM <Foo>
+""";
+view.materialized TestMaterialized "newname" = sql"""
+	SELECT * FROM <Foo>
+	ORDER BY embedding <<->> other_embedding
+""";
 !!!RESULT
 -- updated: views --
 CREATE DOMAIN example AS INTEGER;
@@ -45,6 +46,7 @@ CREATE VIEW tests AS
 ;
 CREATE MATERIALIZED VIEW newname AS
 	SELECT * FROM foos
+	ORDER BY embedding <-> other_embedding
 ;
 -- updated: cleanup schema changes --
 DROP VIEW tests;

@@ -1,5 +1,5 @@
 !!!TEST when dropping both table and view, shich uses this table, view should be dropped first.
-scalar foo = "INTEGER";
+scalar foo = sql"INTEGER";
 struct a {
 	foo;
 };
@@ -10,12 +10,12 @@ struct b {
 table Bar {
 	foo;
 };
-view Baz = $$
-	SELECT * FROM ${Bar}
-$$;
-view Qux = $$
-	SELECT * FROM ${Baz}
-$$;
+view Baz = sql"""
+	SELECT * FROM <Bar>
+""";
+view Qux = sql"""
+	SELECT * FROM <Baz>
+""";
 !!!RESULT
 -- updated: when dropping both table and view, shich uses this table, view should be dropped first. --
 CREATE DOMAIN foo AS INTEGER;

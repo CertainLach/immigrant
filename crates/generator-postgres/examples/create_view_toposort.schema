@@ -1,27 +1,27 @@
 !!!TEST view creation toposort, Baz should be created before Qux.
-scalar foo = "INTEGER" @inline;
+scalar foo = sql"INTEGER" @inline;
 
 table Bar {
 	foo;
 };
-view Qux = $$
-	SELECT * FROM ${Baz};
-$$;
-view Baz = $$
-	SELECT * FROM ${Bar};
-$$;
+view Qux = sql"""
+	SELECT * FROM <Baz>;
+""";
+view Baz = sql"""
+	SELECT * FROM <Bar>;
+""";
 !!!UPDATE also for views
-scalar foo = "TEXT" @inline;
+scalar foo = sql"TEXT" @inline;
 
 table Bar {
 	foo;
 };
-view Qux = $$
-	SELECT * FROM ${Baz};
-$$;
-view Baz = $$
-	SELECT * FROM ${Bar};
-$$;
+view Qux = sql"""
+	SELECT * FROM <Baz>;
+""";
+view Baz = sql"""
+	SELECT * FROM <Bar>;
+""";
 !!!RESULT
 -- updated: view creation toposort, Baz should be created before Qux. --
 CREATE TABLE bars (

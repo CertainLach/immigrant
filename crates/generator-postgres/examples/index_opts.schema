@@ -1,10 +1,10 @@
 !!!TEST
-scalar embedding = "vector(1024)";
+scalar embedding = sql"vector(1024)";
 table Embeddings {
 	embedding @index.opclass(vector_l2_ops).using(ivfflat);
 };
 !!!UPDATE
-scalar embedding = "vector(1024)";
+scalar embedding = sql"vector(1024)";
 table Embeddings {
 	embedding @index.opclass(vector_cosine_ops).using(ivfflat);
 };

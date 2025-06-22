@@ -1,10 +1,10 @@
 !!!TEST a table and the scalar
-scalar A = "TEXT";
+scalar A = sql"TEXT";
 table B {
 	a: A;
 };
 !!!UPDATE check was added to the scalar
-scalar A = "TEXT" @primary_key @check (_ != "test");
+scalar A = sql"TEXT" @primary_key @check (_ != "test");
 table B {
 	a: A;
 };

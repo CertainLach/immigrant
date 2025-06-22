@@ -1,17 +1,17 @@
 !!!TEST one scalar is normal, other is inline
-scalar a = "TEXT" @check(_ != "bad");
-scalar b = "TEXT" @inline @check(_ != "bad");
+scalar a = sql"TEXT" @check(_ != "bad");
+scalar b = sql"TEXT" @inline @check(_ != "bad");
 table Example {
 	field: a;
 	other_field: b;
 };
 !!!UPDATE inline scalar was dropped, and normal is converted to inline
-scalar a = "TEXT" @inline @check(_ != "good");
+scalar a = sql"TEXT" @inline @check(_ != "good");
 table Example {
 	field: a;
 };
 !!!UPDATE inline scalar was converted back to normal again
-scalar a = "TEXT" @check(_ != "average");
+scalar a = sql"TEXT" @check(_ != "average");
 table Example {
 	field: a;
 };

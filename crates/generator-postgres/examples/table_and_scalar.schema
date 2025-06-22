@@ -2,7 +2,7 @@
 table A {
 	field: b;
 };
-scalar b = "TEXT";
+scalar b = sql"TEXT";
 !!!RESULT
 -- updated: create scalar --
 CREATE DOMAIN b AS TEXT;

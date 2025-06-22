@@ -1,6 +1,6 @@
 !!!TEST depth 2 composite with check on it, which will be propagated to table.
 
-scalar test = "INTEGER";
+scalar test = sql"INTEGER";
 
 struct a {
 	test @check (_ != 123);

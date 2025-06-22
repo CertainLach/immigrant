@@ -2,7 +2,7 @@
 table Test {
 	a: mystruct;
 };
-scalar myint = "INTEGER";
+scalar myint = sql"INTEGER";
 struct mystruct {
 	field "renamed": myint;
 };
@@ -11,7 +11,7 @@ table Test {
 	a "olda": mystruct;
 	newa "a": newmystruct @initialize_as ((a.field, 2,)::newmystruct);
 };
-scalar myint = "INTEGER";
+scalar myint = sql"INTEGER";
 struct mystruct "oldmystruct" {
 	field "renamed": myint;
 };
@@ -23,7 +23,7 @@ struct newmystruct "mystruct" {
 table Test {
 	newa "a": newmystruct;
 };
-scalar myint = "INTEGER";
+scalar myint = sql"INTEGER";
 struct newmystruct "mystruct" {
 	field "renamed": myint;
 	field2: myint;
@@ -32,7 +32,7 @@ struct newmystruct "mystruct" {
 table Test {
 	a: mystruct;
 };
-scalar myint = "INTEGER";
+scalar myint = sql"INTEGER";
 struct mystruct {
 	field "renamed": myint;
 	field2: myint;

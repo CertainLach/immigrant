@@ -1,5 +1,5 @@
 !!!TEST
-scalar foo = "INTEGER" @index;
+scalar foo = sql"INTEGER" @index;
 
 table A {
 	foo;

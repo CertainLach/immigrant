@@ -1,7 +1,7 @@
 !!!TEST nullable and not-null column
 /// TODO: Allow scalars to be nullable.
 /// When scalar is nullable, it should be impossible to set field as nullable.
-scalar a = "TEXT";
+scalar a = sql"TEXT";
 
 table A {
 	a: a?;

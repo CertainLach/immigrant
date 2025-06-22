@@ -1,5 +1,5 @@
 !!!TEST
-scalar my_scalar = "INTEGER";
+scalar my_scalar = sql"INTEGER";
 table LongTableNameToMakeItTruncateFieldNameOnIndex {
 	long_field_name_to_trigger_truncation: my_scalar @index @primary_key;
 };

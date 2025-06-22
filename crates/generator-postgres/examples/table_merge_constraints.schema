@@ -1,6 +1,6 @@
 !!!TEST table with various constraints to ensure they are properly merged
-scalar test = "TEXT" @inline @check "testcheck" (_ != "1");
-scalar int = "INTEGER";
+scalar test = sql"TEXT" @inline @check "testcheck" (_ != "1");
+scalar int = sql"INTEGER";
 
 table Test {
 	test @check "testcheck" (_ != "2") @check (_ != "3") @check (_ != "4");

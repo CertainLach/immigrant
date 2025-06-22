@@ -1,5 +1,5 @@
 !!!SETUP
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 !!!TEST table with a column check
 table A {
 	field: test @check(_ != "foo");

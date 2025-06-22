@@ -1,6 +1,6 @@
 !!!TEST init
 // Comment on domain
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 // Comment on table
 table A {
 	// Comment on column
@@ -8,7 +8,7 @@ table A {
 };
 !!!UPDATE
 // Updated comment on domain
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 // Updated comment on table
 table A {
 	// Updated comment on column
@@ -17,7 +17,7 @@ table A {
 	test2: test;
 };
 !!!UPDATE
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 table A {
 	test;
 	test2: test;

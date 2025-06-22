@@ -1,23 +1,23 @@
 !!!TEST table with indexed column
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 
 table A {
 	field: test @index;
 };
 !!!UPDATE index is dropped
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 
 table A {
 	field: test;
 };
 !!!UPDATE index is returned back
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 
 table A {
 	field: test @index;
 };
 !!!UPDATE a name was assigned to the index
-scalar test = "TEXT";
+scalar test = sql"TEXT";
 
 table A {
 	field: test @index "custom_name";

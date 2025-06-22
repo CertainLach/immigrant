@@ -1,12 +1,12 @@
 !!!TEST external table should not have associated CREATE TABLE or DROP TABLE
-scalar test = "INTEGER" @external;
+scalar test = sql"INTEGER" @external;
 
 table External {
 	test;
 	@external;
 };
 !!!UPDATE any updates in external tables should be passed as is
-scalar test = "INTEGER" @external;
+scalar test = sql"INTEGER" @external;
 
 table External {
 	test "test3";
@@ -19,7 +19,7 @@ table Other {
 	test ~ External;
 };
 !!!UPDATE even updates are assumed
-scalar test "othertest" = "OTHERTHING" @check (_ != 0) @external;
+scalar test "othertest" = sql"OTHERTHING" @check (_ != 0) @external;
 
 table External "otherexternal" {
 	test;

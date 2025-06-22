@@ -1,19 +1,19 @@
 !!!TEST create scalar
 table A {
 	field: b;
-	fieldarray: $$${b}[]$$;
-	fieldanotherinline: $$INT$$;
+	fieldarray: sql"<b>[]";
+	fieldanotherinline: sql"INT";
 };
-scalar b = "TEXT";
+scalar b = sql"TEXT";
 !!!UPDATE no direct type reference
 table A {
-	fieldarray: $$${b}[]$$;
-	fieldanotherinline: $$INT$$;
+	fieldarray: sql"<b>[]";
+	fieldanotherinline: sql"INT";
 };
-scalar b = "TEXT";
+scalar b = sql"TEXT";
 !!!UPDATE no domain reference, only inline type
 table A {
-	fieldanotherinline: $$INT$$;
+	fieldanotherinline: sql"INT";
 };
 !!!RESULT
 -- updated: create scalar --
@@ -25,7 +25,7 @@ CREATE TABLE "as" (
 );
 -- updated: no direct type reference --
 ALTER TABLE "as" DROP COLUMN field;
--- updated: no domain reference --
+-- updated: no domain reference, only inline type --
 ALTER TABLE "as" DROP COLUMN fieldarray;
 DROP DOMAIN b;
 -- updated: cleanup schema changes --

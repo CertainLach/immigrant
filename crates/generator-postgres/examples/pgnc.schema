@@ -1,5 +1,5 @@
 !!!TEST naming convention modifiers, table should be named as in schema
-scalar foo = "INTEGER";
+scalar foo = sql"INTEGER";
 
 #pgnc(as_is)
 table bar {

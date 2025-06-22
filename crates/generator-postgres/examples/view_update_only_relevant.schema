@@ -1,6 +1,6 @@
 !!!SETUP
-scalar x = "INTEGER";
-scalar y = "INTEGER";
+scalar x = sql"INTEGER";
+scalar y = sql"INTEGER";
 !!!TEST initialization
 table Foo {
 	x;
@@ -10,12 +10,12 @@ table Bar {
 	x;
 	y;
 };
-view Baz = $$
-	SELECT * FROM ${Foo}
-$$;
-view Qux = $$
-	SELECT * FROM ${Bar}
-$$;
+view Baz = sql""" 
+	SELECT * FROM <Foo>
+""";
+view Qux = sql"""
+	SELECT * FROM <Bar>
+""";
 !!!UPDATE field dropped from Foo, only Baz should be updated.
 table Foo {
 	x;
@@ -24,12 +24,12 @@ table Bar {
 	x;
 	y;
 };
-view Baz = $$
-	SELECT * FROM ${Foo}
-$$;
-view Qux = $$
-	SELECT * FROM ${Bar}
-$$;
+view Baz = sql"""
+	SELECT * FROM <Foo>
+""";
+view Qux = sql"""
+	SELECT * FROM <Bar>
+""";
 !!!UPDATE field dropped from Bar, only Qux should be updated.
 table Foo {
 	x;
@@ -37,12 +37,12 @@ table Foo {
 table Bar {
 	y;
 };
-view Baz = $$
-	SELECT * FROM ${Foo}
-$$;
-view Qux = $$
-	SELECT * FROM ${Bar}
-$$;
+view Baz = sql"""
+	SELECT * FROM <Foo>
+""";
+view Qux = sql"""
+	SELECT * FROM <Bar>
+""";
 !!!UPDATE Bar renamed to quuxes, view Qux should NOT be updated.
 table Foo {
 	x;
@@ -50,12 +50,12 @@ table Foo {
 table Bar "quuxes" {
 	y;
 };
-view Baz = $$
-	SELECT * FROM ${Foo}
-$$;
-view Qux = $$
-	SELECT * FROM ${Bar}
-$$;
+view Baz = sql"""
+	SELECT * FROM <Foo>
+""";
+view Qux = sql"""
+	SELECT * FROM <Bar>
+""";
 !!!RESULT
 -- updated: setup --
 CREATE DOMAIN x AS INTEGER;
@@ -69,7 +69,7 @@ CREATE TABLE bars (
 	x x NOT NULL
 ,	y y NOT NULL
 );
-CREATE VIEW bazs AS
+CREATE VIEW bazs AS 
 	SELECT * FROM foos
 ;
 CREATE VIEW quxes AS

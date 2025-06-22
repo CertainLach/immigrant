@@ -1,5 +1,5 @@
 !!!TEST two tables
-scalar idd = "INTEGER";
+scalar idd = sql"INTEGER";
 table TestA {
 	idd;
 };
@@ -7,7 +7,7 @@ table TestB {
 	idd;
 };
 !!!UPDATE add link from B to A
-scalar idd = "INTEGER";
+scalar idd = sql"INTEGER";
 table TestA {
 	idd @primary_key;
 };
@@ -15,7 +15,7 @@ table TestB {
 	idd ~ TestA;
 };
 !!!UPDATE ...remove it
-scalar idd = "INTEGER";
+scalar idd = sql"INTEGER";
 table TestA {
 	idd @primary_key;
 };
@@ -23,7 +23,7 @@ table TestB {
 	idd;
 };
 !!!UPDATE and add it again
-scalar idd = "INTEGER";
+scalar idd = sql"INTEGER";
 table TestA {
 	idd @primary_key;
 };

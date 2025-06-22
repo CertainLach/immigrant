@@ -1,5 +1,5 @@
 !!!TEST init
-scalar test = "INTEGER";
+scalar test = sql"INTEGER";
 // Comment on composite
 struct ty {
 	// Comment on composite field

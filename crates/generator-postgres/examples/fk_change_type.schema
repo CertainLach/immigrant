@@ -1,5 +1,5 @@
 !!!SETUP
-scalar test = "INTEGER";
+scalar test = sql"INTEGER";
 
 table AA {
 	test @primary_key;

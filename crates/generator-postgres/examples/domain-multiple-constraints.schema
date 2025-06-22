@@ -1,5 +1,5 @@
 !!!TEST scalar and multiple checks on it
-scalar test = "INTEGER"
+scalar test = sql"INTEGER"
 	@check(_ > 0)
 	@check (_ < 1000)
 	@check (_ != 5)

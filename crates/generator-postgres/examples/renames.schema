@@ -1,8 +1,8 @@
 !!!TEST "two scalars: a and b"
-scalar b "b" = "TEXT";
-scalar a "a" = "TEXT";
+scalar b "b" = sql"TEXT";
+scalar a "a" = sql"TEXT";
 !!!UPDATE scalar b is renamed to c, scalar a is dropped, and table is created in its place
-scalar b "c" = "TEXT";
+scalar b "c" = sql"TEXT";
 table A "a" {
 	field: b;
 };
