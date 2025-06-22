@@ -3,9 +3,19 @@ use std::{mem, ops::Deref};
 use itertools::{Either, Itertools};
 
 use crate::{
-	attribute::AttributeList, column::ColumnAnnotation, def_name_impls, derive_is_isomorph_by_id_name, diagnostics::Report, ids::DbIdent, index::Check, names::{
+	attribute::AttributeList,
+	column::ColumnAnnotation,
+	def_name_impls, derive_is_isomorph_by_id_name,
+	diagnostics::Report,
+	ids::DbIdent,
+	index::Check,
+	names::{
 		CompositeItemDefName, DbNativeType, FieldIdent, FieldKind, TypeDefName, TypeIdent, TypeKind,
-	}, scalar::PropagatedScalarData, sql::Sql, uid::{next_uid, OwnUid, RenameExt, RenameMap}, HasIdent, IsCompatible, SchemaComposite, SchemaType
+	},
+	scalar::PropagatedScalarData,
+	sql::Sql,
+	uid::{next_uid, OwnUid, RenameExt, RenameMap},
+	HasIdent, IsCompatible, SchemaComposite, SchemaType,
 };
 
 #[derive(Debug)]
@@ -209,8 +219,14 @@ def_name_impls!(CompositeField<'_>, FieldKind);
 derive_is_isomorph_by_id_name!(CompositeField<'_>);
 
 impl IsCompatible for CompositeField<'_> {
-	fn is_compatible(&self, new: &Self, rn: &RenameMap, a: &mut Report, b: &mut Report) -> bool {
-		self.name.db == new.name.db && self.db_type(rn) == new.db_type(rn)
+	fn is_compatible(
+		&self,
+		new: &Self,
+		rn: &RenameMap,
+		report_self: &mut Report,
+		report_new: &mut Report,
+	) -> bool {
+		self.name.db == new.name.db && self.db_type(rn, report_self) == new.db_type(rn, report_new)
 	}
 }
 
@@ -226,7 +242,7 @@ impl CompositeField<'_> {
 	pub fn ty(&self) -> SchemaType<'_> {
 		self.composite.schema.schema_ty(self.ty)
 	}
-	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
-		self.composite.schema.native_type(&self.ty, rn)
+	pub fn db_type(&self, rn: &RenameMap, report: &mut Report) -> DbNativeType {
+		self.composite.schema.native_type(&self.ty, rn, report)
 	}
 }

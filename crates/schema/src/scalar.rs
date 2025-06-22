@@ -130,13 +130,13 @@ pub enum InlineSqlTypePart {
 #[derive(Debug, Clone)]
 pub struct InlineSqlType(pub Vec<InlineSqlTypePart>);
 impl InlineSqlType {
-	fn expand(&self, rn: &RenameMap, schema: &Schema) -> DbNativeType {
+	fn expand(&self, rn: &RenameMap, schema: &Schema, report: &mut Report) -> DbNativeType {
 		let mut out = String::new();
 		for p in &self.0 {
 			match p {
 				InlineSqlTypePart::Raw(r) => out.push_str(r),
 				InlineSqlTypePart::TypeRef(ident) => {
-					out.push_str(schema.native_type(ident, rn).raw())
+					out.push_str(schema.native_type(ident, rn, report).raw())
 				}
 			}
 		}
@@ -235,10 +235,10 @@ impl SchemaScalar<'_> {
 		);
 		self.native.dependencies(self.schema, out);
 	}
-	pub fn inner_type(&self, rn: &RenameMap) -> DbNativeType {
-		self.native.expand(rn, self.schema)
+	pub fn inner_type(&self, rn: &RenameMap, report: &mut Report) -> DbNativeType {
+		self.native.expand(rn, self.schema, report)
 	}
-	pub fn native(&self, rn: &RenameMap) -> DbNativeType {
+	pub fn native(&self, rn: &RenameMap, report: &mut Report) -> DbNativeType {
 		assert!(
 			!self.is_always_inline() || self.inlined,
 			"always-inline type was not inlined"
@@ -251,7 +251,7 @@ impl SchemaScalar<'_> {
 					.any(ScalarAnnotation::is_inline_target),
 				"inlined scalars may not have inline target scalars"
 			);
-			self.native.expand(rn, self.schema)
+			self.native.expand(rn, self.schema, report)
 		} else {
 			DbNativeType::unchecked_from(self.db(rn))
 		}

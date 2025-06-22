@@ -8,4 +8,4 @@ anyhow.workspace = true
 hi-doc.workspace = true
 file-diffs.workspace = true
 generator-postgres.workspace = true
-schema.workspace = true
+schema = {workspace = true, features = ["hi-doc"]}

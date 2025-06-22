@@ -6,6 +6,7 @@ use super::column::Column;
 use crate::{
 	attribute::AttributeList,
 	db_name_impls, def_name_impls,
+	diagnostics::Report,
 	index::{Check, PrimaryKey, UniqueConstraint},
 	mixin::Mixin,
 	names::{
@@ -390,18 +391,18 @@ impl<'s> TableForeignKey<'s> {
 			.map(|f| target_table.db_name(&f, rn))
 			.collect()
 	}
-	pub fn db_types(&self, rn: &RenameMap) -> Vec<DbNativeType> {
+	pub fn db_types(&self, rn: &RenameMap, report: &mut Report) -> Vec<DbNativeType> {
 		let db_types: Vec<_> = self
 			.source_columns()
 			.into_iter()
-			.map(|f| self.table.schema_column(f).db_type(rn))
+			.map(|f| self.table.schema_column(f).db_type(rn, report))
 			.collect();
 		// Sanity
 		let target_table = self.target_table();
 		let target_db_types: Vec<_> = self
 			.target_columns()
 			.into_iter()
-			.map(|f| target_table.schema_column(f).db_type(rn))
+			.map(|f| target_table.schema_column(f).db_type(rn, report))
 			.collect();
 		assert_eq!(db_types, target_db_types);
 		db_types

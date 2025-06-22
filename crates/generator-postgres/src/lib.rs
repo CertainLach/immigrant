@@ -110,7 +110,7 @@ impl Pg<TableColumn<'_>> {
 		report: &mut Report,
 	) {
 		let name = Id(self.db(rn));
-		let db_type = self.db_type(rn);
+		let db_type = self.db_type(rn, report);
 		let nullability = if self.nullable || force_nullable {
 			""
 		} else {
@@ -132,7 +132,7 @@ impl Pg<TableColumn<'_>> {
 		out.push(alt_group!("ADD COLUMN {inl}"));
 		if let Some(initialize_as) = self.initialize_as() {
 			let name = Id(self.db(rn));
-			let db_type = self.db_type(rn);
+			let db_type = self.db_type(rn, report);
 			let sql = format_sql(
 				initialize_as,
 				self.table.schema,
@@ -302,8 +302,8 @@ impl Pg<ColumnDiff<'_>> {
 		report_new: &mut Report,
 	) {
 		let name = Id(self.new.db(rn));
-		let new_ty = self.new.db_type(rn);
-		if self.old.db_type(rn) != new_ty {
+		let new_ty = self.new.db_type(rn, report_new);
+		if self.old.db_type(rn, report_old) != new_ty {
 			if let Some(initialize_as) = self.new.initialize_as() {
 				let sql = format_sql(
 					initialize_as,
@@ -1194,7 +1194,7 @@ impl Pg<SchemaComposite<'_>> {
 		self.print_alternations(&[format!("RENAME TO {}", Id(&db))], sql, rn);
 		self.set_db(rn, db);
 	}
-	pub fn create(&self, sql: &mut String, rn: &RenameMap) {
+	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let db_name = &self.db(rn);
 		w!(sql, "CREATE TYPE {} AS (\n", Id(db_name));
 		for (i, v) in self.fields().enumerate() {
@@ -1202,7 +1202,7 @@ impl Pg<SchemaComposite<'_>> {
 				w!(sql, ",");
 			}
 			let db_name = Id(v.db(rn));
-			let db_type = v.db_type(rn);
+			let db_type = v.db_type(rn, report);
 			w!(sql, "\t{db_name} {}\n", db_type.raw());
 		}
 		wl!(sql, ");");
@@ -1249,7 +1249,7 @@ impl Pg<SchemaScalar<'_>> {
 	}
 	pub fn create(&self, sql: &mut String, rn: &RenameMap, report: &mut Report) {
 		let name = Id(self.db(rn));
-		let ty = self.inner_type(rn);
+		let ty = self.inner_type(rn, report);
 		w!(sql, "CREATE DOMAIN {name} AS {}", ty.raw());
 		for ele in &self.annotations {
 			match ele {
@@ -1293,7 +1293,7 @@ impl Pg<SchemaType<'_>> {
 		match self.0 {
 			SchemaType::Enum(e) => Pg(e).create(sql, rn),
 			SchemaType::Scalar(s) => Pg(s).create(sql, rn, report),
-			SchemaType::Composite(c) => Pg(c).create(sql, rn),
+			SchemaType::Composite(c) => Pg(c).create(sql, rn, report),
 		}
 	}
 	fn drop(self, sql: &mut String, rn: &RenameMap) {
@@ -1427,7 +1427,7 @@ impl Pg<SchemaItem<'_>> {
 			SchemaItem::Table(t) => Pg(t).create(sql, rn, report),
 			SchemaItem::Enum(e) => Pg(e).create(sql, rn),
 			SchemaItem::Scalar(s) => Pg(s).create(sql, rn, report),
-			SchemaItem::Composite(c) => Pg(c).create(sql, rn),
+			SchemaItem::Composite(c) => Pg(c).create(sql, rn, report),
 			SchemaItem::View(_) => todo!(),
 		}
 	}
@@ -1525,7 +1525,7 @@ fn format_sql(
 	match sql {
 		Sql::Cast(expr, ty) => {
 			let expr = format_sql(expr, schema, context, rn, report);
-			let native_ty = Id(schema.native_type(ty, rn));
+			let native_ty = Id(schema.native_type(ty, rn, report));
 			w!(out, "({expr})::{native_ty}");
 		}
 		Sql::Call(proc, args) => {
@@ -2101,10 +2101,14 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 				if a.is_external() || b.is_external() {
 					return true;
 				}
-				a.inner_type(rn) == b.inner_type(rn)
+				a.inner_type(rn, report_self) == b.inner_type(rn, report_new)
 			}
 			(SchemaItem::View(a), SchemaItem::View(b)) => {
-				fn fingerprint(view: SchemaView<'_>, rn: &RenameMap) -> FingerprintBuilder {
+				fn fingerprint(
+					view: SchemaView<'_>,
+					rn: &RenameMap,
+					report: &mut Report,
+				) -> FingerprintBuilder {
 					let mut fp = FingerprintBuilder::new();
 					for part in &view.definition.0 {
 						match part {
@@ -2121,11 +2125,11 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 											fp.section("name");
 											fp.fragment(ele.db(rn).raw());
 											fp.section("ty");
-											fp.fragment(ele.db_type(rn).raw());
+											fp.fragment(ele.db_type(rn, report).raw());
 										}
 									}
 									SchemaTableOrView::View(v) => {
-										fp.sub("reqview", fingerprint(v, rn));
+										fp.sub("reqview", fingerprint(v, rn, report));
 									}
 								}
 							}
@@ -2138,11 +2142,11 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 										fp.section("name");
 										fp.fragment(c.db(rn).raw());
 										fp.section("ty");
-										fp.fragment(c.db_type(rn).raw());
+										fp.fragment(c.db_type(rn, report).raw());
 									}
 									SchemaTableOrView::View(v) => {
 										// If view is rebuilt, current view can't be the same.
-										fp.sub("reqview", fingerprint(v, rn));
+										fp.sub("reqview", fingerprint(v, rn, report));
 									}
 								}
 							}
@@ -2153,8 +2157,8 @@ impl IsCompatible for Pg<SchemaItem<'_>> {
 				if a.materialized != b.materialized {
 					return false;
 				}
-				let fpa = fingerprint(a, rn);
-				let fpb = fingerprint(b, rn);
+				let fpa = fingerprint(a, rn, report_self);
+				let fpb = fingerprint(b, rn, report_new);
 				fpa == fpb
 			}
 			_ => false,

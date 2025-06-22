@@ -37,8 +37,15 @@ impl Report {
 			let mut builder = SnippetBuilder::new(src);
 			// TODO: other severity
 			for ele in part.annotations {
-				let mut ann = builder.error(Text::fragment(ele.msg, Formatting::rgb([127, 127, 255])));
-				ann = ann.range(ele.span.start as usize..=ele.span.end as usize - 1);
+				let mut ann =
+					builder.error(Text::fragment(format!("{}: {}", part.msg, ele.msg), Formatting::rgb([127, 127, 255])));
+				dbg!(&src);
+				if ele.span.start == ele.span.end {
+					// FIXME: They shouldn't be inclusive by default
+					ann = ann.range(ele.span.start as usize..=ele.span.end as usize);
+				} else {
+					ann = ann.range(ele.span.start as usize..=ele.span.end as usize - 1);
+				}
 				ann.build();
 			}
 			out.push(builder.build())

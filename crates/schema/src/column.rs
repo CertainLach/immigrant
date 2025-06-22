@@ -178,8 +178,8 @@ impl Column {
 }
 
 impl<'a> TableColumn<'a> {
-	pub fn db_type(&self, rn: &RenameMap) -> DbNativeType {
-		self.table.schema.native_type(&self.ty, rn)
+	pub fn db_type(&self, rn: &RenameMap, report: &mut Report) -> DbNativeType {
+		self.table.schema.native_type(&self.ty, rn, report)
 	}
 	pub fn ty(&'a self) -> SchemaType<'a> {
 		self.table.schema.schema_ty(self.ty)

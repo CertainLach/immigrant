@@ -429,8 +429,8 @@ pub fn parse(
 		})
 	})?;
 	s.process(opts, rn, report);
-	if report.is_error() {
-		return Err(())
-	}
+	// if report.is_error() {
+	// 	return Err(None)
+	// }
 	Ok(s)
 }

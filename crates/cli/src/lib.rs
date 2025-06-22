@@ -3,7 +3,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use file_diffs::{Migration, MigrationId};
 use generator_postgres::Pg;
 use hi_doc::{SnippetBuilder, Text};
@@ -15,65 +15,52 @@ use schema::{
 	uid::RenameMap,
 };
 
-pub fn parse_schema(schema: &str, rn: &mut RenameMap) -> anyhow::Result<Schema> {
+pub fn parse_schema(
+	schema: &str,
+	compat: bool,
+	rn: &mut RenameMap,
+) -> anyhow::Result<(Schema, Report)> {
 	let mut report = Report::new();
-	let s = match parser::parse(
+	let s = parser::parse(
 		schema,
+		compat,
 		&SchemaProcessOptions {
 			generator_supports_domain: true,
 			naming_convention: NamingConvention::Postgres,
 		},
 		rn,
 		&mut report,
-	) {
-		Ok(s) => s,
-		Err(e) => {
-			let mut builder = SnippetBuilder::new(schema);
-			for e in e {
-				match e {
-					parser::ParsingError::Peg(peg) => {
-						builder
-							.error(Text::default_fragment(format!("parsing error: {peg}")))
-							.range(peg.location.offset..=peg.location.offset)
-							.build();
-					}
-				}
-			}
-			eprintln!("schema parsing ended with failure:");
-			eprint!("{}", hi_doc::source_to_ansi(&builder.build()));
-			return Err(anyhow!("failed to parse schema"));
-		}
-	};
-	if report.is_error() {
+	);
+	if report.is_error() && s.is_err() {
 		eprintln!("schema parsing ended with failure:");
 		for s in report.to_hi_doc(schema) {
 			eprint!("{}", hi_doc::source_to_ansi(&s));
 		}
 		return Err(anyhow!("failed to parse schema"));
 	}
-	Ok(s)
+	Ok((s.expect("reports are returned using report"), report))
 }
 
-pub fn current_schema(dir: &Path) -> anyhow::Result<(String, Schema, RenameMap)> {
+pub fn current_schema(dir: &Path) -> anyhow::Result<(String, Schema, Report, RenameMap)> {
 	let mut name = dir.to_path_buf();
 	name.push("db.schema");
 	let schema_str = fs::read_to_string(&name)?;
 	let mut rn = RenameMap::default();
-	let schema = parse_schema(&schema_str, &mut rn)?;
+	let (schema, report) = parse_schema(&schema_str, false, &mut rn)?;
 	generator_postgres::validate::validate(&schema_str, &schema, &rn);
-	Ok((schema_str, schema, rn))
+	Ok((schema_str, schema, report, rn))
 }
 
 pub fn stored_schema(
 	list: &[(MigrationId, Migration, PathBuf)],
-) -> anyhow::Result<(String, Schema, RenameMap)> {
+) -> anyhow::Result<(String, Schema, Report, RenameMap)> {
 	let mut schema_str = String::new();
 	for (_, migration, _) in list {
 		schema_str = migration.apply_diff(schema_str)?;
 	}
 	let mut rn = RenameMap::default();
-	let schema = parse_schema(&schema_str, &mut rn)?;
-	Ok((schema_str, schema, rn))
+	let (schema, report) = parse_schema(&schema_str, false, &mut rn)?;
+	Ok((schema_str, schema, report, rn))
 }
 
 fn decorate_automatically_generated(text: &mut String, has_before: bool, has_after: bool) {
@@ -114,11 +101,25 @@ pub fn generate_sql_nowrite(
 	old_schema: &Schema,
 	new_schema: &Schema,
 	rn: &RenameMap,
+	report_old: &mut Report,
+	report_new: &mut Report,
 ) -> anyhow::Result<(String, String)> {
 	let mut up = String::new();
 	let mut down = String::new();
-	Pg(new_schema).diff(&Pg(old_schema), &mut up, &mut rn.clone());
-	Pg(old_schema).diff(&Pg(new_schema), &mut down, &mut rn.clone());
+	Pg(new_schema).diff(
+		&Pg(old_schema),
+		&mut up,
+		&mut rn.clone(),
+		report_old,
+		report_new,
+	);
+	Pg(old_schema).diff(
+		&Pg(new_schema),
+		&mut down,
+		&mut rn.clone(),
+		report_new,
+		report_old,
+	);
 
 	decorate_automatically_generated(
 		&mut up,
@@ -138,12 +139,27 @@ pub fn generate_sql_nowrite(
 }
 pub fn generate_sql(
 	migration: &Migration,
+	old_src: &str,
+	new_src: &str,
 	old_schema: &Schema,
 	new_schema: &Schema,
 	rn: &RenameMap,
 	out: &Path,
+	mut report_old: Report,
+	mut report_new: Report,
 ) -> anyhow::Result<()> {
-	let (up, down) = generate_sql_nowrite(migration, old_schema, new_schema, rn)?;
+	let (up, down) = generate_sql_nowrite(
+		migration,
+		old_schema,
+		new_schema,
+		rn,
+		&mut report_old,
+		&mut report_new,
+	)?;
+
+	if display_reports(old_src, new_src, report_old, report_new) {
+		bail!("errors are reported, cannot continue");
+	}
 
 	let mut out = out.to_path_buf();
 	out.push("up.sql");
@@ -152,4 +168,19 @@ pub fn generate_sql(
 	out.push("down.sql");
 	fs::write(&out, down.as_bytes())?;
 	Ok(())
+}
+
+pub fn display_reports(a: &str, b: &str, ar: Report, br: Report) -> bool {
+	if ar.is_error() || br.is_error() {
+		eprintln!("schema diffing ended with failure:");
+		for s in ar.to_hi_doc(a) {
+			eprint!("{}", hi_doc::source_to_ansi(&s));
+		}
+		for s in br.to_hi_doc(b) {
+			eprint!("{}", hi_doc::source_to_ansi(&s));
+		}
+		true
+	} else {
+		false
+	}
 }

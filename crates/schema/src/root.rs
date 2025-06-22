@@ -11,7 +11,7 @@ use super::{
 use crate::{
 	composite::Composite,
 	diagnostics::{self, Report},
-	ids::Ident,
+	ids::{DbIdent, Ident},
 	mixin::Mixin,
 	names::{DbNativeType, DbTable, DbType, TableIdent, TypeIdent},
 	process::{check_unique_identifiers, check_unique_mixin_identifiers, NamingConvention, Pgnc},
@@ -294,7 +294,12 @@ impl Schema {
 		}
 		panic!("schema type not found: {name:?}")
 	}
-	pub fn native_type(&self, name: &TypeIdent, rn: &RenameMap) -> DbNativeType {
+	pub fn native_type(
+		&self,
+		name: &TypeIdent,
+		rn: &RenameMap,
+		report: &mut Report,
+	) -> DbNativeType {
 		for item in self.0.iter() {
 			match item {
 				Item::Enum(e) if &e.id() == name => return e.db_type(rn),
@@ -303,13 +308,16 @@ impl Schema {
 						schema: self,
 						scalar: v,
 					}
-					.native(rn)
+					.native(rn, report)
 				}
 				Item::Composite(c) if &c.id() == name => return c.db_type(rn),
 				_ => continue,
 			}
 		}
-		panic!("native type not found: {name:?}")
+		report
+			.error("native type not found")
+			.annotate("referenced here", name.span());
+		return DbNativeType::new("ERROR");
 	}
 	pub fn tables(&self) -> impl Iterator<Item = &Table> {
 		self.0.iter().filter_map(Item::as_table)

@@ -10,10 +10,10 @@ use std::{
 
 use anyhow::{bail, Context};
 use clap::{CommandFactory, FromArgMatches, Parser};
-use cli::{current_schema, generate_sql, parse_schema, stored_schema};
+use cli::{current_schema, display_reports, generate_sql, parse_schema, stored_schema};
 use file_diffs::{find_root, list, list_ids, Migration, MigrationId};
 use generator_postgres::Pg;
-use schema::{root::Schema, uid::RenameMap};
+use schema::{diagnostics::Report, root::Schema, uid::RenameMap};
 
 #[derive(Parser)]
 #[clap(author, version, allow_external_subcommands = true)]
@@ -176,10 +176,10 @@ fn main() -> anyhow::Result<()> {
 			let list = list(&root)?;
 			let id = list.last().map(|(id, _, _)| id.id + 1).unwrap_or_default();
 
-			let (original_str, original, orig_rn) =
+			let (original_str, original, original_report, orig_rn) =
 				stored_schema(&list).context("failed to load past migrations")?;
 
-			let (current_str, current, current_rn) =
+			let (current_str, current, current_report, current_rn) =
 				current_schema(&root).context("failed to parse current schema")?;
 
 			let mut rn = orig_rn;
@@ -201,7 +201,7 @@ fn main() -> anyhow::Result<()> {
 				after_up_sql,
 				before_down_sql,
 				after_down_sql,
-				current_str,
+				current_str.clone(),
 			);
 
 			if should_use_editor {
@@ -232,7 +232,7 @@ fn main() -> anyhow::Result<()> {
 
 			fs::create_dir(&dir).context("creating migration directory")?;
 
-			migration.to_diff(original_str)?;
+			migration.to_diff(original_str.clone())?;
 
 			if migration.is_noop() {
 				println!("No changes found");
@@ -245,16 +245,26 @@ fn main() -> anyhow::Result<()> {
 				fs::write(schema_update, migration.to_string()).context("writing db.update")?;
 			}
 
-			generate_sql(&migration, &original, &current, &rn, &dir)?;
+			generate_sql(
+				&migration,
+				&original_str,
+				&current_str,
+				&original,
+				&current,
+				&rn,
+				&dir,
+				original_report,
+				current_report,
+			)?;
 		}
 		Opts::Diff => {
 			let root = find_root(&current_dir()?)?;
 			let list = list(&root)?;
 
-			let (_, original, orig_rn) =
+			let (original_str, original, mut original_report, orig_rn) =
 				stored_schema(&list).context("failed to load past migrations")?;
 
-			let (_, current, current_rn) =
+			let (current_str, current, mut current_report, current_rn) =
 				current_schema(&root).context("failed to parse current schema")?;
 
 			let mut rn = orig_rn;
@@ -262,7 +272,16 @@ fn main() -> anyhow::Result<()> {
 
 			let mut up = String::new();
 
-			Pg(&current).diff(&Pg(&original), &mut up, &mut rn.clone());
+			Pg(&current).diff(
+				&Pg(&original),
+				&mut up,
+				&mut rn.clone(),
+				&mut original_report,
+				&mut current_report,
+			);
+			if display_reports(&original_str, &current_str, original_report, current_report) {
+				bail!("errors are reported, cannot continue.\nPartial output:\n{up}");
+			}
 			println!("{up}")
 		}
 		Opts::List => {
@@ -279,14 +298,27 @@ fn main() -> anyhow::Result<()> {
 			let mut current_schema = Schema::default();
 			let mut rn = RenameMap::default();
 			for (id, migration, _) in list {
+				let old_schema_str = current_schema_str.clone();
 				current_schema_str = migration.apply_diff(current_schema_str)?;
 				let mut crn = RenameMap::default();
-				let updated_schema = parse_schema(&current_schema_str, &mut crn)?;
+				let (updated_schema, report) =
+					parse_schema(&current_schema_str, true, &mut crn)?;
 				rn.merge(crn);
 				generator_postgres::validate::validate(&current_schema_str, &updated_schema, &rn);
 
 				root.push(&id.dirname);
-				generate_sql(&migration, &current_schema, &updated_schema, &rn, &root)?;
+				let old_report = Report::new();
+				generate_sql(
+					&migration,
+					&old_schema_str,
+					&current_schema_str,
+					&current_schema,
+					&updated_schema,
+					&rn,
+					&root,
+					old_report,
+					report,
+				)?;
 				root.pop();
 
 				current_schema = updated_schema;

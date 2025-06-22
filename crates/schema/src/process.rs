@@ -434,6 +434,7 @@ impl Pgnc<&mut View> {
 			return;
 		}
 		let id = self.id().name();
+		// FIXME: Report error on truncation
 		let id = if self.attrlist.get_single("pgnc", "as_is") == Ok(true) {
 			id
 		} else {
