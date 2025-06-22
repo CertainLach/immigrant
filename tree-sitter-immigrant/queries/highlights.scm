@@ -14,14 +14,18 @@
 "!!!SETUP"
 "!!!TEST"
 "!!!UPDATE"
-"!!!RESULT"
-(on_update)] @keyword
+"!!!RESULT"] @keyword
+["opclass"
+"using"
+"with"
+"materialized"
+(on_update)] @keyword.modifier
+
 [";"
 ","
 "."
 ":"] @punctuation.delimiter
 ["{"
-"${"
 "}"
 "("
 ")"
@@ -37,13 +41,21 @@
 "::"
 "="
 "!"
-"$$"] @operator
+">"
+">="
+"<"
+"<="] @operator
 
 ["#"
 ] @keyword
 
 (number) @number
+(decl (["sql\"\"\""
+"sql\""
+"\""
+"\"\"\""] @string.special))
 (string) @string
+(string_escape) @string.escape
 (type_identifier) @type
 (field_identifier) @property
 (variant_identifier) @property

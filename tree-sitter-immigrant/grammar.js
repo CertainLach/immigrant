@@ -38,7 +38,7 @@ module.exports = grammar({
 			'scalar',
 			field('name', $.type_identifier),
 			'=',
-			$.string,
+			$.decl,
 			optional($.field_annotation),
 			';',
 		),
@@ -52,35 +52,41 @@ module.exports = grammar({
 			'}',
 			';',
 		),
-		decl: $ => repeat1(choice(
-			$.decl_column,
-			$.decl_table,
-			$.decl_raw,
+		decl: $ => choice(
+			seq('sql"""', optional($.decl_body_multiline), '"""'),
+			seq('sql"', optional($.decl_body_single), '"'),
+		),
+		decl_body_multiline: $ => repeat1(choice($.decl_column, $.decl_table, $.decl_raw_multiline)),
+		decl_body_single: $ => repeat1(choice($.decl_column, $.decl_table, $.decl_raw_single)),
+		decl_raw_single: $ => prec.right(repeat1(
+			/[^"<>]+/,
 		)),
-		decl_raw: $ => prec.right(repeat1(choice(
-			/[^\$]+/,
-			/\$[^\$\{]/
-		))),
+		decl_raw_multiline: $ => prec.right(repeat1(
+			// FIXME: negative lookahead for """ should be here
+			/[^"<>]+/,
+		)),
 		decl_column: $ => seq(
-			'${',
+			'<',
 			field('table', $.type_identifier),
 			'.',
 			field('column', $.field_identifier),
-			'}',
+			'>',
 		),
 		decl_table: $ => seq(
-			'${',
+			'<',
 			field('table', $.type_identifier),
-			'}',
+			'>',
 		),
 		view_declaration: $ => seq(
 			repeat($.attribute),
 			'view',
+			optional(seq(
+				'.',
+				'materialized',
+			)),
 			field('name', $.type_db_name),
 			'=',
-			'$$',
 			$.decl,
-			'$$',
 			';',
 		),
 		enum_declaration: $ => seq(
@@ -109,7 +115,7 @@ module.exports = grammar({
 		composite_field: $ => seq(
 			field('name', $.field_identifier),
 				':',
-				$.type_identifier,
+				choice($.decl, $.type_identifier),
 			';'
 		),
 		table_field: $ => seq(
@@ -117,7 +123,7 @@ module.exports = grammar({
 			field('name', $.field_identifier),
 			optional(field('type', seq(
 				':',
-				$.type_identifier,
+				choice($.decl, $.type_identifier),
 			))),
 			optional('?'),
 			optional($.field_annotation),
@@ -132,7 +138,15 @@ module.exports = grammar({
 		attribute_identifier: $ => $.identifier,
 		attribute_field_identifier: $ => $.identifier,
 		identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
-		string: $ => /"[^"]*"/,
+		string: $ => seq(
+			'"',
+			repeat(choice(
+				$.string_escape,
+				/[^"]/,
+			)),
+			'"'
+		),
+		string_escape: $ => '\\"',
 		number: $ => /[0-9]+/,
 
 		type_db_name: $ => seq(
@@ -188,13 +202,22 @@ module.exports = grammar({
 		),
 		on_update: $ => choice('set_null', 'set_default', 'restrict', 'noop', 'cascade'),
 		expr_annotation: $ => seq(
-			choice('@default', '@check', '@initialize_as'),
+			choice('@default', seq('@check', $.string), '@initialize_as'),
 			'(',
 			$.expression,
 			')',
 		),
 		pk_annotation: $ => seq(
-			choice('@primary_key', '@unique', '@index', '@inline'),
+			choice('@primary_key', '@unique', seq('@index', repeat(seq(
+				'.',
+				$.index_attr,
+			))), '@inline'),
+		),
+		index_attr: $ => choice(
+			'unique',
+			seq('opclass', '(', $.type_identifier, ')'),
+			seq('using', '(', $.type_identifier, ')'),
+			seq('with', '(', $.string, ')'),
 		),
 		field_list: $ => seq(
 			'(',

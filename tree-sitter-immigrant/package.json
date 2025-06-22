@@ -11,18 +11,9 @@
     "nan": "^2.12.1"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.20.8"
+    "tree-sitter-cli": "^0.25.6"
   },
   "scripts": {
     "test": "tree-sitter test"
-  },
-  "tree-sitter": [
-    {
-      "file-types": [
-        "schema",
-        "immigrant"
-      ],
-      "scope": "source.immigrant"
-    }
-  ]
-}
+  }
+
