@@ -331,8 +331,8 @@ rule custom_inline<T>(x: rule<T>, start:rule<()>, end:rule<()>, tstart:rule<()>,
 	start() parts:inline_part(<x()>, <tstart()>, <tend()>, <end()>)* end() { parts }
 
 rule inline<T>(x: rule<T>) -> Vec<InlinePart<T>> =
-	custom_inline(<x()>, <"sql\"\"\"">, <"\"\"\"">, <"<">, <">">)
-/	custom_inline(<x()>, <"sql\"">, <"\"">, <"<">, <">">)
+	custom_inline(<x()>, <"sql\"\"\"">, <"\"\"\"">, <"{">, <"}">)
+/	custom_inline(<x()>, <"sql\"">, <"\"">, <"{">, <"}">)
 rule compat_only<T>(s:&S, x: rule<T>) -> T =
 	v:x() {? if s.compat {
 		Ok(v)

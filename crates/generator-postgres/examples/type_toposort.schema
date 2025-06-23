@@ -1,7 +1,7 @@
 !!!TEST array of a should be created after struc a
 scalar test = sql"INTEGER";
-scalar aarray_indirection = sql"<a>[]" @inline;
-scalar aarray = sql"<aarray_indirection>";
+scalar aarray_indirection = sql"{a}[]" @inline;
+scalar aarray = sql"{aarray_indirection}";
 struct a {
 	test;
 };

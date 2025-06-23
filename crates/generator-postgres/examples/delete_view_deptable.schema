@@ -11,10 +11,10 @@ table Bar {
 	foo;
 };
 view Baz = sql"""
-	SELECT * FROM <Bar>
+	SELECT * FROM {Bar}
 """;
 view Qux = sql"""
-	SELECT * FROM <Baz>
+	SELECT * FROM {Baz}
 """;
 !!!RESULT
 -- updated: when dropping both table and view, shich uses this table, view should be dropped first. --

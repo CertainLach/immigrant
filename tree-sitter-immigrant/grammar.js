@@ -59,23 +59,23 @@ module.exports = grammar({
 		decl_body_multiline: $ => repeat1(choice($.decl_column, $.decl_table, $.decl_raw_multiline)),
 		decl_body_single: $ => repeat1(choice($.decl_column, $.decl_table, $.decl_raw_single)),
 		decl_raw_single: $ => prec.right(repeat1(
-			/[^"<>]+/,
+			/[^"{}]+/,
 		)),
 		decl_raw_multiline: $ => prec.right(repeat1(
 			// FIXME: negative lookahead for """ should be here
-			/[^"<>]+/,
+			/[^"{}]+/,
 		)),
 		decl_column: $ => seq(
-			'<',
+			'{',
 			field('table', $.type_identifier),
 			'.',
 			field('column', $.field_identifier),
-			'>',
+			'}',
 		),
 		decl_table: $ => seq(
-			'<',
+			'{',
 			field('table', $.type_identifier),
-			'>',
+			'}',
 		),
 		view_declaration: $ => seq(
 			repeat($.attribute),

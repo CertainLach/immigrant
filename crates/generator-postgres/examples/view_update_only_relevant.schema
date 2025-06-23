@@ -11,10 +11,10 @@ table Bar {
 	y;
 };
 view Baz = sql""" 
-	SELECT * FROM <Foo>
+	SELECT * FROM {Foo}
 """;
 view Qux = sql"""
-	SELECT * FROM <Bar>
+	SELECT * FROM {Bar}
 """;
 !!!UPDATE field dropped from Foo, only Baz should be updated.
 table Foo {
@@ -25,10 +25,10 @@ table Bar {
 	y;
 };
 view Baz = sql"""
-	SELECT * FROM <Foo>
+	SELECT * FROM {Foo}
 """;
 view Qux = sql"""
-	SELECT * FROM <Bar>
+	SELECT * FROM {Bar}
 """;
 !!!UPDATE field dropped from Bar, only Qux should be updated.
 table Foo {
@@ -38,10 +38,10 @@ table Bar {
 	y;
 };
 view Baz = sql"""
-	SELECT * FROM <Foo>
+	SELECT * FROM {Foo}
 """;
 view Qux = sql"""
-	SELECT * FROM <Bar>
+	SELECT * FROM {Bar}
 """;
 !!!UPDATE Bar renamed to quuxes, view Qux should NOT be updated.
 table Foo {
@@ -51,10 +51,10 @@ table Bar "quuxes" {
 	y;
 };
 view Baz = sql"""
-	SELECT * FROM <Foo>
+	SELECT * FROM {Foo}
 """;
 view Qux = sql"""
-	SELECT * FROM <Bar>
+	SELECT * FROM {Bar}
 """;
 !!!RESULT
 -- updated: setup --

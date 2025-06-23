@@ -1,13 +1,13 @@
 !!!TEST create scalar
 table A {
 	field: b;
-	fieldarray: sql"<b>[]";
+	fieldarray: sql"{b}[]";
 	fieldanotherinline: sql"INT";
 };
 scalar b = sql"TEXT";
 !!!UPDATE no direct type reference
 table A {
-	fieldarray: sql"<b>[]";
+	fieldarray: sql"{b}[]";
 	fieldanotherinline: sql"INT";
 };
 scalar b = sql"TEXT";
