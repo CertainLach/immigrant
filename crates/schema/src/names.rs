@@ -21,6 +21,7 @@ macro_rules! def_kind {
 
 def_kind!(
 	ColumnKind(2),
+	FieldKind(2),
 	ProcedureKind(3),
 	EnumItemKind(4),
 	IndexKind(5),
@@ -32,7 +33,6 @@ def_kind!(
 	MixinKind(9),
 	TypeKind(9),
 	ViewKind(9),
-	FieldKind(10),
 	TriggerKind(9),
 	UnknownKind(20),
 );
